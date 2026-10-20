@@ -23,3 +23,12 @@ Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja.md` e a spec `docs
 - **Cores do app:** gradiente `linear-gradient(90deg, #1A7FF6 0%, #AF6FF1 100%)`, extraído da logo. Azul `#1A7FF6` e roxo `#AF6FF1` são as cores primárias.
 - **Logo:** `logo.svg` na raiz do projeto (na entrega 2 vai para os assets do app). Atenção: o arquivo é um SVG que embute uma imagem JPEG de 1254×1254 px, não um vetor; serve para ícone e splash, mas não escala sem perda. Pedir ao dono o vetor original se houver.
 - **Fonte:** não definida; o app usa a fonte do sistema até o dono informar a do protótipo.
+
+## 2026-10-20 — MVP, entrega 2a (app mobile)
+
+Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app.md` (entrega 2a: fundação, conta, perfil, início, busca e detalhes), com as premissas abaixo. A entrega 2b (publicação, candidaturas, conversas) será planejada em `docs/produto/planos/mvp-trampo-ja-app-2b.md`.
+
+12. **Estado de servidor no app:** `@tanstack/react-query` aprovado como única biblioteca fora do Expo.
+13. **Contagem de resultados da busca:** "{n} resultados" conta só o que já carregou, com "+" quando há mais; a API não devolve total.
+14. **Fonte e ícones:** fonte do sistema e Ionicons (`@expo/vector-icons`) até o dono informar a fonte e o estilo de ícones do protótipo.
+15. **Fronteira no app:** rotas em `apps/mobile/src/app/` são contêineres do dev; telas e componentes em `src/telas/` e `src/componentes/` são apresentacionais do designer; `src/api/` e `src/estado/` são regra de negócio.
