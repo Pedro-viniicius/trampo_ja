@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false
+  },
+  "include": ["src", "migracoes", "scripts"],
+  "exclude": ["test", "**/*.test.ts", "dist", "node_modules"]
+}

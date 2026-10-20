@@ -1,0 +1,15 @@
+{
+  "name": "trampo-ja",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm --filter api typecheck",
+    "lint": "pnpm --filter api lint",
+    "test": "pnpm --filter api test",
+    "test:integracao": "pnpm --filter api test:integracao"
+  }
+}

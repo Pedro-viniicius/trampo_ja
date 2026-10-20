@@ -1,0 +1,27 @@
+# Postgres local de desenvolvimento e testes. Suba da raiz: docker compose up -d banco
+# Cria os bancos `trampoja` (POSTGRES_DB) e `trampoja_teste` (apps/api/infra/postgres/init.sql).
+# O init.sql só roda na criação do volume; para recriar: docker compose down -v
+services:
+  banco:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: trampoja
+      # Senha só de desenvolvimento local (a mesma de apps/api/.env.example). Não é segredo de produção.
+      POSTGRES_PASSWORD: trampoja_local
+      POSTGRES_DB: trampoja
+    ports:
+      # Publicado só no localhost da máquina, não na rede.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - dados-banco:/var/lib/postgresql/data
+      - ./apps/api/infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # -h 127.0.0.1: durante o init.sql o servidor temporário só escuta no socket,
+    # então o container só fica "healthy" depois que o banco de teste existe.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U trampoja -d trampoja"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dados-banco:
