@@ -7,9 +7,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "pnpm --filter api typecheck",
-    "lint": "pnpm --filter api lint",
-    "test": "pnpm --filter api test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
     "test:integracao": "pnpm --filter api test:integracao"
   }
 }

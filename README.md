@@ -2,7 +2,7 @@
 
 App mobile que conecta freelancers e empregadores. A visão do produto está em `docs/produto/visao.md`.
 
-Monorepo pnpm (Node 22, TypeScript estrito). A API fica em `apps/api`; o app mobile (Expo) vem na entrega 2.
+Monorepo pnpm (Node 22, TypeScript estrito). A API fica em `apps/api` e o app mobile (Expo SDK 57) em `apps/mobile`.
 
 ## Comandos
 
@@ -12,7 +12,7 @@ Na raiz:
 pnpm install          # instala as dependências
 pnpm typecheck        # tsc --noEmit
 pnpm lint             # Biome
-pnpm test             # testes de unidade e BDD (sem banco)
+pnpm test             # testes de unidade e BDD (sem banco) da API e testes do app
 pnpm test:integracao  # testes de integração e ponta a ponta (exigem o Postgres de teste)
 ```
 
@@ -77,6 +77,77 @@ A senha só serve para a máquina local. É idempotente: se a conta da Ana já e
 aplicada" e sai sem criar nada. Se uma execução parar no meio, apague os dados (`docker compose down -v`, depois
 `docker compose up -d banco` e `migrar`) e rode de novo. A saída mostra só contagens, nunca e-mails, tokens ou a URL
 do banco.
+
+## App mobile (`apps/mobile`)
+
+Expo SDK 57 com Expo Router, React Native e TanStack Query. Os testes usam jest-expo e a Testing Library, sem
+emulador nem serviço externo: a API é um `fetch` falso (`src/testes/fetch-falso.ts`) e o token fica num
+armazenamento em memória.
+
+### Ver no celular (Expo Go)
+
+1. Suba a API com dados: `docker compose up -d banco`, `pnpm --filter api migrar`, `pnpm --filter api semear` e
+   `pnpm --filter api dev`.
+2. Uma vez: `cp apps/mobile/.env.example apps/mobile/.env` e troque o IP de `EXPO_PUBLIC_API_URL` pelo IP da
+   máquina na rede local (ex.: `http://192.168.0.10:3000`). `localhost` não serve: no celular ele aponta para o
+   próprio celular.
+3. `pnpm --filter mobile start` e leia o QR code com o **Expo Go**, com o celular na mesma rede Wi-Fi.
+
+Cuidados:
+
+- **`.env` obrigatório.** Sem `EXPO_PUBLIC_API_URL`, ou com valor inválido, a raiz do app lança erro no primeiro
+  render (a mensagem diz o que falta, sem repetir o valor). Fora de desenvolvimento (`__DEV__` falso) o app só
+  aceita `https://`. O valor vai embutido no bundle: nada secreto entra ali.
+- **Portas e firewall.** O celular precisa alcançar a porta 8081 (Metro, que entrega o bundle) e a porta 3000 (API)
+  da máquina. Libere as duas no firewall; redes de visitante e alguns roteadores isolam os aparelhos. O túnel do
+  Expo (`--tunnel`) não resolve, porque expõe só o Metro, não a API.
+- **`TRUST_PROXY` não se aplica ao app.** É variável da API (`apps/api/.env`) e só importa com proxy reverso na
+  frente dela. Com o celular falando direto com a API na rede local, deixe-a vazia.
+- **Expo Go só abre o SDK 57.** O app está no SDK 57 porque o Expo Go da App Store ainda não abre o 58; quando a
+  loja suportar o 58, o app sobe de versão (decisão D16). Se a loja passar do SDK do app, ele precisa de um
+  development build.
+
+### Verificação
+
+```bash
+pnpm --filter mobile typecheck   # tsc --noEmit
+pnpm --filter mobile lint        # Biome (inclui noConsole como erro)
+pnpm --filter mobile test        # jest-expo + Testing Library
+pnpm --filter mobile build       # expo export para Android em apps/mobile/dist (apague depois)
+```
+
+Um arquivo de teste isolado: `pnpm --filter mobile exec jest <caminho>`. Na raiz, `pnpm typecheck|lint|test` rodam
+a API e o app. No fim do `build`, o CLI pode imprimir "Something prevented Expo from exiting"; não é falha (sai com
+código 0).
+
+### Estrutura
+
+| Pasta (`apps/mobile/src/`) | O que fica | Quem mexe |
+|---|---|---|
+| `app/` | rotas do Expo Router = contêineres: dados, estado, navegação e tradução de erro. Todo arquivo aqui vira rota, então apoio e testes ficam fora | `dev` |
+| `api/` | cliente HTTP, configuração da URL, erros e tipos da API | `dev` (regra de negócio) |
+| `estado/` | sessão, consultas do TanStack, validação, tradução de erro em chave de texto | `dev` (regra de negócio) |
+| `telas/` | telas apresentacionais, só por props | `designer` |
+| `componentes/` | componentes visuais e opções de navegação | `designer` |
+| `tema/` e `textos/` | tokens visuais e todos os textos da interface (`textos/pt-BR.ts`) | `designer` |
+| `testes/` | apoio dos testes (fetch falso, provedores, `renderizarRotas`) e testes de rota | `dev` |
+
+O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interface fora de `textos/pt-BR.ts`.
+
+### Dados pessoais no app (CA15)
+
+- O token só existe no `expo-secure-store` (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`), atrás da porta
+  `ArmazenamentoDeToken`. Nunca vai para estado persistido, URL, parâmetro de rota, log ou mensagem de erro. Não há
+  AsyncStorage.
+- `console` é proibido em `apps/mobile` (regra `noConsole` do Biome como erro). Erros da API viram chaves de
+  `textos.erros`; `ErroDaApi` não guarda corpo, URL com query nem o que a pessoa digitou.
+- Sem telemetria nem crash report no app. `src/testes/sem-dado-pessoal.test.tsx` percorre os fluxos (cadastro,
+  perfil, busca, detalhe, 401, senha errada, cadastro duplicado, 429, queda de rede) com espiões em todos os
+  métodos do `console` e falha se aparecer e-mail, senha, nome, cidade, habilidade, texto da busca ou token. O
+  mesmo arquivo falha se `apps/mobile/package.json` ganhar dependência de AsyncStorage, Sentry, Bugsnag, Firebase,
+  analytics, Segment, Amplitude ou Mixpanel.
+- Opcional: `EXPO_NO_TELEMETRY=1` no shell desliga a coleta de uso do CLI do Expo (`expo start`, `expo export`).
+  Isso vale para a máquina de desenvolvimento; o app em si não envia nada.
 
 ## Arquitetura da API
 
@@ -271,7 +342,8 @@ Exclusão e exportação de conta ficam para antes da publicação nas lojas (D1
 Em `docs/produto/`:
 
 - `visao.md`: visão do produto;
-- `decisoes.md`: decisões do dono (D1 a D11), que não se reabrem sem fato novo;
+- `decisoes.md`: decisões do dono (D1 a D15), que não se reabrem sem fato novo;
 - `briefs/mvp-trampo-ja.md`: brief do MVP com os critérios de aceite (CA1 a CA16);
 - `planos/mvp-trampo-ja.md`: plano técnico da entrega 1 (backend), com etapas, contratos e ADR;
-- `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2).
+- `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2);
+- `planos/mvp-trampo-ja-app.md`: plano técnico da entrega 2a (app mobile).

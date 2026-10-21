@@ -3,6 +3,7 @@
 - Spec: docs/produto/specs/mvp-trampo-ja.md
 - Entrega 1 (API): docs/produto/planos/mvp-trampo-ja.md (contrato real no `README.md`, que prevalece)
 - Data: 2026-10-20
+- **Nota (2026-10-21):** rebaixado para o SDK 57 em 2026-10-21 porque o Expo Go da App Store ainda não tinha o 58. A tabela de versões abaixo é a do SDK 57 (`expo@57.0.30`); o plano original usava o 58.0.16. Diferenças que importam: o `Stack.Protected` do `expo-router` 57 não tem `redirectTo` (o destino do login é navegado no `_layout`), o `renderRouter` do 57 espera o `render` síncrono do RNTL 13 (o app segue no RNTL 14, com o adaptador `src/testes/render-router.tsx`) e o Jest é o 29.
 - **Corte:** a entrega 2 inteira passaria de 250 linhas. Esta é a **2a**. A **2b** fica em `docs/produto/planos/mvp-trampo-ja-app-2b.md`, planejada depois que a 2a estiver pronta, e cobre publicar trampo, ofertar serviço, candidatar-se, as candidaturas (minhas, recebidas e aceite), as conversas, meus trampos e meus serviços, além de fechar o CA16. O escopo e as lacunas da API que ela vai sentir estão na seção "Entrega 2b" no fim deste plano.
 
 ## Objetivo e critérios de aceite
@@ -28,19 +29,19 @@ Entregar o app Expo em `apps/mobile`, com a marca do dono, em que a pessoa cria 
 - A API escuta em `0.0.0.0:3000`, em HTTP (`README.md:48`). CORS não importa, porque o app é nativo e não web.
 - Na spec, os tokens estão em `specs/mvp-trampo-ja.md:66-104`, os estados em `:106-130`, os textos em `:132-158` e a acessibilidade em `:160-171`.
 - `logo.svg` contém um `<image>` com `data:image/jpeg;base64`. Conferido: há `python3` com Pillow 12.1.1 e não há ImageMagick. Que a máquina não tem Android Studio nem Xcode é informação do lead, não verificada.
-- Versões estáveis consultadas em 2026-10-20 com `pnpm view` e com o `bundledNativeModules.json` do `expo@58.0.16`. Atenção: o SDK fixa `react` em `19.3.0`, embora a última versão publicada seja a 19.3.1.
+- Versões estáveis consultadas em 2026-10-20 com `pnpm view` e com o `bundledNativeModules.json` do `expo@57.0.30`. Atenção: o SDK fixa `react` em `19.2.3`, embora a última versão publicada seja mais nova.
 
 | Pacote | Versão fixa | | Pacote (dev) | Versão fixa |
 |---|---|---|---|---|
-| `expo` | 58.0.16 | | `jest-expo` | 58.0.11 |
-| `expo-router` | 58.0.24 | | `jest` | 30.5.2 |
-| `react` / `react-native` | 19.3.0 / 0.88.0 | | `@testing-library/react-native` | 14.1.0 |
-| `expo-secure-store` | 58.0.2 | | `test-renderer` (peer do RNTL 14) | 1.3.1 |
-| `expo-network` / `expo-linear-gradient` | 58.0.3 / 58.0.3 | | `typescript` (a mesma da API) | 7.0.2 |
-| `expo-splash-screen` / `expo-status-bar` | 58.0.10 / 58.0.3 | | `@types/react` / `@types/jest` | 19.3.0 / 30.0.0 |
-| `expo-linking` / `expo-constants` (peers do router) | 58.0.13 / 58.0.12 | | `@biomejs/biome` (o mesmo da API) | 2.5.15 |
-| `@expo/metro-runtime` (peer do router) | 58.0.14 | | | |
-| `react-native-screens` / `react-native-safe-area-context` | 4.30.0 / 5.10.1 | | | |
+| `expo` | 57.0.30 | | `jest-expo` | 57.0.6 |
+| `expo-router` | 57.0.28 | | `jest` | 29.7.0 |
+| `react` / `react-native` | 19.2.3 / 0.86.3 | | `@testing-library/react-native` | 14.1.0 |
+| `expo-secure-store` | 57.0.4 | | `test-renderer` (peer do RNTL 14) | 1.3.1 |
+| `expo-network` / `expo-linear-gradient` | 57.0.2 / 57.0.2 | | `typescript` (o `expo install --check` pede o 6; a API fica no 7) | 6.0.3 |
+| `expo-splash-screen` / `expo-status-bar` | 57.0.10 / 57.0.1 | | `@types/react` / `@types/jest` | 19.2.18 / 29.5.14 |
+| `expo-linking` / `expo-constants` (peers do router) | 57.0.13 / 57.0.22 | | `@biomejs/biome` (o mesmo da API) | 2.5.15 |
+| `@expo/metro-runtime` (peer do router) | 57.0.17 | | | |
+| `react-native-screens` / `react-native-safe-area-context` | 4.26.2 / 5.7.0 | | | |
 | `@expo/vector-icons` | 15.1.1 | | | |
 | `@tanstack/react-query` (**pergunta 1**) | 5.104.5 | | | |
 
@@ -159,7 +160,7 @@ Ordem dos grupos: A → B (2, 3 e 4) → C (5, 6 e 7) → D (8 e 9) → E (10, 1
   - `(abas)/_layout.tsx` declara a tela `perfil`, mas o arquivo é da etapa 12;
   - os testes de rota usam `renderRouter` com mapa próprio, então não dependem dos arquivos das outras etapas do grupo E.
 - Cada `dev` em paralelo roda só os próprios testes. A etapa 6 depende do `pt-BR.ts` (etapa 2, grupo B), e as telas (etapa 9) dependem de `tipos.ts` (etapa 4) e dos componentes (etapa 7).
-- **Como o dono vê o app:** `docker compose up -d banco && pnpm --filter api migrar && pnpm --filter api semear && pnpm --filter api dev`. Depois, `apps/mobile/.env` com o IP da máquina na rede local, `pnpm --filter mobile start` e o QR code lido no **Expo Go** (SDK 58) com o celular na mesma rede e a porta 3000 liberada no firewall.
+- **Como o dono vê o app:** `docker compose up -d banco && pnpm --filter api migrar && pnpm --filter api semear && pnpm --filter api dev`. Depois, `apps/mobile/.env` com o IP da máquina na rede local, `pnpm --filter mobile start` e o QR code lido no **Expo Go** (SDK 57) com o celular na mesma rede e a porta 3000 liberada no firewall.
 - O `dev` não precisa de emulador: Jest, typecheck, lint e `expo export` bastam.
 
 ## Pontos para o seguranca
@@ -183,7 +184,7 @@ Ordem dos grupos: A → B (2, 3 e 4) → C (5, 6 e 7) → D (8 e 9) → E (10, 1
 
 ## Riscos e como reverter
 - **Versões e compatibilidade (não verificado):**
-  - TypeScript 7 com `expo/tsconfig.base`, o RNTL 14 com `test-renderer` e o `renderRouter` do `expo-router/testing-library` no SDK 58 são confirmados pela etapa 1 (um teste de rota mínimo) e pela etapa 4.
+  - TypeScript 7 com `expo/tsconfig.base`, o RNTL 14 com `test-renderer` e o `renderRouter` do `expo-router/testing-library` no SDK 57 são confirmados pela etapa 1 (um teste de rota mínimo) e pela etapa 4.
   - Se o TS 7 falhar, o `dev` fixa no app a versão de TypeScript que o `expo install --check` aceitar e relata.
   - Para reverter, basta trocar a versão no `M/package.json`.
 - **Metro com pnpm isolado:** se o Metro não resolver os módulos, use `nodeLinker: hoisted` no `pnpm-workspace.yaml`. Isso muda a instalação da API também, então rode a suíte inteira. Para reverter, remova a linha. Se o `pnpm install` bloquear o script de build de algum pacote do Expo, acrescente esse pacote ao `allowBuilds` (`pnpm-workspace.yaml:3-4`) e registre qual foi no relatório.
@@ -236,6 +237,6 @@ Premissas:
 ```
 - **Camadas e pastas (app):** `apps/mobile/src/app/` rotas = contêineres (dev; sem testes dentro); `src/telas/` e `src/componentes/` apresentacionais por props (designer); `src/api/` e `src/estado/` regra de negócio (designer não toca); `src/testes/` apoio e testes de rota.
 - **Verificação (app):** `pnpm --filter mobile typecheck`, `pnpm --filter mobile lint`, `pnpm --filter mobile test` (jest-expo + Testing Library, sem emulador), um arquivo: `pnpm --filter mobile exec jest <caminho>`, build: `pnpm --filter mobile build` (`expo export` Android). Na raiz, `pnpm typecheck|lint|test` rodam API e app.
-- **Dados de teste (app):** testes usam o fake de `fetch` (`apps/mobile/src/testes/fetch-falso.ts`) e o armazenamento de token em memória; nenhum serviço externo. Para ver no celular: API com `semear` + `pnpm --filter api dev`, `apps/mobile/.env` com `EXPO_PUBLIC_API_URL=http://<IP-local>:3000`, `pnpm --filter mobile start` e Expo Go (SDK 58).
+- **Dados de teste (app):** testes usam o fake de `fetch` (`apps/mobile/src/testes/fetch-falso.ts`) e o armazenamento de token em memória; nenhum serviço externo. Para ver no celular: API com `semear` + `pnpm --filter api dev`, `apps/mobile/.env` com `EXPO_PUBLIC_API_URL=http://<IP-local>:3000`, `pnpm --filter mobile start` e Expo Go (SDK 57).
 - **Segredo e dado pessoal (app):** token só no `expo-secure-store`; `console` proibido em `apps/mobile` (Biome `noConsole`); sem telemetria.
 ```

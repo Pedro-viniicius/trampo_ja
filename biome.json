@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/coverage"]
+    "includes": ["**", "!**/dist", "!**/node_modules", "!**/coverage", "!**/.expo", "!**/expo-env.d.ts"]
   },
   "formatter": {
     "enabled": true,
@@ -14,6 +14,18 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "includes": ["apps/mobile/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "error"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single",

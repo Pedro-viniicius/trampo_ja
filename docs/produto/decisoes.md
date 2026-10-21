@@ -32,3 +32,7 @@ Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app.md` (entrega 2
 13. **Contagem de resultados da busca:** "{n} resultados" conta só o que já carregou, com "+" quando há mais; a API não devolve total.
 14. **Fonte e ícones:** fonte do sistema e Ionicons (`@expo/vector-icons`) até o dono informar a fonte e o estilo de ícones do protótipo.
 15. **Fronteira no app:** rotas em `apps/mobile/src/app/` são contêineres do dev; telas e componentes em `src/telas/` e `src/componentes/` são apresentacionais do designer; `src/api/` e `src/estado/` são regra de negócio.
+
+## 2026-10-21 — App no Expo SDK 57
+
+16. **Versão do Expo (D16):** App no Expo SDK 57 até o Expo Go da loja suportar o 58; subir depois. O Expo Go da App Store no iPhone do dono ainda abre só o SDK 57 e recusava o projeto no 58.
