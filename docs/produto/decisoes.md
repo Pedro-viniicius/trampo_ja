@@ -36,3 +36,11 @@ Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app.md` (entrega 2
 ## 2026-10-21 — App no Expo SDK 57
 
 16. **Versão do Expo (D16):** App no Expo SDK 57 até o Expo Go da loja suportar o 58; subir depois. O Expo Go da App Store no iPhone do dono ainda abre só o SDK 57 e recusava o projeto no 58.
+
+## 2026-10-21 — MVP, entrega 2b (publicação, candidaturas e meus anúncios)
+
+Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app-2b.md`.
+
+17. **Corte 2b/2c:** a 2b cobre publicar, ofertar, candidatar-se, candidaturas (minhas, recebidas e aceite), meus trampos e meus serviços; a 2c (`docs/produto/planos/mvp-trampo-ja-app-2c.md`) cobre as conversas, CA12, CA13 e o fechamento do CA16.
+18. **Prazo do trampo** como campo de texto `dd/mm/aaaa` no MVP, sem seletor de data nativo (evita dependência nova).
+19. **Sem mudança na API na 2b:** o app deriva o papel (autor ou candidato) das listas `/trampos/meus`, `/servicos/meus` e `/candidaturas/minhas` (ADR-003 no plano); nomes de terceiros por `GET /perfis/:id` com cache.
