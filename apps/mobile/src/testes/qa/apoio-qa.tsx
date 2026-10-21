@@ -3,10 +3,16 @@ import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
 import InicioRota from '../../app/(app)/(abas)/index';
 import RotaDoMeuPerfil from '../../app/(app)/(abas)/perfil';
+import RotaDePublicar from '../../app/(app)/(abas)/publicar';
+import RotaDeCandidaturaDoTrampo from '../../app/(app)/candidaturas/[trampoId]';
+import RotaDeMinhasCandidaturas from '../../app/(app)/candidaturas/index';
+import RotaDeMeusAnuncios from '../../app/(app)/meus-anuncios';
 import RotaDeEditarPerfil from '../../app/(app)/perfil/editar';
 import RotaDoPerfilPublico from '../../app/(app)/perfis/[contaId]';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
+import RotaDeNovoServico from '../../app/(app)/servicos/novo';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
+import RotaDeNovoTrampo from '../../app/(app)/trampos/novo';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import {
@@ -23,6 +29,12 @@ export const ROTAS_REAIS: MapaDeRotas = {
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
+  '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/candidaturas/index': RotaDeMinhasCandidaturas,
+  '(app)/candidaturas/[trampoId]': RotaDeCandidaturaDoTrampo,
+  '(app)/servicos/novo': RotaDeNovoServico,
+  '(app)/trampos/novo': RotaDeNovoTrampo,
+  '(app)/meus-anuncios': RotaDeMeusAnuncios,
   '(app)/perfil/editar': RotaDeEditarPerfil,
   '(app)/perfis/[contaId]': RotaDoPerfilPublico,
   '(app)/servicos/[id]': RotaDoServico,

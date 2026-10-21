@@ -66,6 +66,9 @@ Valor em reais: há um caminho claro. É **digitação livre com teclado decimal
 - **Prazo:** campo de texto `dd/mm/aaaa`, opcional (pergunta 2). Aceita também os 8 dígitos sem barra e é reformatado ao sair do campo.
 - **Cidade:** vem preenchida com a do perfil, no trampo e no serviço (D7). No serviço, se a pessoa apagar, vai sem cidade.
 
+
+> **Ajuste da rodada 2 (2026-10-21):** as mutações aguardam, com teto de 5 s, só a recarga das chaves essenciais (`meusTrampos`/`meusServicos` ao publicar; `minhasCandidaturas` ao candidatar; `trampo(id)` e `candidaturasRecebidas(id)` ao aceitar), com `refetchType: 'all'`; as demais chaves (`recentes`, todas as buscas) são invalidadas sem espera e com `refetchType: 'active'`. Motivo: o `await` em todas as buscas em cache prendia o "Enviando…" (achado R2 do revisor e S6 do seguranca).
+
 ## Esquema e contratos
 Sem migração e sem mudança na API.
 
@@ -173,7 +176,7 @@ O componente `CartaoDeCandidatura` (designer) recebe props próprias, com o stat
 | 8 | Detalhe do trampo com o rodapé e a folha, e a tela Candidaturas recebidas com o aceite. Testes de rota: as 4 situações (autor com n, candidatado, fechado, candidatar), CA8, CA9 (duplicada e autor), CA11 (botão desabilitado e 409 traduzido), D9 na folha, CA10 (confirmação e lista final com aceita/recusadas e trampo em andamento), aceite perdido (`trampo_nao_aberto`) recarregando, duplo toque sem segunda requisição, 401 | `M/src/app/(app)/trampos/[id].tsx`, `M/src/app/(app)/candidaturas/[trampoId].tsx`, `M/src/testes/rotas/candidatura-e-aceite.test.tsx` | base + `jest src/testes/rotas/candidatura-e-aceite` | dev | C | **sim** (mensagem e valor, aceite concorrente, nomes) | 8, 9, 10, 11, 14, 16 |
 | 9 | Minhas candidaturas: lista com o título do trampo por `useTramposPorIds`, selos, vazio e erro; o toque abre o detalhe. Testes de rota com 3 status e com o trampo 404 ("Trampo indisponível") | `M/src/app/(app)/candidaturas/index.tsx`, `M/src/testes/rotas/minhas-candidaturas.test.tsx` | base + `jest src/testes/rotas/minhas-candidaturas` | dev | C | não | 8, 10, 16 |
 | 10 | Atalhos e Meus anúncios. O Início passa `onPublicarTrampo`, `onOfertarServico` e `onMinhasCandidaturas`; o Perfil passa os três atalhos; `meus-anuncios.tsx` lê o `tipo` (valor inválido vira `trampo`). Testes de rota: cada atalho chega à rota certa; Meus trampos mostra o status; o vazio leva ao formulário | `M/src/app/(app)/(abas)/{index,perfil}.tsx`, `M/src/app/(app)/meus-anuncios.tsx`, `M/src/testes/rotas/atalhos-e-meus-anuncios.test.tsx` | base + `jest src/testes/rotas/atalhos-e-meus-anuncios` | dev | D | não | 4, 6, 16 |
-| 11 | Varredura do CA15 estendida: publicar, ofertar, candidatar, recebidas com nome, aceite, os 409 da 2b e a queda de rede no envio, com sentinelas no título, na descrição, na mensagem, no nome do freelancer e no valor digitado. README: "Dados pessoais no app" lista os fluxos novos; os docs passam a citar D1–D16 | `M/src/testes/sem-dado-pessoal.test.tsx`, `README.md` | `pnpm typecheck && pnpm lint && pnpm test && pnpm --filter mobile build` | dev | D | **sim** (logs, dado pessoal) | 14, 15 |
+| 11 | Varredura do CA15 estendida: publicar, ofertar, candidatar, recebidas com nome, aceite, os 409 da 2b e a queda de rede no envio, com sentinelas no título, na descrição, na mensagem, no nome do freelancer e no valor digitado. README: "Dados pessoais no app" lista os fluxos novos; os docs passam a citar D1–D19 | `M/src/testes/sem-dado-pessoal.test.tsx`, `README.md` | `pnpm typecheck && pnpm lint && pnpm test && pnpm --filter mobile build` | dev | D | **sim** (logs, dado pessoal) | 14, 15 |
 
 Ordem dos grupos: A (1, 2) → B (3, 4, 5, 6) → C (7, 8, 9) → D (10, 11).
 - **Nenhum arquivo se repete dentro de um grupo.**

@@ -17,6 +17,7 @@ export function DetalheDoTrampo({
   estado,
   autor,
   rodape,
+  sobreposicao,
   semConexao,
   onVoltar,
   onAbrirAutor,
@@ -27,6 +28,7 @@ export function DetalheDoTrampo({
       onVoltar={onVoltar}
       semConexao={semConexao}
       rodape={rodape}
+      sobreposicao={sobreposicao}
     >
       <EstadoDeTela
         estado={estado}

@@ -10,9 +10,29 @@ import {
   criarArmazenamentoEmMemoria,
 } from '../../estado/armazenamento-token';
 import { Provedores } from '../../estado/provedores';
+import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import { type RenderRouterResult, renderRouter } from '../render-router';
 import { criarQueryClientDeTeste, URL_BASE_DE_TESTE } from '../renderizar';
+
+/**
+ * Casa o nome acessível que leva o nome da pessoa (ex.: "Aceitar
+ * candidatura de {nome}"), com qualquer nome ou sem nome (`null`).
+ */
+export function rotuloComQualquerNome(
+  rotulo: (nome: string | null) => string,
+): RegExp {
+  const escapar = (texto: string) =>
+    texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const marcador = '\u0000';
+  const comNome = escapar(rotulo(marcador)).replace(marcador, '.+');
+  return new RegExp(`^(?:${comNome}|${escapar(rotulo(null))})$`);
+}
+
+/** Qualquer "Aceitar" das candidaturas recebidas. */
+export const ACEITAR_QUALQUER = rotuloComQualquerNome(
+  textos.candidaturasRecebidas.aceitarDe,
+);
 
 /** Token que as rotas de teste usam como sessão já aberta. */
 export const TOKEN_DE_TESTE = 'token-de-teste';

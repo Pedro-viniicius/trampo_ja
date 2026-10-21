@@ -12,7 +12,7 @@ const opcoesDasAbas = {
   sceneStyle: opcoesDoCabecalho.contentStyle,
 };
 
-/** Abas da 2a: Início, Buscar e Perfil. */
+/** Abas: Início, Buscar, Publicar e Perfil. */
 export default function LayoutDasAbas() {
   return (
     <Tabs screenOptions={opcoesDasAbas}>
@@ -23,6 +23,10 @@ export default function LayoutDasAbas() {
       <Tabs.Screen
         name="buscar"
         options={opcoesDaAba('buscar', textos.abas.buscar)}
+      />
+      <Tabs.Screen
+        name="publicar"
+        options={opcoesDaAba('publicar', textos.abas.publicar)}
       />
       <Tabs.Screen
         name="perfil"

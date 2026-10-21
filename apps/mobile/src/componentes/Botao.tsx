@@ -28,6 +28,8 @@ export type PropsDoBotao = {
   larguraCheia?: boolean;
   icone?: NomeDeIcone;
   accessibilityHint?: string;
+  /** Rótulo falado, quando precisa dizer mais que o texto (ex.: o nome da pessoa). */
+  rotuloDeAcessibilidade?: string;
   estilo?: StyleProp<ViewStyle>;
 };
 
@@ -70,6 +72,7 @@ export function Botao({
   larguraCheia = true,
   icone,
   accessibilityHint,
+  rotuloDeAcessibilidade,
   estilo,
 }: PropsDoBotao) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
@@ -80,7 +83,9 @@ export function Botao({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={rotulo}
+      accessibilityLabel={
+        carregando ? rotulo : (rotuloDeAcessibilidade ?? rotulo)
+      }
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: bloqueado, busy: carregando }}
       disabled={bloqueado}

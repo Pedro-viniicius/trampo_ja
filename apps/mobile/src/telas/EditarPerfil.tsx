@@ -114,7 +114,7 @@ export function EditarPerfil({
           erro={erros.cidade}
           inputRef={refCidade}
           maxLength={LIMITE_DA_CIDADE}
-          autoComplete="address-line1"
+          autoComplete="postal-address-locality"
           textContentType="addressCity"
           returnKeyType="next"
           onSubmitEditing={() => refDescricao.current?.focus()}

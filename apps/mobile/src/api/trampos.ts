@@ -1,5 +1,15 @@
 import { type ClienteHttp, segmentoDaUrl } from './cliente';
-import type { Trampo } from './tipos';
+import type {
+  CandidaturaRecebida,
+  Criado,
+  EntradaDeCandidatura,
+  EntradaDeTrampo,
+  MinhaCandidatura,
+  ResultadoDoAceite,
+  StatusDaCandidatura,
+  StatusDoTrampo,
+  Trampo,
+} from './tipos';
 
 /** `GET /trampos/:id`. Inexistente: `ErroDaApi` 404 `nao_encontrado`. */
 export async function obterTrampo(
@@ -7,4 +17,93 @@ export async function obterTrampo(
   id: string,
 ): Promise<Trampo> {
   return cliente.get<Trampo>(`/trampos/${segmentoDaUrl(id)}`);
+}
+
+/**
+ * `POST /trampos` (CA4). Só manda as chaves aceitas: a API recusa chave extra
+ * com 400. `prazo` vazio não vai. 400 `dados_invalidos` traz os `campos`;
+ * 409 `perfil_incompleto` (D9).
+ */
+export async function publicarTrampo(
+  cliente: ClienteHttp,
+  {
+    titulo,
+    descricao,
+    categoria,
+    cidade,
+    valorCentavos,
+    prazo,
+  }: EntradaDeTrampo,
+): Promise<Criado<StatusDoTrampo>> {
+  return cliente.post<Criado<StatusDoTrampo>>('/trampos', {
+    titulo,
+    descricao,
+    categoria,
+    cidade,
+    valorCentavos,
+    ...(!estaVazio(prazo) && { prazo }),
+  });
+}
+
+/** `GET /trampos/meus`: os trampos da conta, com o `status` de cada um. */
+export async function listarMeusTrampos(
+  cliente: ClienteHttp,
+): Promise<readonly Trampo[]> {
+  return cliente.get<readonly Trampo[]>('/trampos/meus');
+}
+
+/**
+ * `POST /trampos/:id/candidaturas` (CA8). 409: `perfil_incompleto`,
+ * `autor_nao_pode_candidatar`, `candidatura_duplicada`, `trampo_nao_aberto`
+ * ou `conflito_de_versao`; 404 se o trampo não existe.
+ */
+export async function candidatar(
+  cliente: ClienteHttp,
+  trampoId: string,
+  { mensagem, valorPropostoCentavos }: EntradaDeCandidatura,
+): Promise<Criado<StatusDaCandidatura>> {
+  return cliente.post<Criado<StatusDaCandidatura>>(
+    `/trampos/${segmentoDaUrl(trampoId)}/candidaturas`,
+    { mensagem, valorPropostoCentavos },
+  );
+}
+
+/**
+ * `GET /trampos/:id/candidaturas`: só o autor vê; para os demais (e para o
+ * trampo inexistente), 404 `nao_encontrado`.
+ */
+export async function listarCandidaturasDoTrampo(
+  cliente: ClienteHttp,
+  trampoId: string,
+): Promise<readonly CandidaturaRecebida[]> {
+  return cliente.get<readonly CandidaturaRecebida[]>(
+    `/trampos/${segmentoDaUrl(trampoId)}/candidaturas`,
+  );
+}
+
+/**
+ * `POST /trampos/:id/candidaturas/:cid/aceitar` (CA10). Vai sem corpo e,
+ * portanto, sem `Content-Type`: a API recusa corpo JSON vazio com 400. 404
+ * para quem não é o autor; 409 `trampo_nao_aberto` (inclusive o aceite que
+ * perdeu a disputa), `candidatura_nao_pendente` ou `conflito_de_versao`.
+ */
+export async function aceitarCandidatura(
+  cliente: ClienteHttp,
+  trampoId: string,
+  candidaturaId: string,
+): Promise<ResultadoDoAceite> {
+  return cliente.post<ResultadoDoAceite>(
+    `/trampos/${segmentoDaUrl(trampoId)}/candidaturas/${segmentoDaUrl(candidaturaId)}/aceitar`,
+  );
+}
+
+/** `GET /candidaturas/minhas`: as candidaturas da conta, com o `trampoId`. */
+export async function listarMinhasCandidaturas(
+  cliente: ClienteHttp,
+): Promise<readonly MinhaCandidatura[]> {
+  return cliente.get<readonly MinhaCandidatura[]>('/candidaturas/minhas');
+}
+
+function estaVazio(texto: string | null | undefined): boolean {
+  return texto === undefined || texto === null || texto.trim() === '';
 }

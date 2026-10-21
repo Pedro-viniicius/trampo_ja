@@ -557,9 +557,11 @@ describe('Detalhes: ids não confiáveis (segurança de entrada)', () => {
     await screen.findByText('Pintar a sala');
     await aoLado(50);
 
-    const pedidosDePerfil = fetch.requisicoes.filter((r) =>
-      r.caminho.startsWith('/perfis'),
+    const pedidosDePerfil = fetch.requisicoes.filter(
+      (r) => r.caminho.startsWith('/perfis') && r.caminho !== '/perfis/eu',
     );
+    // Garante que a busca do autor aconteceu (o filtro não pode ficar vazio).
+    expect(pedidosDePerfil.length).toBeGreaterThan(0);
     for (const pedido of pedidosDePerfil) {
       expect(pedido.caminho).toBe('/perfis/..%2Fadmin');
     }
@@ -609,7 +611,7 @@ describe('Detalhes: conteúdo e estados', () => {
     expect(await screen.findByText('T'.repeat(200))).toBeOnTheScreen();
   });
 
-  it('o detalhe não oferece candidatar nem conversar na 2a (rodapé vazio)', async () => {
+  it('o detalhe oferece candidatar e não oferece conversar (fica para a 2c)', async () => {
     const fetch = fakeComCategorias()
       .responder('GET /trampos/t1', { corpo: TRAMPO })
       .responder('GET /perfis/c1', { corpo: AUTOR });
@@ -617,8 +619,14 @@ describe('Detalhes: conteúdo e estados', () => {
     await screen.findByText('Pintar a sala');
 
     expect(
-      screen.queryByRole('button', { name: textos.detalheTrampo.candidatar }),
+      await screen.findByRole('button', {
+        name: textos.detalheTrampo.candidatar,
+      }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: textos.detalheServico.conversar }),
     ).toBeNull();
+    expect(screen.queryByText(textos.detalheServico.conversar)).toBeNull();
   });
 });
 

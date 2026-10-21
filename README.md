@@ -134,6 +134,31 @@ código 0).
 
 O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interface fora de `textos/pt-BR.ts`.
 
+### Rotas e telas
+
+| Rota | Arquivo (`src/app/`) | Tela |
+|---|---|---|
+| `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão) |
+| `/` | `(app)/(abas)/index.tsx` | aba Início: saudação, recentes e atalhos (Publicar trampo, Ofertar serviço, Minhas candidaturas) |
+| `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar |
+| `/publicar` | `(app)/(abas)/publicar.tsx` | aba Publicar: escolha entre publicar trampo e ofertar serviço |
+| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil, com os atalhos Minhas candidaturas, Meus trampos e Meus serviços |
+| `/perfil/editar` | `(app)/perfil/editar.tsx` | editar ou completar o perfil |
+| `/perfis/:contaId` | `(app)/perfis/[contaId].tsx` | perfil público |
+| `/trampos/novo` | `(app)/trampos/novo.tsx` | formulário Publicar trampo (a confirmação é estado da tela) |
+| `/servicos/novo` | `(app)/servicos/novo.tsx` | formulário Ofertar serviço |
+| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura ou Ver candidaturas (n) |
+| `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço |
+| `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas |
+| `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite (só quem publicou vê; para os demais a API responde 404) |
+| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`) |
+
+As abas são Início, Buscar, Publicar e Perfil; os formulários e as listas ficam na pilha `(app)`, sem a barra de
+abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão na URL.
+
+Link que chega do sistema (deep link) passa antes por `src/app/+native-intent.tsx`: acima de 2 KB ou com escape `%`
+malformado, o app abre o Início em vez de tentar interpretá-lo.
+
 ### Dados pessoais no app (CA15)
 
 - O token só existe no `expo-secure-store` (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`), atrás da porta
@@ -141,11 +166,35 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
   AsyncStorage.
 - `console` é proibido em `apps/mobile` (regra `noConsole` do Biome como erro). Erros da API viram chaves de
   `textos.erros`; `ErroDaApi` não guarda corpo, URL com query nem o que a pessoa digitou.
-- Sem telemetria nem crash report no app. `src/testes/sem-dado-pessoal.test.tsx` percorre os fluxos (cadastro,
-  perfil, busca, detalhe, 401, senha errada, cadastro duplicado, 429, queda de rede) com espiões em todos os
-  métodos do `console` e falha se aparecer e-mail, senha, nome, cidade, habilidade, texto da busca ou token. O
-  mesmo arquivo falha se `apps/mobile/package.json` ganhar dependência de AsyncStorage, Sentry, Bugsnag, Firebase,
-  analytics, Segment, Amplitude ou Mixpanel.
+- Sem telemetria nem crash report no app. `src/testes/sem-dado-pessoal.test.tsx` percorre os fluxos com espiões
+  em todos os métodos do `console`:
+  - 2a: cadastro, perfil, busca, detalhe, 401, senha errada, cadastro duplicado, 429 e queda de rede;
+  - 2b, com duas contas: publicar trampo (400 por campo e 201), ofertar serviço (queda de rede no envio e 201),
+    Meus trampos e Meus serviços, candidatar-se (409 `autor_nao_pode_candidatar`, `perfil_incompleto`,
+    `candidatura_duplicada`, queda de rede e 201), Minhas candidaturas, 401 com volta ao login, Candidaturas
+    recebidas com o nome dos candidatos e o aceite (200, `trampo_nao_aberto` e `conflito_de_versao`).
+
+  O teste falha se aparecer, em texto puro, em maiúsculas ou codificado para URL, e-mail, senha, nome, cidade,
+  habilidade, texto da busca, token, título, descrição, cidade do anúncio, mensagem da candidatura, nome de
+  candidato ou valor digitado (como `9.876,54`, e também em centavos). O mesmo arquivo falha se
+  `apps/mobile/package.json` ganhar dependência de AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment,
+  Amplitude ou Mixpanel.
+- O que fica em memória nos fluxos da 2b (nada vai para disco):
+  - **Rascunhos.** Título, descrição, categoria, cidade, valor e prazo de Publicar trampo e Ofertar serviço, e a
+    mensagem e o valor proposto da folha Candidatar-se, ficam só no estado do componente da tela. Somem quando a
+    tela fecha, e também ao sair da conta ou quando a sessão expira, porque o 401 leva ao login.
+  - **Envios.** O que foi enviado (o trampo, o serviço, a candidatura ou o id do aceite) fica como `variables` da
+    mutação no cache de mutações do TanStack. Dura enquanto a tela está aberta e sai assim que ela fecha
+    (`gcTime: 0`).
+  - **Consultas.** O cache de consultas do TanStack guarda os dados frescos por 30 s e os remove 5 min depois que
+    nenhuma tela os usa. Entram nele:
+    - as listas "minhas": Meus trampos (`/trampos/meus`), Meus serviços (`/servicos/meus`) e Minhas candidaturas
+      (`/candidaturas/minhas`, com a mensagem e o valor da própria candidatura);
+    - as candidaturas recebidas (`/trampos/:id/candidaturas`), com a mensagem e o valor de terceiros;
+    - os nomes de terceiros, vindos de `GET /perfis/:id` (mesma chave do perfil público). Ficam no cache por
+      5 min e nunca entram em texto de erro; perfil 404 aparece como "Perfil indisponível".
+  - **Saída e expiração.** Sair da conta ou ter a sessão expirada limpa os dois caches (`queryClient.clear()`).
+    Uma mutação que termine depois disso não grava nada no cache novo (`Sessao.geracao()`).
 - Opcional: `EXPO_NO_TELEMETRY=1` no shell desliga a coleta de uso do CLI do Expo (`expo start`, `expo export`).
   Isso vale para a máquina de desenvolvimento; o app em si não envia nada.
 
@@ -342,8 +391,9 @@ Exclusão e exportação de conta ficam para antes da publicação nas lojas (D1
 Em `docs/produto/`:
 
 - `visao.md`: visão do produto;
-- `decisoes.md`: decisões do dono (D1 a D15), que não se reabrem sem fato novo;
+- `decisoes.md`: decisões do dono (D1 a D19), que não se reabrem sem fato novo;
 - `briefs/mvp-trampo-ja.md`: brief do MVP com os critérios de aceite (CA1 a CA16);
 - `planos/mvp-trampo-ja.md`: plano técnico da entrega 1 (backend), com etapas, contratos e ADR;
 - `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2);
-- `planos/mvp-trampo-ja-app.md`: plano técnico da entrega 2a (app mobile).
+- `planos/mvp-trampo-ja-app.md`: plano técnico da entrega 2a (app mobile);
+- `planos/mvp-trampo-ja-app-2b.md`: plano técnico da entrega 2b (publicação, candidaturas e meus anúncios).

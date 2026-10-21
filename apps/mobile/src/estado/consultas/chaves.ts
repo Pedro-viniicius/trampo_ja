@@ -30,7 +30,18 @@ export const chaves = {
   categorias: () => ['categorias'] as const,
   busca: (filtros: FiltrosDeConsulta) =>
     ['busca', normalizarFiltros(filtros)] as const,
+  /** Prefixo de toda `busca(...)`, com qualquer filtro (para invalidar). */
+  todasAsBuscas: () => ['busca'] as const,
   recentes: (tipo: 'trampos' | 'servicos') => ['recentes', tipo] as const,
   trampo: (id: string) => ['trampo', id] as const,
   servico: (id: string) => ['servico', id] as const,
+  /** `GET /trampos/meus`: os trampos da conta da sessão. */
+  meusTrampos: () => ['meusTrampos'] as const,
+  /** `GET /servicos/meus`: os serviços da conta da sessão. */
+  meusServicos: () => ['meusServicos'] as const,
+  /** `GET /candidaturas/minhas`: as candidaturas da conta da sessão. */
+  minhasCandidaturas: () => ['minhasCandidaturas'] as const,
+  /** `GET /trampos/:id/candidaturas`: só o autor do trampo vê. */
+  candidaturasRecebidas: (trampoId: string) =>
+    ['candidaturasRecebidas', trampoId] as const,
 };

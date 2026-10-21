@@ -6,6 +6,7 @@ import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
 import InicioRota from '../../app/(app)/(abas)/index';
+import PublicarRota from '../../app/(app)/(abas)/publicar';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
@@ -62,6 +63,7 @@ const rotas = {
   '(app)/(abas)/_layout': LayoutDasAbas,
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
+  '(app)/(abas)/publicar': PublicarRota,
   '(app)/(abas)/perfil': stub('perfil-stub'),
   '(app)/perfil/editar': stub('editar-perfil-stub'),
   '(app)/trampos/[id]': stub('detalhe-trampo-stub'),

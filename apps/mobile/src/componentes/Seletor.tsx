@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { type ComponentRef, type Ref, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
@@ -26,6 +26,8 @@ export type PropsDoSeletor = {
   desabilitado?: boolean;
   /** Limite de caracteres do campo de pesquisa/texto livre. */
   maxLength?: number;
+  /** Ref do botão que abre a lista: recebe o foco quando há erro. */
+  gatilhoRef?: Ref<ComponentRef<typeof Pressable>>;
 };
 
 const normalizar = (texto: string): string =>
@@ -47,6 +49,7 @@ export function Seletor({
   erro,
   desabilitado = false,
   maxLength,
+  gatilhoRef,
 }: PropsDoSeletor) {
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState('');
@@ -87,6 +90,7 @@ export function Seletor({
         {rotulo}
       </Text>
       <Pressable
+        ref={gatilhoRef}
         accessibilityRole="button"
         accessibilityLabel={`${rotulo}: ${valor ?? textoVazio}`}
         accessibilityHint={textos.buscar.tocarParaEscolher}

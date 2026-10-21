@@ -73,3 +73,119 @@ export function rotuloDaCategoria(
 ): string {
   return categorias?.find((categoria) => categoria.id === id)?.rotulo ?? id;
 }
+
+// Texto do campo de valor: só dígitos, ponto e vírgula depois de tirar "R$".
+const CARACTERES_DO_VALOR = /^[\d.,]+$/;
+// Ponto como milhar: grupos de exatamente 3 dígitos depois de um primeiro
+// grupo de 1 a 3 dígitos que não começa em zero ("1.500", "12.345.678").
+const COM_MILHAR = /^[1-9]\d{0,2}(?:\.\d{3})+$/;
+const SO_DIGITOS = /^\d+$/;
+const DECIMAL_COM_PONTO = /^(\d+)\.(\d{1,2})$/;
+const COM_VIRGULA = /^([\d.]+),(\d{1,2})$/;
+
+function centavosDe(reais: string, decimais: string): number {
+  const total =
+    BigInt(reais.replace(/\./g, '')) * 100n + BigInt(decimais.padEnd(2, '0'));
+  const maximo = BigInt(Number.MAX_SAFE_INTEGER);
+  return Number(total > maximo ? maximo : total);
+}
+
+function reaisValidos(reais: string): boolean {
+  return SO_DIGITOS.test(reais) || COM_MILHAR.test(reais);
+}
+
+/**
+ * Lê o que a pessoa digitou no campo de valor e devolve centavos, ou `null`
+ * se o texto não for um valor.
+ *
+ * - A vírgula é o separador decimal (no máximo 2 casas); antes dela o ponto
+ *   só vale como milhar.
+ * - Sem vírgula, o ponto é milhar quando separa grupos de 3 dígitos
+ *   (`1.500` -> 150000) e decimal nos demais casos (`1.5` -> 150).
+ * - Aceita o prefixo `R$`. Sinal, letras, 3 casas (`0,001`) e texto vazio
+ *   dão `null`.
+ * - Não valida limites: `0` volta como 0 e um número gigante é limitado a
+ *   `Number.MAX_SAFE_INTEGER`, para o validador apontar `valor_alto`.
+ *
+ * Nunca registra nem devolve o texto (CA15).
+ */
+export function lerValorEmCentavos(texto: string): number | null {
+  const limpo = texto.replace(/^\s*R\$/i, '').replace(/\s+/g, '');
+  if (limpo === '' || !CARACTERES_DO_VALOR.test(limpo)) {
+    return null;
+  }
+
+  const comVirgula = COM_VIRGULA.exec(limpo);
+  if (comVirgula !== null) {
+    const [, reais = '', decimais = ''] = comVirgula;
+    return reaisValidos(reais) ? centavosDe(reais, decimais) : null;
+  }
+  if (limpo.includes(',')) {
+    return null;
+  }
+  if (reaisValidos(limpo)) {
+    return centavosDe(limpo, '');
+  }
+  const comPonto = DECIMAL_COM_PONTO.exec(limpo);
+  if (comPonto === null) {
+    return null;
+  }
+  return centavosDe(comPonto[1] ?? '', comPonto[2] ?? '');
+}
+
+/**
+ * Centavos no formato do campo de valor, sem o `R$`: `150000` -> `1.500,00`.
+ * Valor que não é número finito e não negativo volta como texto vazio.
+ */
+export function centavosParaCampo(centavos: number): string {
+  if (!Number.isFinite(centavos) || centavos < 0) {
+    return '';
+  }
+  return formatarCentavos(centavos).replace(/^R\$ /, '');
+}
+
+// Prazo: a API aceita anos de 1900 a 9999.
+const ANO_MINIMO_DO_PRAZO = 1900;
+const DATA_DO_CAMPO = /^(\d{2})\/(\d{2})\/(\d{4})$|^(\d{2})(\d{2})(\d{4})$/;
+
+/**
+ * Lê a data do campo (`31/12/2026` ou `31122026`) e devolve `YYYY-MM-DD`, ou
+ * `null` se o formato estiver errado, o dia não existir (`31/02/2026`) ou o
+ * ano ficar fora de 1900 a 9999. Não exige data futura (a API também não).
+ */
+export function lerData(texto: string): string | null {
+  const partes = DATA_DO_CAMPO.exec(texto.trim());
+  if (partes === null) {
+    return null;
+  }
+  const dia = partes[1] ?? partes[4] ?? '';
+  const mes = partes[2] ?? partes[5] ?? '';
+  const ano = partes[3] ?? partes[6] ?? '';
+  if (
+    Number(ano) < ANO_MINIMO_DO_PRAZO ||
+    !dataExiste(Number(ano), Number(mes), Number(dia))
+  ) {
+    return null;
+  }
+  return `${ano}-${mes}-${dia}`;
+}
+
+/**
+ * Máscara do prazo enquanto a pessoa digita: fica só com os 8 primeiros
+ * dígitos e põe as barras de `dd/mm/aaaa` (`3112` -> `31/12`). A barra só
+ * entra quando há dígito depois dela, para o apagar não travar nela. Quem
+ * valida é `lerData`, na saída do campo e no envio.
+ */
+export function mascararData(texto: string): string {
+  const digitos = texto.replace(/\D/g, '').slice(0, 8);
+  const dia = digitos.slice(0, 2);
+  const mes = digitos.slice(2, 4);
+  const ano = digitos.slice(4);
+  return [dia, mes, ano].filter((parte) => parte !== '').join('/');
+}
+
+/** `2026-12-31` -> `31/12/2026`, para o campo. Entrada inválida volta vazia. */
+export function dataParaCampo(iso: string): string {
+  const formatada = formatarData(iso);
+  return formatada === iso ? '' : formatada;
+}

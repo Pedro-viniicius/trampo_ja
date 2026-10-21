@@ -15,6 +15,13 @@ export {
   CartaoDeAnuncio,
   type PropsDoCartaoDeAnuncio,
 } from './CartaoDeAnuncio';
+export {
+  CartaoDeCandidatura,
+  type PropsDoCartaoDeCandidatura,
+  type PropsDoSeloDeCandidatura,
+  SeloDeCandidatura,
+  type StatusDeCandidatura,
+} from './CartaoDeCandidatura';
 export { Chip, type PropsDoChip } from './Chip';
 export {
   DialogoDeConfirmacao,

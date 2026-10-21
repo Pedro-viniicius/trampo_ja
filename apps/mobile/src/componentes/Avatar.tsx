@@ -5,13 +5,15 @@ export type PropsDoAvatar = {
   nome: string;
   /** Lado em pontos. */
   tamanho?: number;
+  /** Sem identidade (perfil indisponível): mostra "?" em cor neutra. */
+  neutro?: boolean;
 };
 
 /** Decorativo: o nome sempre aparece em texto ao lado (spec). */
-export function Avatar({ nome, tamanho = 48 }: PropsDoAvatar) {
-  const inicial = (Array.from(nome.trim())[0] ?? '?').toLocaleUpperCase(
-    'pt-BR',
-  );
+export function Avatar({ nome, tamanho = 48, neutro = false }: PropsDoAvatar) {
+  const inicial = neutro
+    ? '?'
+    : (Array.from(nome.trim())[0] ?? '?').toLocaleUpperCase('pt-BR');
   return (
     <View
       accessibilityElementsHidden
@@ -20,7 +22,7 @@ export function Avatar({ nome, tamanho = 48 }: PropsDoAvatar) {
         width: tamanho,
         height: tamanho,
         borderRadius: tamanho / 2,
-        backgroundColor: cores.acento,
+        backgroundColor: neutro ? cores.textoSecundario : cores.acento,
         alignItems: 'center',
         justifyContent: 'center',
       }}

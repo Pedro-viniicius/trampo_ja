@@ -59,6 +59,16 @@ export default function RotaDoMeuPerfil() {
       perfilIncompleto={faltam.length > 0 ? { falta: faltam } : null}
       semConexao={!online}
       onEditar={() => router.push('/perfil/editar')}
+      onMinhasCandidaturas={() => router.push('/candidaturas')}
+      onMeusTrampos={() =>
+        router.push({ pathname: '/meus-anuncios', params: { tipo: 'trampo' } })
+      }
+      onMeusServicos={() =>
+        router.push({
+          pathname: '/meus-anuncios',
+          params: { tipo: 'servico' },
+        })
+      }
       onSair={() => sair.mutate()}
     />
   );

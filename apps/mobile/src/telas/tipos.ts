@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react';
-import type { PerfilPublico, StatusDoTrampo } from '../api/tipos';
+import type {
+  PerfilPublico,
+  StatusDaCandidatura,
+  StatusDoTrampo,
+} from '../api/tipos';
 
 /** Estado de um bloco de dados, já traduzido: a tela só desenha, o contêiner decide. */
 export type Estado<T> =
@@ -150,6 +154,8 @@ export interface PropsDoDetalheDoTrampo {
   autor: Estado<PerfilPublico>;
   /** Slot da 2b (candidatar, ver candidaturas). Vazio na 2a. */
   rodape?: ReactNode;
+  /** Slot sobreposto (ex.: `Toast`), renderizado acima do rodapé fixo. */
+  sobreposicao?: ReactNode;
   semConexao?: boolean;
   onVoltar: () => void;
   onAbrirAutor: (contaId: string) => void;
@@ -222,4 +228,150 @@ export interface PropsDoEditarPerfil {
   onFecharSucesso?: () => void;
   onVoltar?: () => void;
   onAgoraNao?: () => void;
+}
+
+// ---- Entrega 2b: publicação, candidaturas e meus anúncios ----
+
+export type SituacaoDoRodape =
+  | { tipo: 'carregando' }
+  | { tipo: 'fechado' }
+  | { tipo: 'candidatar' }
+  /** `quantidade` null: "Ver candidaturas" sem número. */
+  | { tipo: 'autor'; quantidade: number | null }
+  | { tipo: 'candidatado'; status: StatusDaCandidatura };
+
+export interface PropsDaEscolhaDePublicacao {
+  onPublicarTrampo: () => void;
+  onOfertarServico: () => void;
+}
+
+export type CampoDoAnuncio =
+  | 'titulo'
+  | 'descricao'
+  | 'categoria'
+  | 'cidade'
+  | 'valor'
+  | 'prazo';
+
+export interface ValoresDoAnuncio {
+  titulo: string;
+  descricao: string;
+  categoria: string | null;
+  cidade: string;
+  valor: string;
+  prazo: string;
+}
+
+export type ErrosDoAnuncio = Partial<Record<CampoDoAnuncio | 'geral', string>>;
+
+export interface PropsDoFormularioDeAnuncio {
+  /** `servico`: sem prazo, cidade opcional, "Preço base (R$)". */
+  tipo: TipoDeAnuncio;
+  valores: ValoresDoAnuncio;
+  erros: ErrosDoAnuncio;
+  categorias: readonly OpcaoDeCategoria[];
+  enviando: boolean;
+  semConexao?: boolean;
+  /** Não nulo: aviso D9 no lugar do botão. */
+  perfilIncompleto: PerfilIncompleto | null;
+  /** Confirmação "Trampo publicado!" / "Serviço ofertado!". */
+  publicado: boolean;
+  /** Sobe a cada envio recusado: leva o foco ao primeiro erro mesmo se ele não mudou. */
+  tentativa?: number;
+  onMudar: (campo: Exclude<CampoDoAnuncio, 'categoria'>, texto: string) => void;
+  onMudarCategoria: (id: string | null) => void;
+  onSairDoCampo: (campo: CampoDoAnuncio) => void;
+  onEnviar: () => void;
+  onCompletarPerfil: () => void;
+  onAgoraNao: () => void;
+  onVerPublicado: () => void;
+  onPublicarOutro: () => void;
+  onVoltar: () => void;
+}
+
+export interface FolhaDeCandidatura {
+  visivel: boolean;
+  mensagem: string;
+  valor: string;
+  erros: { mensagem?: string; valor?: string; geral?: string };
+  enviando: boolean;
+  perfilIncompleto: PerfilIncompleto | null;
+  /** Sobe a cada envio recusado: leva o foco ao primeiro erro mesmo se ele não mudou. */
+  tentativa?: number;
+  onMudarMensagem: (texto: string) => void;
+  onMudarValor: (texto: string) => void;
+  onSairDoValor: () => void;
+  onEnviar: () => void;
+  onFechar: () => void;
+  onCompletarPerfil: () => void;
+}
+
+export interface PropsDoRodapeDoTrampo {
+  situacao: SituacaoDoRodape;
+  semConexao?: boolean;
+  folha: FolhaDeCandidatura;
+  onCandidatar: () => void;
+  onVerCandidaturas: () => void;
+  /** Chega na 2c. */
+  onConversar?: () => void;
+}
+
+export interface CandidaturaParaExibir {
+  id: string;
+  contaId: string;
+  /** `null`: "Perfil indisponível". */
+  nome: string | null;
+  valorPropostoFormatado: string;
+  mensagem: string;
+  dataFormatada: string;
+  status: StatusDaCandidatura;
+  podeAceitar: boolean;
+}
+
+export interface PropsDasCandidaturasRecebidas {
+  trampo: Estado<{ titulo: string; status: StatusDoTrampo }>;
+  lista: Estado<readonly CandidaturaParaExibir[]>;
+  /** Id em aceite: desabilita todos os "Aceitar". */
+  aceitando: string | null;
+  erroDoAceite?: string;
+  toast: string | null;
+  semConexao?: boolean;
+  /** Chamado depois da confirmação do diálogo. */
+  onAceitar: (id: string) => void;
+  onAbrirPerfil: (contaId: string) => void;
+  onFecharToast: () => void;
+  onVoltar: () => void;
+  /** Chega na 2c. */
+  onConversar?: (contaId: string) => void;
+}
+
+export interface MinhaCandidaturaParaExibir {
+  id: string;
+  trampoId: string;
+  /** `null`: "Trampo indisponível". */
+  tituloDoTrampo: string | null;
+  valorPropostoFormatado: string;
+  dataFormatada: string;
+  status: StatusDaCandidatura;
+}
+
+export interface PropsDasMinhasCandidaturas {
+  lista: Estado<readonly MinhaCandidaturaParaExibir[]>;
+  semConexao?: boolean;
+  onAbrirTrampo: (trampoId: string) => void;
+  onBuscarTrampos: () => void;
+  onVoltar: () => void;
+}
+
+export type MeuAnuncioParaExibir = ItemParaExibir & {
+  status: StatusDoTrampo | 'ativo';
+};
+
+export interface PropsDosMeusAnuncios {
+  tipo: TipoDeAnuncio;
+  lista: Estado<readonly MeuAnuncioParaExibir[]>;
+  semConexao?: boolean;
+  onAbrirItem: (item: MeuAnuncioParaExibir) => void;
+  onPublicar: () => void;
+  onVoltar: () => void;
 }

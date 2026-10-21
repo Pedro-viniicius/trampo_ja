@@ -1,7 +1,8 @@
-import { screen } from 'expo-router/testing-library';
+import { fireEvent, screen } from 'expo-router/testing-library';
 import { processColor } from 'react-native';
 import { cores } from '../../tema/tokens';
 import { textos } from '../../textos/pt-BR';
+import { ACEITAR_QUALQUER } from '../rotas/apoio';
 import {
   abrirApp,
   fakeComCategorias,
@@ -147,12 +148,65 @@ const AUTOR = {
 };
 
 function fakeDasTelas() {
-  return fakeComCategorias()
-    .responder('GET /perfis/eu', { corpo: PERFIL_COMPLETO })
-    .responder('GET /perfis/c1', { corpo: AUTOR })
-    .responder('GET /trampos/t1', { corpo: TRAMPO })
-    .responder('GET /servicos/s1', { corpo: SERVICO })
-    .responder('GET /busca', { corpo: { itens: [], proximoCursor: null } });
+  return (
+    fakeComCategorias()
+      .responder('GET /perfis/eu', { corpo: PERFIL_COMPLETO })
+      .responder('GET /perfis/c1', { corpo: AUTOR })
+      .responder('GET /trampos/t1', { corpo: TRAMPO })
+      .responder('GET /servicos/s1', { corpo: SERVICO })
+      .responder('GET /busca', { corpo: { itens: [], proximoCursor: null } })
+      // 2b: telas de publicação, candidaturas e meus anúncios.
+      .responder('GET /trampos/meus', {
+        corpo: [
+          {
+            ...TRAMPO,
+            id: 't2',
+            titulo: 'Montar estante',
+            status: 'em_andamento',
+          },
+          { ...TRAMPO, id: 't3', titulo: 'Trocar o telhado' },
+        ],
+      })
+      .responder('GET /servicos/meus', { corpo: [SERVICO] })
+      .responder('GET /candidaturas/minhas', {
+        corpo: (['pendente', 'aceita', 'recusada'] as const).map(
+          (status, i) => ({
+            id: `m${i}`,
+            trampoId: 't1',
+            freelancerId: 'eu',
+            mensagem: 'Posso fazer.',
+            valorPropostoCentavos: 15000,
+            status,
+            criadaEm: `2026-10-0${i + 1}T12:00:00.000Z`,
+          }),
+        ),
+      })
+      .responder('GET /trampos/t4', {
+        corpo: { ...TRAMPO, id: 't4', titulo: 'Consertar o portão' },
+      })
+      .responder('GET /trampos/t2', {
+        corpo: { ...TRAMPO, id: 't2', titulo: 'Montar estante' },
+      })
+      .responder('GET /trampos/t2/candidaturas', {
+        corpo: (['pendente', 'aceita', 'recusada'] as const).map(
+          (status, i) => ({
+            id: `r${i}`,
+            freelancerId: `f${i}`,
+            mensagem: 'Posso fazer.',
+            valorPropostoCentavos: 15000,
+            status,
+            criadaEm: `2026-10-0${i + 1}T12:00:00.000Z`,
+          }),
+        ),
+      })
+      .responder('GET /perfis/f0', { corpo: { ...AUTOR, contaId: 'f0' } })
+      .responder('GET /perfis/f1', {
+        corpo: { ...AUTOR, contaId: 'f1', nome: 'João Pereira' },
+      })
+      .responder('GET /perfis/f2', {
+        corpo: { ...AUTOR, contaId: 'f2', nome: 'Ana Lima' },
+      })
+  );
 }
 
 const TELAS = [
@@ -166,6 +220,34 @@ const TELAS = [
   ['Perfil', '/perfil', 'token', 'Maria Souza'],
   ['Perfil de outra pessoa', '/perfis/c1', 'token', 'Carla Souza'],
   ['Editar perfil', '/perfil/editar', 'token', textos.editarPerfil.titulo],
+  // 2b
+  [
+    'Publicar (escolha)',
+    '/publicar',
+    'token',
+    textos.escolhaDePublicacao.pergunta,
+  ],
+  [
+    'Publicar trampo',
+    '/trampos/novo',
+    'token',
+    textos.formularioDeAnuncio.prazo,
+  ],
+  [
+    'Ofertar serviço',
+    '/servicos/novo',
+    'token',
+    textos.formularioDeAnuncio.precoBase,
+  ],
+  ['Minhas candidaturas', '/candidaturas', 'token', 'Pintar a sala'],
+  ['Candidaturas recebidas', '/candidaturas/t2', 'token', 'João Pereira'],
+  ['Meus trampos', '/meus-anuncios', 'token', 'Montar estante'],
+  [
+    'Meus serviços',
+    '/meus-anuncios?tipo=servico',
+    'token',
+    'Aulas de matemática',
+  ],
 ] as const;
 
 describe('CA16: as telas usam só as cores da marca (tokens)', () => {
@@ -186,6 +268,53 @@ describe('CA16: as telas usam só as cores da marca (tokens)', () => {
       expect(foraDaPaleta).toEqual([]);
     },
   );
+
+  it('2b: folha Candidatar-se aberta, com erro, só usa cores dos tokens', async () => {
+    await abrirApp('/trampos/t4', { fetch: fakeDasTelas() });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.detalheTrampo.candidatar,
+      }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: textos.candidatar.enviar }),
+    );
+    await screen.findByText(textos.erros.mensagem_obrigatoria);
+
+    const foraDaPaleta = coresDaArvore(screen.toJSON()).filter(
+      (cor) => !PALETA.has(cor),
+    );
+    expect(foraDaPaleta).toEqual([]);
+  });
+
+  it('2b: diálogo "Aceitar {nome}?" só usa cores dos tokens', async () => {
+    await abrirApp('/candidaturas/t2', { fetch: fakeDasTelas() });
+    await screen.findByText('João Pereira');
+    await fireEvent.press(
+      screen.getAllByRole('button', { name: ACEITAR_QUALQUER })[0] as never,
+    );
+    await screen.findByText(textos.candidaturasRecebidas.confirmarTexto);
+
+    const foraDaPaleta = coresDaArvore(screen.toJSON()).filter(
+      (cor) => !PALETA.has(cor),
+    );
+    expect(foraDaPaleta).toEqual([]);
+  });
+
+  it('2b: formulário de trampo com erros em todos os campos só usa cores dos tokens', async () => {
+    await abrirApp('/trampos/novo', { fetch: fakeDasTelas() });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.formularioDeAnuncio.publicarTrampo,
+      }),
+    );
+    await screen.findByText(textos.erros.categoria_obrigatoria);
+
+    const foraDaPaleta = coresDaArvore(screen.toJSON()).filter(
+      (cor) => !PALETA.has(cor),
+    );
+    expect(foraDaPaleta).toEqual([]);
+  });
 
   it('a Entrada mostra o gradiente azul → roxo da marca e a logo', async () => {
     await abrirApp('/entrada', { fetch: fakeDasTelas(), token: null });

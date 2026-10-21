@@ -10,6 +10,7 @@ import type {
   PerfilPublico,
 } from '../../api/tipos';
 import { useCliente, useSessao } from '../sessao';
+import { type MapaPorId, useConsultasPorIds } from './anuncios';
 import { chaves } from './chaves';
 
 /**
@@ -78,4 +79,21 @@ export function usePerfilPublico(contaId: string) {
     erro: consulta.error,
     recarregar: () => consulta.refetch(),
   };
+}
+
+/**
+ * Vários `GET /perfis/:contaId` (ex.: o nome de cada freelancer nas
+ * candidaturas recebidas), sobre `chaves.perfil(id)`, a mesma chave de
+ * `usePerfilPublico`: o perfil que o detalhe já buscou vem do cache. Perfil
+ * 404 (inexistente ou incompleto) vira `null` ("Perfil indisponível"); id
+ * ainda sem resposta fica fora do mapa (ver `MapaPorId`).
+ */
+export function usePerfisPublicos(
+  contaIds: readonly string[],
+): MapaPorId<PerfilPublico> {
+  return useConsultasPorIds<PerfilPublico>(
+    contaIds,
+    chaves.perfil,
+    obterPerfilPublico,
+  );
 }

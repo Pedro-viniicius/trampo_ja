@@ -5,7 +5,14 @@ import { type ChaveDeErro, textos } from '../textos/pt-BR';
 export type { ChaveDeErro };
 
 /** Formulário (ou ação) que originou o erro; define quais campos valem. */
-export type Formulario = 'entrar' | 'cadastro' | 'perfil' | 'nenhum';
+export type Formulario =
+  | 'entrar'
+  | 'cadastro'
+  | 'perfil'
+  | 'trampo'
+  | 'servico'
+  | 'candidatura'
+  | 'nenhum';
 
 export interface ErroTraduzido {
   /** Erro que não é de um campo (mostrado acima do botão ou como aviso). */
@@ -18,12 +25,23 @@ const CAMPOS_DO_FORMULARIO: Record<Formulario, readonly string[]> = {
   entrar: ['email', 'senha'],
   cadastro: ['email', 'senha'],
   perfil: ['nome', 'cidade', 'descricao', 'habilidades'],
+  trampo: [
+    'titulo',
+    'descricao',
+    'categoria',
+    'cidade',
+    'valorCentavos',
+    'prazo',
+  ],
+  servico: ['titulo', 'descricao', 'categoria', 'cidade', 'precoBaseCentavos'],
+  candidatura: ['mensagem', 'valorPropostoCentavos'],
   nenhum: [],
 };
 
 function chaveDoCampo(
   campo: string,
   motivo: MotivoDeCampo,
+  formulario: Formulario,
 ): ChaveDeErro | undefined {
   switch (campo) {
     case 'email':
@@ -33,9 +51,37 @@ function chaveDoCampo(
     case 'nome':
       return motivo === 'obrigatorio' ? 'nome_obrigatorio' : 'nome_tamanho';
     case 'cidade':
-      return motivo === 'obrigatorio' ? 'cidade_obrigatoria' : 'cidade_tamanho';
+      if (motivo !== 'obrigatorio') {
+        return 'cidade_tamanho';
+      }
+      return formulario === 'perfil'
+        ? 'cidade_obrigatoria'
+        : 'cidade_anuncio_obrigatoria';
     case 'descricao':
-      return 'descricao_tamanho';
+      if (formulario === 'perfil') {
+        return 'descricao_tamanho';
+      }
+      if (motivo !== 'obrigatorio') {
+        return 'descricao_anuncio_tamanho';
+      }
+      return formulario === 'servico'
+        ? 'descricao_servico_obrigatoria'
+        : 'descricao_trampo_obrigatoria';
+    case 'titulo':
+      return 'titulo_tamanho';
+    case 'categoria':
+      return 'categoria_obrigatoria';
+    case 'valorCentavos':
+    case 'precoBaseCentavos':
+      return 'valor_invalido';
+    case 'valorPropostoCentavos':
+      return 'valor_proposto_invalido';
+    case 'prazo':
+      return 'prazo_invalido';
+    case 'mensagem':
+      return motivo === 'obrigatorio'
+        ? 'mensagem_obrigatoria'
+        : 'mensagem_tamanho';
     case 'habilidades':
       if (motivo === 'obrigatorio') {
         return 'habilidade_obrigatoria';
@@ -74,7 +120,7 @@ function camposDoErro400(
     if (!aceitos.includes(campo)) {
       continue;
     }
-    const chave = chaveDoCampo(campo, motivo);
+    const chave = chaveDoCampo(campo, motivo, formulario);
     if (chave !== undefined && resultado[campo] === undefined) {
       resultado[campo] = chave;
     }
@@ -87,6 +133,20 @@ function camposDoErro400(
   return resultado;
 }
 
+// Código do 409 -> chave. Vale para qualquer formulário: a API é quem decide.
+const CONFLITOS: ReadonlyMap<string, ChaveDeErro> = new Map<
+  string,
+  ChaveDeErro
+>([
+  ['email_em_uso', 'email_em_uso'],
+  ['perfil_incompleto', 'perfil_incompleto'],
+  ['autor_nao_pode_candidatar', 'autor_nao_pode_candidatar'],
+  ['candidatura_duplicada', 'candidatura_duplicada'],
+  ['trampo_nao_aberto', 'trampo_nao_aberto'],
+  ['candidatura_nao_pendente', 'candidatura_nao_pendente'],
+  ['conflito_de_versao', 'conflito_de_versao'],
+]);
+
 const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
 
 /**
@@ -97,8 +157,11 @@ const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
  * - `ErroDeRede` -> `sem_conexao`.
  * - 401 `credenciais_invalidas` -> `credenciais_invalidas`; outro 401 ->
  *   `sessao_expirada`.
- * - 409 `email_em_uso` -> `email_em_uso`; 429 -> `muitas_tentativas`; 404 ->
- *   `nao_encontrado`.
+ * - 409 com código conhecido (`email_em_uso`, `perfil_incompleto`,
+ *   `autor_nao_pode_candidatar`, `candidatura_duplicada`, `trampo_nao_aberto`,
+ *   `candidatura_nao_pendente`, `conflito_de_versao`) -> a chave de mesmo
+ *   nome em `geral`; outro 409 -> `erro_servidor`.
+ * - 429 -> `muitas_tentativas`; 404 -> `nao_encontrado`.
  * - 400 com campos conhecidos do `formulario` -> uma chave por campo;
  *   `habilidades.N` agrupa em `habilidades`.
  * - O resto (400 sem campo conhecido, 5xx, erro desconhecido) ->
@@ -130,10 +193,10 @@ export function chaveDoErro(
       };
     case 404:
       return { geral: 'nao_encontrado', campos: {} };
-    case 409:
-      return erro.codigo === 'email_em_uso'
-        ? { geral: 'email_em_uso', campos: {} }
-        : SERVIDOR;
+    case 409: {
+      const geral = CONFLITOS.get(erro.codigo);
+      return geral === undefined ? SERVIDOR : { geral, campos: {} };
+    }
     case 429:
       return { geral: 'muitas_tentativas', campos: {} };
     default:

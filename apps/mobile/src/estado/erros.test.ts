@@ -47,9 +47,15 @@ describe('chaveDoErro: erros gerais', () => {
     ['500', new ErroDaApi(500, 'erro_interno'), 'perfil', 'erro_servidor'],
     ['503', new ErroDaApi(503, ''), 'nenhum', 'erro_servidor'],
     [
-      '409 de outro código',
-      new ErroDaApi(409, 'conflito_de_versao'),
+      '409 de código desconhecido',
+      new ErroDaApi(409, 'outro_conflito'),
       'perfil',
+      'erro_servidor',
+    ],
+    [
+      '409 com nome de propriedade do Object',
+      new ErroDaApi(409, 'constructor'),
+      'trampo',
       'erro_servidor',
     ],
     ['403', new ErroDaApi(403, 'proibido'), 'nenhum', 'erro_servidor'],
@@ -222,9 +228,176 @@ describe('chaveDoErro: 400 com campos', () => {
   });
 });
 
+describe('chaveDoErro: 409 da 2b', () => {
+  const formularios: readonly Formulario[] = [
+    'trampo',
+    'servico',
+    'candidatura',
+    'nenhum',
+  ];
+
+  describe.each(formularios)('formulário %s', (formulario) => {
+    it.each([
+      ['perfil_incompleto'],
+      ['autor_nao_pode_candidatar'],
+      ['candidatura_duplicada'],
+      ['trampo_nao_aberto'],
+      ['candidatura_nao_pendente'],
+      ['conflito_de_versao'],
+    ] as const)('409 %s vira geral com a mesma chave', (codigo) => {
+      expect(chaveDoErro(new ErroDaApi(409, codigo), formulario)).toEqual({
+        geral: codigo,
+        campos: {},
+      });
+    });
+  });
+
+  it.each([
+    ['perfil_incompleto', textos.erros.perfil_incompleto],
+    [
+      'autor_nao_pode_candidatar',
+      'Você não pode se candidatar ao seu próprio trampo.',
+    ],
+    ['candidatura_duplicada', 'Você já se candidatou a este trampo.'],
+    ['trampo_nao_aberto', 'Este trampo não recebe mais candidaturas.'],
+    ['candidatura_nao_pendente', textos.erros.candidatura_nao_pendente],
+    ['conflito_de_versao', textos.erros.conflito_de_versao],
+  ])('mensagemDoErro traduz o 409 %s', (codigo, texto) => {
+    expect(mensagemDoErro(new ErroDaApi(409, codigo))).toBe(texto);
+  });
+
+  it('o 409 do e-mail continua valendo', () => {
+    expect(chaveDoErro(new ErroDaApi(409, 'email_em_uso'), 'cadastro')).toEqual(
+      { geral: 'email_em_uso', campos: {} },
+    );
+  });
+
+  it('erro de rede nos formulários novos vira sem_conexao', () => {
+    for (const formulario of formularios) {
+      expect(chaveDoErro(new ErroDeRede('falha'), formulario)).toEqual({
+        geral: 'sem_conexao',
+        campos: {},
+      });
+    }
+  });
+});
+
+describe('chaveDoErro: 400 dos formulários da 2b', () => {
+  const dadosInvalidos = (...itens: readonly ItemDeCampo[]) =>
+    new ErroDaApi(400, 'dados_invalidos', campos(...itens));
+
+  it.each([
+    ['trampo', 'titulo', 'obrigatorio', 'titulo_tamanho'],
+    ['trampo', 'titulo', 'tamanho', 'titulo_tamanho'],
+    ['trampo', 'titulo', 'invalido', 'titulo_tamanho'],
+    ['trampo', 'descricao', 'obrigatorio', 'descricao_trampo_obrigatoria'],
+    ['trampo', 'descricao', 'tamanho', 'descricao_anuncio_tamanho'],
+    ['trampo', 'descricao', 'invalido', 'descricao_anuncio_tamanho'],
+    ['trampo', 'categoria', 'obrigatorio', 'categoria_obrigatoria'],
+    ['trampo', 'categoria', 'invalido', 'categoria_obrigatoria'],
+    ['trampo', 'cidade', 'obrigatorio', 'cidade_anuncio_obrigatoria'],
+    ['trampo', 'cidade', 'tamanho', 'cidade_tamanho'],
+    ['trampo', 'cidade', 'invalido', 'cidade_tamanho'],
+    ['trampo', 'valorCentavos', 'obrigatorio', 'valor_invalido'],
+    ['trampo', 'valorCentavos', 'invalido', 'valor_invalido'],
+    ['trampo', 'prazo', 'invalido', 'prazo_invalido'],
+    ['servico', 'titulo', 'tamanho', 'titulo_tamanho'],
+    ['servico', 'descricao', 'obrigatorio', 'descricao_servico_obrigatoria'],
+    ['servico', 'descricao', 'tamanho', 'descricao_anuncio_tamanho'],
+    ['servico', 'categoria', 'invalido', 'categoria_obrigatoria'],
+    ['servico', 'cidade', 'tamanho', 'cidade_tamanho'],
+    ['servico', 'cidade', 'invalido', 'cidade_tamanho'],
+    ['servico', 'precoBaseCentavos', 'obrigatorio', 'valor_invalido'],
+    ['servico', 'precoBaseCentavos', 'invalido', 'valor_invalido'],
+    ['candidatura', 'mensagem', 'obrigatorio', 'mensagem_obrigatoria'],
+    ['candidatura', 'mensagem', 'tamanho', 'mensagem_tamanho'],
+    ['candidatura', 'mensagem', 'invalido', 'mensagem_tamanho'],
+    [
+      'candidatura',
+      'valorPropostoCentavos',
+      'obrigatorio',
+      'valor_proposto_invalido',
+    ],
+    [
+      'candidatura',
+      'valorPropostoCentavos',
+      'invalido',
+      'valor_proposto_invalido',
+    ],
+  ] as const)('%s: %s %s vira %s', (formulario, campo, motivo, chave) => {
+    expect(chaveDoErro(dadosInvalidos([campo, motivo]), formulario)).toEqual({
+      campos: { [campo]: chave },
+    });
+  });
+
+  it('devolve todos os campos do trampo de uma vez', () => {
+    expect(
+      chaveDoErro(
+        dadosInvalidos(
+          ['titulo', 'tamanho'],
+          ['descricao', 'obrigatorio'],
+          ['categoria', 'invalido'],
+          ['cidade', 'obrigatorio'],
+          ['valorCentavos', 'invalido'],
+          ['prazo', 'invalido'],
+        ),
+        'trampo',
+      ),
+    ).toEqual({
+      campos: {
+        titulo: 'titulo_tamanho',
+        descricao: 'descricao_trampo_obrigatoria',
+        categoria: 'categoria_obrigatoria',
+        cidade: 'cidade_anuncio_obrigatoria',
+        valorCentavos: 'valor_invalido',
+        prazo: 'prazo_invalido',
+      },
+    });
+  });
+
+  it('ignora campo que pertence a outro formulário', () => {
+    // `prazo` e `valorCentavos` não existem no serviço; `precoBaseCentavos`
+    // não existe no trampo; o 400 só com eles cai em erro_servidor.
+    expect(
+      chaveDoErro(dadosInvalidos(['prazo', 'invalido']), 'servico'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+    expect(
+      chaveDoErro(dadosInvalidos(['precoBaseCentavos', 'invalido']), 'trampo'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+    expect(
+      chaveDoErro(dadosInvalidos(['titulo', 'tamanho']), 'candidatura'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+    expect(
+      chaveDoErro(dadosInvalidos(['mensagem', 'tamanho']), 'trampo'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+  });
+
+  it('o perfil mantém os textos próprios de cidade e descrição', () => {
+    expect(
+      chaveDoErro(
+        dadosInvalidos(['cidade', 'obrigatorio'], ['descricao', 'tamanho']),
+        'perfil',
+      ),
+    ).toEqual({
+      campos: {
+        cidade: 'cidade_obrigatoria',
+        descricao: 'descricao_tamanho',
+      },
+    });
+  });
+});
+
 describe('chaveDoErro: CA15 (só chaves, nunca o que foi digitado)', () => {
   const chavesValidas = new Set(Object.keys(textos.erros));
-  const formularios: Formulario[] = ['entrar', 'cadastro', 'perfil', 'nenhum'];
+  const formularios: Formulario[] = [
+    'entrar',
+    'cadastro',
+    'perfil',
+    'trampo',
+    'servico',
+    'candidatura',
+    'nenhum',
+  ];
   const SEGREDO = 'maria.silva@exemplo.com senha-secreta-123';
 
   it('não inclui erro.message nem o código na resposta', () => {

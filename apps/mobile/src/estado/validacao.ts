@@ -1,5 +1,6 @@
 import type { EntradaDePerfil } from '../api/tipos';
 import type { ChaveDeErro } from '../textos/pt-BR';
+import { lerData, lerValorEmCentavos } from './formatacao';
 
 /**
  * Validação local dos formulários. Funções puras que espelham os limites da
@@ -18,6 +19,12 @@ export const LIMITES = Object.freeze({
   descricao: Object.freeze({ max: 300 }),
   habilidades: Object.freeze({ min: 1, max: 10 }),
   habilidade: Object.freeze({ min: 2, max: 30 }),
+  // 2b: anúncios e candidaturas (a cidade do anúncio usa `cidade`).
+  titulo: Object.freeze({ min: 5, max: 80 }),
+  descricaoDoAnuncio: Object.freeze({ min: 1, max: 2000 }),
+  mensagem: Object.freeze({ min: 1, max: 2000 }),
+  // Valores em centavos: maior que zero e dentro do `integer` do banco.
+  centavos: Object.freeze({ min: 1, max: 2147483647 }),
 });
 
 export type CampoDoPerfil = 'nome' | 'cidade' | 'descricao' | 'habilidades';
@@ -178,5 +185,187 @@ export function validarPerfil(
     erros.habilidades = habilidades;
   }
 
+  return erros;
+}
+
+/** Campos da API nos erros dos formulários da 2b (as chaves do corpo). */
+export type CampoDoTrampo =
+  | 'titulo'
+  | 'descricao'
+  | 'categoria'
+  | 'cidade'
+  | 'valorCentavos'
+  | 'prazo';
+export type CampoDoServico =
+  | 'titulo'
+  | 'descricao'
+  | 'categoria'
+  | 'cidade'
+  | 'precoBaseCentavos';
+export type CampoDaCandidatura = 'mensagem' | 'valorPropostoCentavos';
+
+/** O que a pessoa digitou no formulário de trampo (textos dos campos). */
+export interface ValoresDoTrampo {
+  readonly titulo: string;
+  readonly descricao: string;
+  /** Id da categoria escolhida; `null` = nenhuma. */
+  readonly categoria: string | null;
+  readonly cidade: string;
+  /** Texto do campo, como `1.500,00`. */
+  readonly valor: string;
+  /** Texto do campo (`dd/mm/aaaa`); em branco = sem prazo. */
+  readonly prazo: string;
+}
+
+export type ValoresDoServico = Omit<ValoresDoTrampo, 'prazo'>;
+
+export interface ValoresDaCandidatura {
+  readonly mensagem: string;
+  /** Texto do campo, como `150,00`. */
+  readonly valor: string;
+}
+
+function validarCategoria(categoria: string | null): ChaveDeErro | null {
+  return categoria === null || categoria.trim() === ''
+    ? 'categoria_obrigatoria'
+    : null;
+}
+
+/** Valor digitado em reais: maior que zero e até o teto do banco. */
+function validarValor(
+  texto: string,
+  invalido: ChaveDeErro,
+): ChaveDeErro | null {
+  const centavos = lerValorEmCentavos(texto);
+  if (centavos === null || centavos < LIMITES.centavos.min) {
+    return invalido;
+  }
+  return centavos > LIMITES.centavos.max ? 'valor_alto' : null;
+}
+
+function validarPrazo(texto: string): ChaveDeErro | null {
+  if (texto.trim() === '') {
+    return null;
+  }
+  return lerData(texto) === null ? 'prazo_invalido' : null;
+}
+
+/**
+ * Valida o formulário de trampo (CA5). Devolve um objeto vazio quando está
+ * válido; senão, uma chave de `textos.erros` por campo da API. Nunca devolve
+ * o que foi digitado.
+ */
+export function validarTrampo(
+  entrada: ValoresDoTrampo,
+): Partial<Record<CampoDoTrampo, ChaveDeErro>> {
+  const erros: Partial<Record<CampoDoTrampo, ChaveDeErro>> = {};
+  const trocar = (campo: CampoDoTrampo, chave: ChaveDeErro | null): void => {
+    if (chave !== null) {
+      erros[campo] = chave;
+    }
+  };
+
+  trocar(
+    'titulo',
+    validarTextoObrigatorio(
+      entrada.titulo,
+      LIMITES.titulo,
+      'titulo_tamanho',
+      'titulo_tamanho',
+    ),
+  );
+  trocar(
+    'descricao',
+    validarTextoObrigatorio(
+      entrada.descricao,
+      LIMITES.descricaoDoAnuncio,
+      'descricao_trampo_obrigatoria',
+      'descricao_anuncio_tamanho',
+    ),
+  );
+  trocar('categoria', validarCategoria(entrada.categoria));
+  trocar(
+    'cidade',
+    validarTextoObrigatorio(
+      entrada.cidade,
+      LIMITES.cidade,
+      'cidade_anuncio_obrigatoria',
+      'cidade_tamanho',
+    ),
+  );
+  trocar('valorCentavos', validarValor(entrada.valor, 'valor_invalido'));
+  trocar('prazo', validarPrazo(entrada.prazo));
+  return erros;
+}
+
+/**
+ * Valida o formulário de serviço (CA6). A cidade é opcional: em branco vale
+ * (sem cidade); preenchida, segue os limites da API.
+ */
+export function validarServico(
+  entrada: ValoresDoServico,
+): Partial<Record<CampoDoServico, ChaveDeErro>> {
+  const erros: Partial<Record<CampoDoServico, ChaveDeErro>> = {};
+  const trocar = (campo: CampoDoServico, chave: ChaveDeErro | null): void => {
+    if (chave !== null) {
+      erros[campo] = chave;
+    }
+  };
+
+  trocar(
+    'titulo',
+    validarTextoObrigatorio(
+      entrada.titulo,
+      LIMITES.titulo,
+      'titulo_tamanho',
+      'titulo_tamanho',
+    ),
+  );
+  trocar(
+    'descricao',
+    validarTextoObrigatorio(
+      entrada.descricao,
+      LIMITES.descricaoDoAnuncio,
+      'descricao_servico_obrigatoria',
+      'descricao_anuncio_tamanho',
+    ),
+  );
+  trocar('categoria', validarCategoria(entrada.categoria));
+  if (entrada.cidade.trim() !== '') {
+    const cidade = validarTextoObrigatorio(
+      entrada.cidade,
+      LIMITES.cidade,
+      'cidade_tamanho',
+      'cidade_tamanho',
+    );
+    // Como a API: cidade só de marcas combinantes some ao normalizar.
+    trocar(
+      'cidade',
+      cidade ??
+        (normalizarHabilidade(entrada.cidade) === '' ? 'cidade_tamanho' : null),
+    );
+  }
+  trocar('precoBaseCentavos', validarValor(entrada.valor, 'valor_invalido'));
+  return erros;
+}
+
+/** Valida a folha Candidatar-se (CA8): mensagem e valor proposto. */
+export function validarCandidatura(
+  entrada: ValoresDaCandidatura,
+): Partial<Record<CampoDaCandidatura, ChaveDeErro>> {
+  const erros: Partial<Record<CampoDaCandidatura, ChaveDeErro>> = {};
+  const mensagem = validarTextoObrigatorio(
+    entrada.mensagem,
+    LIMITES.mensagem,
+    'mensagem_obrigatoria',
+    'mensagem_tamanho',
+  );
+  if (mensagem !== null) {
+    erros.mensagem = mensagem;
+  }
+  const valor = validarValor(entrada.valor, 'valor_proposto_invalido');
+  if (valor !== null) {
+    erros.valorPropostoCentavos = valor;
+  }
   return erros;
 }

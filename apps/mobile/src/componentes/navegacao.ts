@@ -6,12 +6,13 @@ import type { NomeDeIcone } from './utilitarios';
 
 /** Opções visuais para a etapa 11 espalhar em `Tabs`/`Stack` (sem importar o expo-router). */
 
-export type RotaDeAba = 'inicio' | 'buscar' | 'perfil';
+export type RotaDeAba = 'inicio' | 'buscar' | 'publicar' | 'perfil';
 
 const icones: Record<RotaDeAba, { ativo: NomeDeIcone; inativo: NomeDeIcone }> =
   {
     inicio: { ativo: 'home', inativo: 'home-outline' },
     buscar: { ativo: 'search', inativo: 'search-outline' },
+    publicar: { ativo: 'add-circle', inativo: 'add-circle-outline' },
     perfil: { ativo: 'person', inativo: 'person-outline' },
   };
 

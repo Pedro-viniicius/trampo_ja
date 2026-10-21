@@ -136,3 +136,69 @@ export interface Servico {
   /** ISO 8601. */
   readonly criadoEm: string;
 }
+
+/**
+ * Resposta de criação (`201`): `POST /trampos` (`aberto`), `POST /servicos`
+ * (`ativo`) e `POST /trampos/:id/candidaturas` (`pendente`).
+ */
+export interface Criado<TStatus extends string = string> {
+  readonly id: string;
+  readonly status: TStatus;
+}
+
+/**
+ * Corpo de `POST /trampos`. Valor em centavos. `prazo` (`YYYY-MM-DD`) é
+ * opcional: `undefined`, `null` ou em branco não vai no corpo.
+ */
+export interface EntradaDeTrampo {
+  readonly titulo: string;
+  readonly descricao: string;
+  /** Id da categoria (`Categoria.id`). */
+  readonly categoria: string;
+  readonly cidade: string;
+  readonly valorCentavos: number;
+  readonly prazo?: string | null;
+}
+
+/**
+ * Corpo de `POST /servicos`. Preço em centavos. `cidade` é opcional (D7):
+ * `undefined`, `null` ou em branco não vai no corpo.
+ */
+export interface EntradaDeServico {
+  readonly titulo: string;
+  readonly descricao: string;
+  /** Id da categoria (`Categoria.id`). */
+  readonly categoria: string;
+  readonly cidade?: string | null;
+  readonly precoBaseCentavos: number;
+}
+
+export type StatusDaCandidatura = 'pendente' | 'aceita' | 'recusada';
+
+/** Corpo de `POST /trampos/:id/candidaturas`. Valor em centavos. */
+export interface EntradaDeCandidatura {
+  readonly mensagem: string;
+  readonly valorPropostoCentavos: number;
+}
+
+/** Item de `GET /trampos/:id/candidaturas` (só o autor do trampo vê). */
+export interface CandidaturaRecebida {
+  readonly id: string;
+  /** Id da conta de quem se candidatou (`GET /perfis/:contaId`). */
+  readonly freelancerId: string;
+  readonly mensagem: string;
+  readonly valorPropostoCentavos: number;
+  readonly status: StatusDaCandidatura;
+  /** ISO 8601. */
+  readonly criadaEm: string;
+}
+
+/** Item de `GET /candidaturas/minhas`: a candidatura e o trampo dela. */
+export type MinhaCandidatura = CandidaturaRecebida & {
+  readonly trampoId: string;
+};
+
+/** Resposta de `POST /trampos/:id/candidaturas/:cid/aceitar`. */
+export interface ResultadoDoAceite {
+  readonly status: 'aceita';
+}

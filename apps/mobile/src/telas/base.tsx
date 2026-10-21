@@ -1,13 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
   type ComponentRef,
+  createContext,
   type ReactNode,
   type RefObject,
+  useContext,
   useEffect,
   useRef,
   useState,
 } from 'react';
 import {
+  AccessibilityInfo,
+  findNodeHandle,
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
@@ -41,7 +45,50 @@ import type { Estado } from './tipos';
 
 export const LINHAS_DA_DESCRICAO = 5;
 
-export type RefDeCampo = RefObject<ComponentRef<typeof TextInput> | null>;
+/** Alvo de foco: `TextInput` (campo) ou `View`/`Pressable` (seletor, botão). */
+export type RefDeCampo = RefObject<
+  ComponentRef<typeof TextInput> | ComponentRef<typeof View> | null
+>;
+
+type RefDaRolagem = RefObject<ComponentRef<typeof ScrollView> | null>;
+
+/** A rolagem da tela, para levar o foco e os avisos à vista. */
+const ContextoDeRolagem = createContext<RefDaRolagem | null>(null);
+
+type AlvoMedivel = {
+  focus?: () => void;
+  isFocused?: () => boolean;
+  measureLayout?: (
+    relativoA: unknown,
+    aoMedir: (x: number, y: number) => void,
+    aoFalhar: () => void,
+  ) => void;
+};
+
+/** Rola até o alvo ficar à vista, sem animação (respeita "reduzir movimento"). */
+export function rolarAteOAlvo(rolagem: RefDaRolagem | null, alvo: unknown) {
+  const rolavel = rolagem?.current as
+    | (ComponentRef<typeof ScrollView> & {
+        getInnerViewRef?: () => unknown;
+      })
+    | null
+    | undefined;
+  const medivel = alvo as AlvoMedivel | null;
+  const interno = rolavel?.getInnerViewRef?.();
+  if (!rolavel || !interno || typeof medivel?.measureLayout !== 'function') {
+    return;
+  }
+  try {
+    medivel.measureLayout(
+      interno,
+      (_x, y) =>
+        rolavel.scrollTo({ y: Math.max(0, y - espaco[6]), animated: false }),
+      () => {},
+    );
+  } catch {
+    // Alvo fora desta rolagem (ex.: dentro de uma folha): o foco já basta.
+  }
+}
 
 /** Fundo da tela; o conteúdo é centralizado com largura máxima em telas largas. */
 export function Pagina({ children }: { children: ReactNode }) {
@@ -80,6 +127,9 @@ export function Rolavel({
   rodape,
   children,
   acima,
+  scrollRef,
+  sobreposicao,
+  aoMedirRodape,
 }: {
   titulo: string;
   onVoltar?: () => void;
@@ -87,19 +137,55 @@ export function Rolavel({
   rodape?: ReactNode;
   children: ReactNode;
   acima?: ReactNode;
+  /** Ref da rolagem, para a tela rolar até um aviso. */
+  scrollRef?: RefDaRolagem;
+  /** Conteúdo sobreposto à tela (ex.: toast), fora do rodapé. */
+  sobreposicao?: ReactNode;
+  /** Recebe a altura do rodapé fixo (para o toast não cobri-lo). */
+  aoMedirRodape?: (altura: number) => void;
 }) {
+  const propria = useRef<ComponentRef<typeof ScrollView>>(null);
+  const rolagem = scrollRef ?? propria;
+  const [alturaDoRodape, setAlturaDoRodape] = useState(0);
   return (
     <Pagina>
       <Cabecalho titulo={titulo} onVoltar={onVoltar} />
       {semConexao ? <FaixaSemConexao /> : null}
       {acima}
       <ScrollView
+        ref={rolagem}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ alignItems: 'center' }}
       >
-        <Coluna>{children}</Coluna>
+        <ContextoDeRolagem.Provider value={rolagem}>
+          <Coluna>{children}</Coluna>
+        </ContextoDeRolagem.Provider>
       </ScrollView>
-      {rodape ? <RodapeFixo>{rodape}</RodapeFixo> : null}
+      {rodape ? (
+        <RodapeFixo
+          aoMedir={(altura) => {
+            setAlturaDoRodape(altura);
+            aoMedirRodape?.(altura);
+          }}
+        >
+          {rodape}
+        </RodapeFixo>
+      ) : null}
+      {sobreposicao ? (
+        // Cobre só a área acima do rodapé: o toast nunca tapa o botão.
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: rodape ? alturaDoRodape : 0,
+          }}
+        >
+          {sobreposicao}
+        </View>
+      ) : null}
     </Pagina>
   );
 }
@@ -121,16 +207,20 @@ export function Formulario({
   aoMedirRodape?: (altura: number) => void;
   children: ReactNode;
 }) {
+  const rolagem = useRef<ComponentRef<typeof ScrollView>>(null);
   return (
     <Pagina>
       <Cabecalho titulo={titulo} onVoltar={onVoltar} />
       {semConexao ? <FaixaSemConexao /> : null}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
+          ref={rolagem}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ alignItems: 'center' }}
         >
-          <Coluna>{children}</Coluna>
+          <ContextoDeRolagem.Provider value={rolagem}>
+            <Coluna>{children}</Coluna>
+          </ContextoDeRolagem.Provider>
         </ScrollView>
         <RodapeFixo aoMedir={aoMedirRodape}>{rodape}</RodapeFixo>
       </KeyboardAvoidingView>
@@ -173,18 +263,35 @@ export function RodapeFixo({
 
 /**
  * Leva o foco ao primeiro campo com erro quando o conjunto de erros muda
- * (o leitor de tela anuncia o erro pelo próprio campo).
+ * ou quando o envio é recusado de novo (`tentativa` muda), e rola até ele.
+ * O leitor de tela anuncia o erro pelo próprio campo. Aceita `TextInput`
+ * (`focus()`) e `View`/`Pressable` (foco de acessibilidade).
  */
 export function useFocarPrimeiroErro(
   campos: readonly { ref: RefDeCampo; erro?: string }[],
+  tentativa?: number,
 ): void {
   const recentes = useRef(campos);
   recentes.current = campos;
-  const chave = campos.map((campo) => campo.erro ?? '').join('|');
+  const rolagem = useContext(ContextoDeRolagem);
+  const chave = `${tentativa ?? 0}#${campos.map((campo) => campo.erro ?? '').join('|')}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `chave` resume os erros; os refs são lidos de `recentes`.
   useEffect(() => {
     const primeiro = recentes.current.find((campo) => campo.erro);
-    primeiro?.ref.current?.focus();
+    const alvo = primeiro?.ref.current as AlvoMedivel | null | undefined;
+    if (!alvo) return;
+    // Só `TextInput` tem `isFocused`; o ref de `View`/`Pressable` também tem `focus()`,
+    // mas ele não move o foco do leitor de tela (R10).
+    if (
+      typeof alvo.isFocused === 'function' &&
+      typeof alvo.focus === 'function'
+    ) {
+      alvo.focus();
+    } else {
+      const no = findNodeHandle(alvo as never);
+      if (no) AccessibilityInfo.setAccessibilityFocus(no);
+    }
+    rolarAteOAlvo(rolagem, alvo);
   }, [chave]);
 }
 

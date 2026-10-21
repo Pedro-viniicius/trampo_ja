@@ -5,20 +5,13 @@ import { useCategorias, useRecentes } from '../../../estado/consultas/busca';
 import { useMeuPerfil } from '../../../estado/consultas/perfil';
 import { mensagemDoErro } from '../../../estado/erros';
 import { paraItemParaExibir } from '../../../estado/item-para-exibir';
+import { CAMPOS_DO_PERFIL_NOVO } from '../../../estado/perfil-incompleto';
 import { Inicio } from '../../../telas/Inicio';
 import type {
   Estado,
   ItemParaExibir,
   TipoDeAnuncio,
 } from '../../../telas/tipos';
-import { textos } from '../../../textos/pt-BR';
-
-/** Campos que faltam quando a API ainda não tem perfil (404): todos os obrigatórios. */
-const CAMPOS_DO_PERFIL_NOVO = [
-  textos.perfil.camposNome,
-  textos.perfil.camposCidade,
-  textos.perfil.camposHabilidades,
-];
 
 /**
  * Cada "Ver todos" leva um número novo na URL (`pedido`): a Buscar reaplica
@@ -107,6 +100,9 @@ export default function InicioRota() {
       onCompletarPerfil={() =>
         router.push({ pathname: '/perfil/editar', params: { completar: '1' } })
       }
+      onPublicarTrampo={() => router.push('/trampos/novo')}
+      onOfertarServico={() => router.push('/servicos/novo')}
+      onMinhasCandidaturas={() => router.push('/candidaturas')}
     />
   );
 }

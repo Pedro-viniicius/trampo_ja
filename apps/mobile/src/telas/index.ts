@@ -1,10 +1,16 @@
 export { Buscar } from './Buscar';
 export { Cadastro } from './Cadastro';
+export { CandidaturasRecebidas } from './CandidaturasRecebidas';
 export { DetalheDoServico } from './DetalheDoServico';
 export { DetalheDoTrampo } from './DetalheDoTrampo';
 export { EditarPerfil } from './EditarPerfil';
 export { Entrada } from './Entrada';
 export { Entrar } from './Entrar';
+export { EscolhaDePublicacao } from './EscolhaDePublicacao';
+export { FormularioDeAnuncio } from './FormularioDeAnuncio';
 export { Inicio } from './Inicio';
+export { MeusAnuncios } from './MeusAnuncios';
+export { MinhasCandidaturas } from './MinhasCandidaturas';
 export { Perfil } from './Perfil';
+export { RodapeDoTrampo } from './RodapeDoTrampo';
 export type * from './tipos';

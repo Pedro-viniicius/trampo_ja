@@ -111,8 +111,13 @@ describe('detalhe do trampo', () => {
     expect(screen.getByText('15/11/2026')).toBeOnTheScreen();
     expect(await screen.findByText('Pintura e reparos')).toBeOnTheScreen();
     expect(await screen.findByText('Carla Souza')).toBeOnTheScreen();
-    // O rodapé da 2a fica vazio: nada de candidatar-se.
-    expect(screen.queryByText(textos.detalheTrampo.candidatar)).toBeNull();
+    // O fake responde 404 às listas de candidaturas (contam como vazias):
+    // a situação é "candidatar" e o rodapé oferece o botão.
+    expect(
+      await screen.findByRole('button', {
+        name: textos.detalheTrampo.candidatar,
+      }),
+    ).toBeOnTheScreen();
 
     await fireEvent.press(screen.getByText('Carla Souza'));
     await waitFor(() => expect(screen).toHavePathname('/perfis/c1'));
