@@ -4,6 +4,7 @@ import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Avatar } from './Avatar';
 import { Botao } from './Botao';
+import { Motivo } from './Motivo';
 import { Selo, type VarianteDoSelo } from './Selo';
 import { estiloDeFoco, useFoco } from './utilitarios';
 
@@ -42,6 +43,10 @@ export type PropsDoCartaoDeCandidatura = {
   onVerPerfil: () => void;
   /** Só aparece se for passado. */
   onConversar?: () => void;
+  /** Abertura da conversa em andamento: "Conversar" desabilitado, com "Abrindo…". */
+  abrindoConversa?: boolean;
+  /** Por que o "Conversar" está desabilitado; aparece abaixo do botão. */
+  motivoDaConversa?: string | null;
 };
 
 export function CartaoDeCandidatura({
@@ -57,6 +62,8 @@ export function CartaoDeCandidatura({
   onAceitar,
   onVerPerfil,
   onConversar,
+  abrindoConversa = false,
+  motivoDaConversa = null,
 }: PropsDoCartaoDeCandidatura) {
   const [linhas, setLinhas] = useState<number | null>(null);
   const [expandida, setExpandida] = useState(false);
@@ -182,9 +189,6 @@ export function CartaoDeCandidatura({
             rotuloDeAcessibilidade={textos.candidaturasRecebidas.aceitarDe(
               nome,
             )}
-            accessibilityHint={
-              aceiteDesabilitado && !aceitando ? motivoDoAceite : undefined
-            }
             textoCarregando={textos.candidaturasRecebidas.aceitando}
             carregando={aceitando}
             desabilitado={aceiteDesabilitado && !aceitando}
@@ -192,15 +196,7 @@ export function CartaoDeCandidatura({
           />
         ) : null}
         {podeAceitar && aceiteDesabilitado && !aceitando && motivoDoAceite ? (
-          <Text
-            style={{
-              color: cores.textoSecundario,
-              fontSize: tipografia.tamanho.rotulo,
-              lineHeight: tipografia.lineHeight.rotulo,
-            }}
-          >
-            {motivoDoAceite}
-          </Text>
+          <Motivo texto={motivoDoAceite} />
         ) : null}
         <Botao
           texto={textos.candidaturasRecebidas.verPerfil(nome)}
@@ -214,8 +210,15 @@ export function CartaoDeCandidatura({
               nome,
             )}
             variante="secundario"
+            desabilitado={!!motivoDaConversa}
+            accessibilityHint={motivoDaConversa ?? undefined}
+            carregando={abrindoConversa}
+            textoCarregando={textos.conversas.abrindo}
             onPress={onConversar}
           />
+        ) : null}
+        {onConversar && motivoDaConversa ? (
+          <Motivo texto={motivoDaConversa} />
         ) : null}
       </View>
     </View>

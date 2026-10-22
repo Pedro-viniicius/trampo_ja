@@ -85,4 +85,31 @@ describe('CartaoDeCandidatura', () => {
       }),
     ).toBeNull();
   });
+
+  it('motivo da conversa desabilita "Conversar" e mostra o texto', async () => {
+    const dados = props({
+      onConversar: jest.fn(),
+      motivoDaConversa: 'motivo-sentinela',
+    });
+    await render(<CartaoDeCandidatura {...dados} />);
+    expect(screen.getByText('motivo-sentinela')).toBeOnTheScreen();
+    const botao = screen.getByRole('button', {
+      name: textos.candidaturasRecebidas.conversarCom('Maria Souza'),
+    });
+    expect(botao).toBeDisabled();
+    await fireEvent.press(botao);
+    expect(dados.onConversar).not.toHaveBeenCalled();
+  });
+
+  it('sem motivo, "Conversar" fica habilitado e sem texto extra', async () => {
+    await render(
+      <CartaoDeCandidatura {...props({ onConversar: jest.fn() })} />,
+    );
+    expect(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.conversarCom('Maria Souza'),
+      }),
+    ).toBeEnabled();
+    expect(screen.queryByText('motivo-sentinela')).toBeNull();
+  });
 });

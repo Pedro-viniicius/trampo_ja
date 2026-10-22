@@ -44,4 +44,11 @@ export const chaves = {
   /** `GET /trampos/:id/candidaturas`: só o autor do trampo vê. */
   candidaturasRecebidas: (trampoId: string) =>
     ['candidaturasRecebidas', trampoId] as const,
+  /** `GET /conversas`: as conversas da conta da sessão. */
+  conversas: () => ['conversas'] as const,
+  /**
+   * `GET /conversas/:id/mensagens`, acumuladas pelo polling incremental de
+   * `useMensagens` (o único que escreve nesta chave).
+   */
+  mensagens: (conversaId: string) => ['mensagens', conversaId] as const,
 };

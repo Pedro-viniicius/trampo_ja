@@ -1,5 +1,9 @@
 export { Avatar, type PropsDoAvatar } from './Avatar';
 export { Aviso, type PropsDoAviso, type VarianteDoAviso } from './Aviso';
+export {
+  BolhaDeMensagem,
+  type PropsDaBolhaDeMensagem,
+} from './BolhaDeMensagem';
 export { Botao, type PropsDoBotao, type VarianteDoBotao } from './Botao';
 export { Cabecalho, type PropsDoCabecalho } from './Cabecalho';
 export {
@@ -35,6 +39,7 @@ export {
 } from './FaixaSemConexao';
 export { FolhaInferior, type PropsDaFolhaInferior } from './FolhaInferior';
 export { Logo, type PropsDaLogo } from './Logo';
+export { Motivo, type PropsDoMotivo } from './Motivo';
 export {
   opcoesDaAba,
   opcoesDaBarraDeAbas,

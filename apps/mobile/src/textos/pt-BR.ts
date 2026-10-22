@@ -1,4 +1,4 @@
-/** Textos da interface (pt-BR), por tela. Entregas 2a e 2b (as conversas entram na 2c). */
+/** Textos da interface (pt-BR), por tela. Entregas 2a, 2b e 2c. */
 
 const plural = (n: number, um: string, varios: string): string =>
   n === 1 ? um : varios;
@@ -13,6 +13,7 @@ export const textos = {
     inicio: 'Início',
     buscar: 'Buscar',
     publicar: 'Publicar',
+    conversas: 'Conversas',
     perfil: 'Perfil',
   },
   gerais: {
@@ -121,6 +122,51 @@ export const textos = {
     conversar: 'Conversar',
     semRelacao:
       'Você só pode conversar com quem tem uma candidatura ou contratação com você.',
+  },
+  conversas: {
+    titulo: 'Conversas',
+    vazio: 'Nenhuma conversa ainda',
+    vazioTexto:
+      'Suas conversas aparecem aqui depois de uma candidatura ou contratação.',
+    previaVazia: 'Nenhuma mensagem ainda',
+    perfilIndisponivel: 'Perfil indisponível',
+    abrindo: 'Abrindo…',
+    semConexaoParaConversar: 'Sem conexão. Conecte-se para conversar.',
+    abrirConversaCom: (nome: string | null): string =>
+      nome ? `Abrir conversa com ${nome}` : 'Abrir conversa com esta pessoa',
+    /** Rótulo falado da linha da lista: quem, última mensagem e hora. */
+    linhaDaLista: (
+      nome: string | null,
+      previa: string | null,
+      hora: string,
+    ): string =>
+      `${nome ? `Abrir conversa com ${nome}` : 'Abrir conversa com esta pessoa'}. ${
+        previa
+          ? `Última mensagem: ${previa}, ${hora}`
+          : 'Nenhuma mensagem ainda'
+      }`,
+    // Tela da conversa.
+    campo: 'Escreva uma mensagem',
+    enviar: 'Enviar',
+    semMensagens: 'Nenhuma mensagem ainda. Que tal começar?',
+    semConexaoNoCampo:
+      'Sem conexão. Sua mensagem fica aqui até a conexão voltar.',
+    atualizacaoFalhando:
+      'Não foi possível atualizar a conversa. Tentando de novo.',
+    indisponivelTitulo: 'Conversa indisponível',
+    indisponivelTexto: 'Esta conversa não existe ou você não tem acesso a ela.',
+    // Bolhas.
+    naoEnviada: 'Não enviada. Toque para tentar de novo.',
+    dicaTentarDeNovo: 'Toque para tentar de novo',
+    novaMensagemDe: (nome: string | null): string =>
+      `Nova mensagem de ${nome ?? 'outra pessoa'}`,
+    rotuloEnviando: 'Enviando',
+    rotuloNaoEnviada: 'Não enviada',
+    deNome: (nome: string | null, hora: string | null): string => {
+      const quem = nome ?? 'Outra pessoa';
+      return hora ? `${quem}, ${hora}` : quem;
+    },
+    minha: (hora: string | null): string => (hora ? `Você, ${hora}` : 'Você'),
   },
   perfil: {
     titulo: 'Perfil',
@@ -338,6 +384,10 @@ export const textos = {
       'Esta candidatura já foi respondida. Atualizamos a lista para você.',
     conflito_de_versao:
       'Algo mudou enquanto você agia. Atualizamos a lista; tente de novo.',
+    sem_vinculo:
+      'Você só pode conversar com quem tem uma candidatura ou contratação com você.',
+    conversa_consigo_mesmo:
+      'Este anúncio é seu. Não dá para conversar com você mesmo.',
   },
 } as const;
 

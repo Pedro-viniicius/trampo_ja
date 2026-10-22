@@ -142,19 +142,33 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/` | `(app)/(abas)/index.tsx` | aba Início: saudação, recentes e atalhos (Publicar trampo, Ofertar serviço, Minhas candidaturas) |
 | `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar |
 | `/publicar` | `(app)/(abas)/publicar.tsx` | aba Publicar: escolha entre publicar trampo e ofertar serviço |
+| `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas: nome do outro, prévia de uma linha e hora, última atividade primeiro |
 | `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil, com os atalhos Minhas candidaturas, Meus trampos e Meus serviços |
 | `/perfil/editar` | `(app)/perfil/editar.tsx` | editar ou completar o perfil |
 | `/perfis/:contaId` | `(app)/perfis/[contaId].tsx` | perfil público |
 | `/trampos/novo` | `(app)/trampos/novo.tsx` | formulário Publicar trampo (a confirmação é estado da tela) |
 | `/servicos/novo` | `(app)/servicos/novo.tsx` | formulário Ofertar serviço |
-| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura ou Ver candidaturas (n) |
-| `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço |
+| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura com Conversar ou Ver candidaturas (n) |
+| `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço, com Conversar para quem não é o autor |
 | `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas |
-| `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite (só quem publicou vê; para os demais a API responde 404) |
+| `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
+| `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
 | `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`) |
 
-As abas são Início, Buscar, Publicar e Perfil; os formulários e as listas ficam na pilha `(app)`, sem a barra de
-abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão na URL.
+As abas são Início, Buscar, Publicar, Conversas e Perfil; os formulários, as listas e a conversa ficam na pilha
+`(app)`, sem a barra de abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão
+na URL.
+
+Conversar (D22, D23) aparece em três pontos de entrada: no rodapé do detalhe do trampo, para quem se candidatou
+(com o autor); no detalhe do serviço, para quem não é o autor; e em cada candidatura recebida, em qualquer status
+(com quem se candidatou). O toque faz `POST /conversas` e abre `/conversas/:id`. Quem decide o vínculo é a API:
+o 403 `sem_vinculo` mostra "Você só pode conversar com quem tem uma candidatura ou contratação com você." e o 409
+`conversa_consigo_mesmo` mostra o seu texto; nos dois casos, o "Conversar" daquela conta fica desabilitado, com o
+texto, até a tela ser aberta outra vez. Sem conexão, o botão fica desabilitado com o motivo.
+
+Na conversa, as mensagens chegam por consulta periódica (D20): a cada 5 s, até 60 s depois de falhas seguidas de
+rede ou 5xx, e param no 404 (ou outro 4xx) e no 401. A lista da aba Conversas recarrega a cada 30 s, só com a aba
+focada.
 
 Link que chega do sistema (deep link) passa antes por `src/app/+native-intent.tsx`: acima de 2 KB ou com escape `%`
 malformado, o app abre o Início em vez de tentar interpretá-lo.
@@ -172,11 +186,18 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
   - 2b, com duas contas: publicar trampo (400 por campo e 201), ofertar serviço (queda de rede no envio e 201),
     Meus trampos e Meus serviços, candidatar-se (409 `autor_nao_pode_candidatar`, `perfil_incompleto`,
     `candidatura_duplicada`, queda de rede e 201), Minhas candidaturas, 401 com volta ao login, Candidaturas
-    recebidas com o nome dos candidatos e o aceite (200, `trampo_nao_aberto` e `conflito_de_versao`).
+    recebidas com o nome dos candidatos e o aceite (200, `trampo_nao_aberto` e `conflito_de_versao`);
+  - 2c, com as mesmas duas contas: a lista de conversas, abrir conversa (200, 403 `sem_vinculo` e 409
+    `conversa_consigo_mesmo`), enviar mensagem (201, queda de rede com novo toque e 404), a consulta periódica
+    com 500 e com 401, e a conversa vista pela outra conta depois do login.
 
   O teste falha se aparecer, em texto puro, em maiúsculas ou codificado para URL, e-mail, senha, nome, cidade,
   habilidade, texto da busca, token, título, descrição, cidade do anúncio, mensagem da candidatura, nome de
-  candidato ou valor digitado (como `9.876,54`, e também em centavos). O mesmo arquivo falha se
+  candidato, valor digitado (como `9.876,54`, e também em centavos), texto de mensagem enviada ou recebida, prévia
+  de conversa ou nome de quem está do outro lado. Na jornada 2c, essas sentinelas também não podem aparecer em
+  `testID`, em chave de lista, em propriedade da árvore renderizada que não seja texto da tela, na URL nem nos
+  parâmetros de rota, na URL das requisições nem em erro guardado pelo cache de consultas ou de mutações. O mesmo
+  arquivo falha se
   `apps/mobile/package.json` ganhar dependência de AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment,
   Amplitude ou Mixpanel.
 - O que fica em memória nos fluxos da 2b (nada vai para disco):
@@ -195,6 +216,20 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
       5 min e nunca entram em texto de erro; perfil 404 aparece como "Perfil indisponível".
   - **Saída e expiração.** Sair da conta ou ter a sessão expirada limpa os dois caches (`queryClient.clear()`).
     Uma mutação que termine depois disso não grava nada no cache novo (`Sessao.geracao()`).
+- O que fica em memória nas conversas (2c; nada vai para disco):
+  - **Mensagens.** A lista de conversas (com a prévia da última mensagem) e as mensagens de cada conversa ficam no
+    cache de consultas do TanStack, em memória, com teto de 500 mensagens por conversa (as mais antigas saem do
+    cache; D24). Saem 5 min depois que nenhuma tela as usa e são limpas ao sair da conta ou quando a sessão expira
+    (`queryClient.clear()`; uma busca que ainda estava no ar é descartada).
+  - **Pendentes e rascunho.** A mensagem em envio (relógio ou "Não enviada") e o texto do campo ficam só no estado
+    do componente da tela da conversa e somem quando ela fecha. O envio não usa fila: sem conexão, nada sai, e o
+    reenvio só acontece por toque, depois de buscar as mensagens novas. O texto enviado fica como `variables` da
+    mutação só enquanto a tela está aberta (`gcTime: 0`).
+  - **Consulta periódica.** As mensagens só são buscadas com a tela da conversa focada e o app ativo: param com o
+    app em segundo plano, sem rede, com outra tela por cima, no 404 e no 401. A lista recarrega por tempo só com a
+    aba Conversas focada; com a conversa aberta, não.
+  - **Rota.** `/conversas/:id` leva só o `conversaId`. O id da outra conta vai só no corpo de `POST /conversas`, e
+    o texto da mensagem, só no corpo de `POST /conversas/:id/mensagens`.
 - Opcional: `EXPO_NO_TELEMETRY=1` no shell desliga a coleta de uso do CLI do Expo (`expo start`, `expo export`).
   Isso vale para a máquina de desenvolvimento; o app em si não envia nada.
 

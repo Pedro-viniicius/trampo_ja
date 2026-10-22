@@ -282,6 +282,68 @@ describe('chaveDoErro: 409 da 2b', () => {
   });
 });
 
+describe('chaveDoErro: conversas (2c)', () => {
+  const formularios: readonly Formulario[] = ['nenhum', 'candidatura'];
+
+  describe.each(formularios)('formulário %s', (formulario) => {
+    it('403 sem_vinculo vira a chave sem_vinculo', () => {
+      expect(
+        chaveDoErro(new ErroDaApi(403, 'sem_vinculo'), formulario),
+      ).toEqual({ geral: 'sem_vinculo', campos: {} });
+    });
+
+    it.each([
+      ['outro código', 'proibido'],
+      ['sem código', ''],
+      ['código parecido', 'sem_vinculo_x'],
+      ['nome de propriedade do Object', 'constructor'],
+    ])('403 com %s continua erro_servidor', (_nome, codigo) => {
+      expect(chaveDoErro(new ErroDaApi(403, codigo), formulario)).toEqual({
+        geral: 'erro_servidor',
+        campos: {},
+      });
+    });
+
+    it('409 conversa_consigo_mesmo vira geral com a mesma chave', () => {
+      expect(
+        chaveDoErro(new ErroDaApi(409, 'conversa_consigo_mesmo'), formulario),
+      ).toEqual({ geral: 'conversa_consigo_mesmo', campos: {} });
+    });
+  });
+
+  it('sem_vinculo só vale no 403', () => {
+    expect(chaveDoErro(new ErroDaApi(409, 'sem_vinculo'), 'nenhum')).toEqual({
+      geral: 'erro_servidor',
+      campos: {},
+    });
+    expect(chaveDoErro(new ErroDaApi(400, 'sem_vinculo'), 'nenhum')).toEqual({
+      geral: 'erro_servidor',
+      campos: {},
+    });
+  });
+
+  it('mensagemDoErro do 403 sem_vinculo é o texto literal do CA13 (D4)', () => {
+    expect(mensagemDoErro(new ErroDaApi(403, 'sem_vinculo'))).toBe(
+      'Você só pode conversar com quem tem uma candidatura ou contratação com você.',
+    );
+    expect(mensagemDoErro(new ErroDaApi(403, 'sem_vinculo'))).toBe(
+      textos.detalheServico.semRelacao,
+    );
+  });
+
+  it('mensagemDoErro traduz o 409 conversa_consigo_mesmo', () => {
+    expect(mensagemDoErro(new ErroDaApi(409, 'conversa_consigo_mesmo'))).toBe(
+      textos.erros.conversa_consigo_mesmo,
+    );
+  });
+
+  it('mensagemDoErro de outro 403 é o erro do servidor', () => {
+    expect(mensagemDoErro(new ErroDaApi(403, 'proibido'))).toBe(
+      textos.erros.erro_servidor,
+    );
+  });
+});
+
 describe('chaveDoErro: 400 dos formulários da 2b', () => {
   const dadosInvalidos = (...itens: readonly ItemDeCampo[]) =>
     new ErroDaApi(400, 'dados_invalidos', campos(...itens));

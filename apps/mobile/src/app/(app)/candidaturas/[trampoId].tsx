@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../api/erros';
 import { useConexao } from '../../../estado/conexao';
+import { useConversarPorConta } from '../../../estado/consultas/abrir-conversa';
 import { useTrampo } from '../../../estado/consultas/anuncios';
 import {
   useAceitarCandidatura,
@@ -58,6 +59,9 @@ export default function RotaDasCandidaturasRecebidas() {
   // O `aceitando` só chega à tela no próximo render: o toque duplo não pode
   // disparar um segundo `POST .../aceitar`.
   const emVoo = useRef<string | null>(null);
+  // "Conversar" com quem se candidatou (CA12, D23: qualquer status), pelo
+  // `freelancerId`.
+  const conversa = useConversarPorConta(!online);
 
   const voltar = () => {
     if (router.canGoBack()) {
@@ -106,6 +110,16 @@ export default function RotaDasCandidaturasRecebidas() {
             ),
         );
 
+  // Conta recusada (403/409) ou sem conexão: o "Conversar" dela fica
+  // desabilitado com o motivo.
+  const motivoDaConversa: Record<string, string> = {};
+  for (const candidatura of consultaDaLista.candidaturas ?? []) {
+    const motivo = conversa.motivoDe(candidatura.freelancerId);
+    if (motivo !== null) {
+      motivoDaConversa[candidatura.freelancerId] = motivo;
+    }
+  }
+
   const aoAceitar = (candidaturaId: string) => {
     if (emVoo.current !== null) {
       return;
@@ -147,6 +161,10 @@ export default function RotaDasCandidaturasRecebidas() {
       erroDoAceite={erroDoAceite}
       toast={toast}
       semConexao={!online}
+      abrindoConversaCom={conversa.abrindoCom}
+      erroDaConversa={conversa.falha ?? undefined}
+      motivoDaConversa={motivoDaConversa}
+      onConversar={conversa.conversar}
       onAceitar={aoAceitar}
       onAbrirPerfil={(contaId) =>
         router.push({ pathname: '/perfis/[contaId]', params: { contaId } })

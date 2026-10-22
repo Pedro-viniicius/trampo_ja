@@ -24,6 +24,9 @@ export function CandidaturasRecebidas({
   lista,
   aceitando,
   erroDoAceite,
+  abrindoConversaCom,
+  erroDaConversa,
+  motivoDaConversa,
   toast,
   semConexao,
   onAceitar,
@@ -100,6 +103,9 @@ export function CandidaturasRecebidas({
             <Aviso variante="erro" texto={erroDoAceite} />
           </View>
         ) : null}
+        {erroDaConversa ? (
+          <Aviso variante="erro" texto={erroDaConversa} />
+        ) : null}
         <EstadoDeTela
           estado={lista}
           vazio={
@@ -136,10 +142,10 @@ export function CandidaturasRecebidas({
                     }
                     onVerPerfil={() => onAbrirPerfil(item.contaId)}
                     onConversar={
-                      onConversar && item.status === 'aceita'
-                        ? () => onConversar(item.contaId)
-                        : undefined
+                      onConversar ? () => onConversar(item.contaId) : undefined
                     }
+                    abrindoConversa={abrindoConversaCom === item.contaId}
+                    motivoDaConversa={motivoDaConversa?.[item.contaId] ?? null}
                   />
                 ))
               )}

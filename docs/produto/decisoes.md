@@ -44,3 +44,13 @@ Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app-2b.md`.
 17. **Corte 2b/2c:** a 2b cobre publicar, ofertar, candidatar-se, candidaturas (minhas, recebidas e aceite), meus trampos e meus serviços; a 2c (`docs/produto/planos/mvp-trampo-ja-app-2c.md`) cobre as conversas, CA12, CA13 e o fechamento do CA16.
 18. **Prazo do trampo** como campo de texto `dd/mm/aaaa` no MVP, sem seletor de data nativo (evita dependência nova).
 19. **Sem mudança na API na 2b:** o app deriva o papel (autor ou candidato) das listas `/trampos/meus`, `/servicos/meus` e `/candidaturas/minhas` (ADR-003 no plano); nomes de terceiros por `GET /perfis/:id` com cache.
+
+## 2026-10-21 — MVP, entrega 2c (conversas)
+
+Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app-2c.md` (ADR-004: polling incremental no cache, com mensagens pendentes locais).
+
+20. **Conversas sem mudança na API:** atualização por polling a cada 5 s na conversa (dobra a cada falha de rede ou 5xx, até 60 s) e a cada 30 s na lista, só com a tela focada e o app ativo. SSE ou push ficam para depois do MVP.
+21. **Sem id de idempotência no envio:** antes de reenviar uma mensagem que falhou, o app consulta as mensagens novas e só reenvia se a dela não chegou. O risco residual de duplicata (mesma conta em dois aparelhos, mesmo texto, durante uma falha) é aceito; um `idCliente` na API só entra se houver duplicata relatada.
+22. **"Conversar" no detalhe do serviço por tentativa:** o botão aparece para quem não é o autor; sem vínculo, a API responde 403 e o app mostra o texto literal do CA13 e desabilita o botão. Esconder antes exigiria um endpoint de vínculo.
+23. **"Conversar" em toda candidatura recebida** (pendente, aceita e recusada), como a API permite e como o lado do freelancer já faz.
+24. **Risco aceito (S1 da 2c, MÉDIA):** a API continua sem limite de volume por conta em `POST /conversas/:id/mensagens` e `POST /conversas` até o release externo (junto com a S3 da entrega 1). No app, o cache de mensagens ganha um teto de mensagens mantidas por conversa.

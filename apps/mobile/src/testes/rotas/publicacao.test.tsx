@@ -70,6 +70,7 @@ const ROTAS = {
   '(app)/(abas)/index': stub('stub: início'),
   '(app)/(abas)/buscar': stub('stub: buscar'),
   '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/(abas)/conversas': stub('stub: conversas'),
   '(app)/(abas)/perfil': stub('stub: perfil'),
   '(app)/perfil/editar': stub('stub: editar perfil'),
   '(app)/trampos/novo': RotaDePublicarTrampo,
@@ -148,7 +149,7 @@ async function esperarSonda(texto: string) {
 }
 
 describe('aba Publicar (CA16)', () => {
-  it('fica entre Buscar e Perfil e abre a escolha com as duas rotas', async () => {
+  it('fica entre Buscar e Conversas e abre a escolha com as duas rotas', async () => {
     await abrir('/');
     await screen.findByText('stub: início');
 
@@ -156,6 +157,7 @@ describe('aba Publicar (CA16)', () => {
       textos.abas.inicio,
       textos.abas.buscar,
       textos.abas.publicar,
+      textos.abas.conversas,
       textos.abas.perfil,
     ];
     const naBarra = screen

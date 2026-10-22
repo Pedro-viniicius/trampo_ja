@@ -5,6 +5,7 @@ import {
   formatarCentavos,
   formatarData,
   formatarDataHora,
+  formatarHoraDaMensagem,
   lerData,
   lerValorEmCentavos,
   mascararData,
@@ -87,6 +88,54 @@ describe('formatarDataHora', () => {
     ['2026-10-20Tabc'],
   ])('devolve %j como veio', (entrada) => {
     expect(formatarDataHora(entrada)).toBe(entrada);
+  });
+});
+
+describe('formatarHoraDaMensagem', () => {
+  // Instantes montados no fuso local: o teste independe do fuso da máquina.
+  const AGORA = new Date(2026, 9, 21, 15, 0);
+  const iso = (...partes: [number, number, number, number, number]) =>
+    new Date(...partes).toISOString();
+
+  it.each([
+    ['hoje', iso(2026, 9, 21, 14, 32), '14:32'],
+    ['hoje, meia-noite', iso(2026, 9, 21, 0, 5), '00:05'],
+    ['hoje, mais tarde que agora', iso(2026, 9, 21, 23, 59), '23:59'],
+    ['ontem', iso(2026, 9, 20, 14, 32), '20/10 14:32'],
+    ['mesmo ano, outro mês', iso(2026, 0, 5, 9, 7), '05/01 09:07'],
+    ['mesmo dia de outro mês', iso(2026, 8, 21, 14, 32), '21/09 14:32'],
+    ['mesmo dia e mês de outro ano', iso(2025, 9, 21, 14, 32), '21/10/2025'],
+    ['outro ano', iso(2025, 9, 20, 14, 32), '20/10/2025'],
+    ['ano seguinte', iso(2027, 0, 1, 8, 0), '01/01/2027'],
+  ])('%s', (_nome, entrada, esperado) => {
+    expect(formatarHoraDaMensagem(entrada, AGORA)).toBe(esperado);
+  });
+
+  it('o dia é o do aparelho, não o do UTC', () => {
+    const agora = new Date(2026, 9, 21, 0, 30);
+    expect(formatarHoraDaMensagem(iso(2026, 9, 20, 23, 50), agora)).toBe(
+      '20/10 23:50',
+    );
+    expect(formatarHoraDaMensagem(iso(2026, 9, 21, 0, 10), agora)).toBe(
+      '00:10',
+    );
+  });
+
+  it('virada do ano: 31/12 visto em 01/01 mostra o ano', () => {
+    const agora = new Date(2027, 0, 1, 0, 1);
+    expect(formatarHoraDaMensagem(iso(2026, 11, 31, 23, 59), agora)).toBe(
+      '31/12/2026',
+    );
+  });
+
+  it.each([
+    [''],
+    ['ontem'],
+    ['2026-10-21'],
+    ['2026-13-40T12:00:00Z'],
+    ['2026-10-21Tabc'],
+  ])('devolve %j como veio', (entrada) => {
+    expect(formatarHoraDaMensagem(entrada, AGORA)).toBe(entrada);
   });
 });
 

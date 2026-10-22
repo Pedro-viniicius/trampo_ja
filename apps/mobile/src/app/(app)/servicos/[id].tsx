@@ -1,7 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Servico } from '../../../api/tipos';
+import { Aviso } from '../../../componentes';
 import { useConexao } from '../../../estado/conexao';
-import { useServico } from '../../../estado/consultas/anuncios';
+import { useConversar } from '../../../estado/consultas/abrir-conversa';
+import {
+  useMeusServicos,
+  useServico,
+} from '../../../estado/consultas/anuncios';
 import { useCategorias } from '../../../estado/consultas/busca';
 import { usePerfilPublico } from '../../../estado/consultas/perfil';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
@@ -9,7 +14,11 @@ import {
   formatarCentavos,
   rotuloDaCategoria,
 } from '../../../estado/formatacao';
-import { DetalheDoServico, type ServicoParaExibir } from '../../../telas';
+import {
+  DetalheDoServico,
+  RodapeDoServico,
+  type ServicoParaExibir,
+} from '../../../telas';
 
 const CARREGANDO = { situacao: 'carregando' } as const;
 
@@ -82,10 +91,30 @@ function ServicoComAutor({
     { ...consultaDoAutor, dados: consultaDoAutor.perfil },
     (perfil) => perfil,
   );
+  // D22: "Conversar" para quem não é o autor. Lista que falhou (ou pausada
+  // sem conexão) conta como "não é meu": a API decide o vínculo.
+  const meusServicos = useMeusServicos();
+  const ehMeu =
+    meusServicos.servicos?.some((meu) => meu.id === servico.id) ?? false;
+  const mostrarConversar = !meusServicos.carregando && !ehMeu;
+  const conversa = useConversar(servico.autorId, semConexao);
   return (
     <DetalheDoServico
       estado={estado}
       autor={autor}
+      rodape={
+        mostrarConversar ? (
+          <>
+            {conversa.falha ? (
+              <Aviso variante="erro" texto={conversa.falha} />
+            ) : null}
+            <RodapeDoServico
+              conversar={conversa.estado}
+              onConversar={conversa.conversar}
+            />
+          </>
+        ) : undefined
+      }
       semConexao={semConexao}
       onVoltar={onVoltar}
       onAbrirAutor={(contaId) =>

@@ -1,17 +1,19 @@
 import type { ComponentRef } from 'react';
 import { useRef } from 'react';
-import { ScrollView, Text, type TextInput, View } from 'react-native';
+import { ScrollView, type TextInput, View } from 'react-native';
 import {
   Aviso,
   Botao,
   CampoDeTexto,
   Esqueleto,
   FolhaInferior,
+  Motivo,
   SeloDeCandidatura,
 } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { useFocarPrimeiroErro } from './base';
+import { BotaoDeConversar } from './RodapeDoServico';
 import type { FolhaDeCandidatura, PropsDoRodapeDoTrampo } from './tipos';
 
 const LIMITE_DA_MENSAGEM = 2000;
@@ -25,6 +27,7 @@ export function RodapeDoTrampo({
   onCandidatar,
   onVerCandidaturas,
   onConversar,
+  estadoDoConversar,
 }: PropsDoRodapeDoTrampo) {
   return (
     <>
@@ -42,7 +45,6 @@ export function RodapeDoTrampo({
           <>
             <Botao
               texto={textos.detalheTrampo.candidatar}
-              accessibilityHint={textos.detalheTrampo.fechado}
               desabilitado
               onPress={onCandidatar}
             />
@@ -53,9 +55,6 @@ export function RodapeDoTrampo({
           <>
             <Botao
               texto={textos.detalheTrampo.candidatar}
-              accessibilityHint={
-                semConexao ? textos.candidatar.semConexaoMotivo : undefined
-              }
               desabilitado={semConexao}
               onPress={onCandidatar}
             />
@@ -81,10 +80,10 @@ export function RodapeDoTrampo({
               }
             />
             {onConversar ? (
-              <Botao
-                texto={textos.candidaturasRecebidas.conversar}
+              <BotaoDeConversar
+                estado={estadoDoConversar ?? { abrindo: false, motivo: null }}
                 variante="secundario"
-                onPress={onConversar}
+                onConversar={onConversar}
               />
             ) : null}
           </>
@@ -92,20 +91,6 @@ export function RodapeDoTrampo({
       </View>
       <FolhaDeCandidaturaView folha={folha} semConexao={semConexao} />
     </>
-  );
-}
-
-function Motivo({ texto }: { texto: string }) {
-  return (
-    <Text
-      style={{
-        color: cores.textoSecundario,
-        fontSize: tipografia.tamanho.rotulo,
-        lineHeight: tipografia.lineHeight.rotulo,
-      }}
-    >
-      {texto}
-    </Text>
   );
 }
 
@@ -187,9 +172,6 @@ function FolhaDeCandidaturaView({
               texto={textos.candidatar.enviar}
               textoCarregando={textos.candidatar.enviando}
               carregando={folha.enviando}
-              accessibilityHint={
-                semConexao ? textos.candidatar.semConexaoMotivo : undefined
-              }
               desabilitado={semConexao}
               onPress={folha.onEnviar}
             />

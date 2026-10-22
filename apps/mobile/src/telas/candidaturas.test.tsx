@@ -125,6 +125,24 @@ describe('RodapeDoTrampo', () => {
     expect(onConversar).toHaveBeenCalledTimes(1);
   });
 
+  it('candidatado: motivo do conversar desabilita o botão', async () => {
+    await render(
+      rodape(
+        { tipo: 'candidatado', status: 'aceita' },
+        {
+          onConversar: jest.fn(),
+          estadoDoConversar: { abrindo: false, motivo: 'motivo-sentinela' },
+        },
+      ),
+    );
+    expect(screen.getByText('motivo-sentinela')).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.conversar,
+      }),
+    ).toBeDisabled();
+  });
+
   describe('folha de candidatura', () => {
     it('fechada não mostra os campos', async () => {
       await render(rodape({ tipo: 'candidatar' }));
@@ -369,12 +387,12 @@ describe('CandidaturasRecebidas', () => {
     ).toBeOnTheScreen();
   });
 
-  it('ver perfil e conversar (só candidatura aceita)', async () => {
+  it('ver perfil e conversar (em qualquer status, D23)', async () => {
     const onAbrirPerfil = jest.fn();
     const onConversar = jest.fn();
     await render(
       recebidas({
-        lista: ok([candidatura({ status: 'aceita', podeAceitar: false })]),
+        lista: ok([candidatura({ status: 'pendente' })]),
         onAbrirPerfil,
         onConversar,
       }),
@@ -391,6 +409,56 @@ describe('CandidaturasRecebidas', () => {
     );
     expect(onAbrirPerfil).toHaveBeenCalledWith('a1');
     expect(onConversar).toHaveBeenCalledWith('a1');
+  });
+
+  it('conversar: motivo por candidatura desabilita só aquele botão', async () => {
+    const onConversar = jest.fn();
+    await render(
+      recebidas({
+        onConversar,
+        motivoDaConversa: { 'conta-2': 'motivo-sentinela' },
+        lista: ok([
+          candidatura({ contaId: 'conta-1' }),
+          candidatura({ id: 'c2', contaId: 'conta-2', nome: 'João' }),
+        ]),
+      }),
+    );
+    expect(screen.getByText('motivo-sentinela')).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.conversarCom('João'),
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.conversarCom('Maria Souza'),
+      }),
+    ).toBeEnabled();
+  });
+
+  it('conversar: desabilita o de quem está abrindo e mostra o erro', async () => {
+    const onConversar = jest.fn();
+    await render(
+      recebidas({
+        onConversar,
+        abrindoConversaCom: 'conta-2',
+        erroDaConversa: 'erro-conversa-sentinela',
+        lista: ok([
+          candidatura({ contaId: 'conta-1' }),
+          candidatura({ id: 'c2', contaId: 'conta-2', nome: 'João' }),
+        ]),
+      }),
+    );
+    expect(screen.getByText('erro-conversa-sentinela')).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: textos.conversas.abrindo }),
+    ).toBeDisabled();
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.conversarCom('Maria Souza'),
+      }),
+    );
+    expect(onConversar).toHaveBeenCalledWith('conta-1');
   });
 
   it('toast', async () => {

@@ -202,3 +202,45 @@ export type MinhaCandidatura = CandidaturaRecebida & {
 export interface ResultadoDoAceite {
   readonly status: 'aceita';
 }
+
+/**
+ * Resposta de `POST /conversas`: igual no 201 (conversa nova) e no 200 (o par
+ * já tinha conversa).
+ */
+export interface ConversaAberta {
+  readonly conversaId: string;
+}
+
+/** Última mensagem de uma conversa, no item de `GET /conversas`. */
+export interface UltimaMensagem {
+  readonly texto: string;
+  /** ISO 8601. */
+  readonly enviadaEm: string;
+}
+
+/** Item de `GET /conversas` (última atividade primeiro). */
+export interface ResumoDeConversa {
+  readonly conversaId: string;
+  /** Id da conta do outro participante (`GET /perfis/:contaId`). */
+  readonly outroUsuarioId: string;
+  /** ISO 8601. */
+  readonly criadaEm: string;
+  /** `null` na conversa ainda sem mensagens. */
+  readonly ultimaMensagem: UltimaMensagem | null;
+}
+
+/** Item de `GET /conversas/:id/mensagens`, na ordem de envio. */
+export interface Mensagem {
+  readonly id: string;
+  readonly autorId: string;
+  readonly texto: string;
+  /** ISO 8601. */
+  readonly enviadaEm: string;
+}
+
+/** Resposta de `POST /conversas/:id/mensagens` (201). */
+export interface MensagemEnviada {
+  readonly id: string;
+  /** ISO 8601. */
+  readonly enviadaEm: string;
+}

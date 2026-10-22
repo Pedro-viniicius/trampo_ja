@@ -2,8 +2,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../api/erros';
 import type { Trampo } from '../../../api/tipos';
-import { Toast } from '../../../componentes';
+import { Aviso, Toast } from '../../../componentes';
 import { useConexao } from '../../../estado/conexao';
+import { useConversar } from '../../../estado/consultas/abrir-conversa';
 import { useMeusTrampos, useTrampo } from '../../../estado/consultas/anuncios';
 import { useCategorias } from '../../../estado/consultas/busca';
 import {
@@ -211,6 +212,7 @@ function RodapeDaRota({
   const minhasCandidaturas = useMinhasCandidaturas();
   const meuPerfil = useMeuPerfil();
   const candidatar = useCandidatar(trampo.id);
+  const conversa = useConversar(trampo.autorId, semConexao);
 
   const listas = {
     trampo,
@@ -340,23 +342,28 @@ function RodapeDaRota({
   };
 
   return (
-    <RodapeDoTrampo
-      situacao={situacao}
-      semConexao={semConexao}
-      folha={folha}
-      onCandidatar={() => {
-        // O perfil pode ter sido completado em outro lugar desde o último
-        // 409: a folha reaberta deixa tentar de novo.
-        aviso.esquecer();
-        setErros(({ geral: _, ...resto }) => resto);
-        setVisivel(true);
-      }}
-      onVerCandidaturas={() =>
-        router.push({
-          pathname: '/candidaturas/[trampoId]',
-          params: { trampoId: trampo.id },
-        })
-      }
-    />
+    <>
+      {conversa.falha ? <Aviso variante="erro" texto={conversa.falha} /> : null}
+      <RodapeDoTrampo
+        situacao={situacao}
+        semConexao={semConexao}
+        folha={folha}
+        estadoDoConversar={conversa.estado}
+        onConversar={conversa.conversar}
+        onCandidatar={() => {
+          // O perfil pode ter sido completado em outro lugar desde o último
+          // 409: a folha reaberta deixa tentar de novo.
+          aviso.esquecer();
+          setErros(({ geral: _, ...resto }) => resto);
+          setVisivel(true);
+        }}
+        onVerCandidaturas={() =>
+          router.push({
+            pathname: '/candidaturas/[trampoId]',
+            params: { trampoId: trampo.id },
+          })
+        }
+      />
+    </>
   );
 }

@@ -1,19 +1,33 @@
 // CA15 no cliente: varredura do `console` durante os fluxos reais do app (2a:
-// conta, perfil e busca; 2b: publicação, candidaturas e aceite) e barreira
-// contra dependências de telemetria ou de armazenamento inseguro.
-import { fireEvent, screen, waitFor } from 'expo-router/testing-library';
-import type { ItemDaBusca } from '../api/tipos';
+// conta, perfil e busca; 2b: publicação, candidaturas e aceite; 2c:
+// conversas, também fora do `console`) e barreira contra dependências de
+// telemetria ou de armazenamento inseguro.
+import type { QueryClient } from '@tanstack/react-query';
+import { render } from '@testing-library/react-native';
+import { router } from 'expo-router';
+import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
+import { FlatList, Text, View } from 'react-native';
+import type { ItemDaBusca, Mensagem } from '../api/tipos';
 import LayoutDaAreaAutenticada from '../app/(app)/_layout';
 import LayoutDasAbas from '../app/(app)/(abas)/_layout';
 import BuscarRota from '../app/(app)/(abas)/buscar';
+import RotaDasConversas from '../app/(app)/(abas)/conversas';
 import InicioRota from '../app/(app)/(abas)/index';
 import RotaDoMeuPerfil from '../app/(app)/(abas)/perfil';
+import RotaDePublicar from '../app/(app)/(abas)/publicar';
 import RotaDeEditarPerfil from '../app/(app)/perfil/editar';
 import RotaDoTrampo from '../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../estado/armazenamento-token';
+import { INTERVALO_DO_POLLING_MS } from '../estado/consultas/conversas';
+import { formatarHoraDaMensagem } from '../estado/formatacao';
 import { textos } from '../textos/pt-BR';
-import { criarFetchFalso, type RequisicaoFeita } from './fetch-falso';
-import { ROTAS_REAIS } from './qa/apoio-qa';
+import {
+  criarFetchFalso,
+  type RequisicaoFeita,
+  type RespostaFalsa,
+} from './fetch-falso';
+import { ROTAS_REAIS, textosDaArvore } from './qa/apoio-qa';
+import { criarQueryClientDeTeste } from './renderizar';
 import { ACEITAR_QUALQUER, renderizarRotas } from './rotas/apoio';
 
 jest.mock('expo-splash-screen', () => ({
@@ -59,6 +73,16 @@ const SENHA_DO_FREELANCER = 'FreelaSentinela#2026';
 const TOKEN_DA_AUTORA = 'token-sentinela-autora';
 const TOKEN_DO_FREELANCER = 'token-sentinela-freela';
 
+// Entrega 2c: o texto que a autora envia (no 201 e no que cai a rede e é
+// reenviado), o que ela recebe do freelancer, a prévia e o nome de um
+// terceiro e o texto da conversa que sumiu (404 no envio).
+const TEXTO_ENVIADO = 'Texto sentinela enviado pela autora';
+const TEXTO_QUE_CAIU = 'Texto sentinela que caiu na rede';
+const TEXTO_RECEBIDO = 'Texto sentinela recebido do freelancer';
+const PREVIA_DO_TERCEIRO = 'Previa sentinela da conversa com o terceiro';
+const NOME_DO_TERCEIRO = 'Terceiro Sentinela Duarte';
+const TEXTO_DA_CONVERSA_SUMIDA = 'Texto sentinela para a conversa sumida';
+
 const SENTINELAS: Readonly<Record<string, string>> = {
   'e-mail': EMAIL,
   senha: SENHA,
@@ -87,6 +111,12 @@ const SENTINELAS: Readonly<Record<string, string>> = {
   'senha do freelancer': SENHA_DO_FREELANCER,
   'token da autora': TOKEN_DA_AUTORA,
   'token do freelancer': TOKEN_DO_FREELANCER,
+  'texto enviado': TEXTO_ENVIADO,
+  'texto que caiu na rede': TEXTO_QUE_CAIU,
+  'texto recebido': TEXTO_RECEBIDO,
+  'prévia do terceiro': PREVIA_DO_TERCEIRO,
+  'nome do terceiro': NOME_DO_TERCEIRO,
+  'texto da conversa sumida': TEXTO_DA_CONVERSA_SUMIDA,
 };
 
 // --- Varredura ---
@@ -179,20 +209,29 @@ function textoDasChamadas(chamadas: readonly ChamadaDoConsole[]): string {
 }
 
 /**
- * Nomes das sentinelas que aparecem nas chamadas: texto puro ou codificado
- * para URL (`encodeURIComponent`), sem diferenciar maiúsculas de minúsculas.
+ * Nomes das sentinelas que aparecem em `texto`: puras ou codificadas para URL
+ * (`encodeURIComponent` e a query de formulário, com `+` no lugar do
+ * espaço, como o Expo Router monta a URL), sem diferenciar maiúsculas de
+ * minúsculas.
  */
+function sentinelasNoTexto(texto: string): string[] {
+  const minusculo = texto.toLowerCase();
+  return Object.entries(SENTINELAS)
+    .filter(([, valor]) =>
+      [
+        valor,
+        encodeURIComponent(valor),
+        encodeURIComponent(valor).replace(/%20/g, '+'),
+      ].some((forma) => minusculo.includes(forma.toLowerCase())),
+    )
+    .map(([nome]) => nome);
+}
+
+/** Nomes das sentinelas que aparecem nas chamadas do `console`. */
 function sentinelasEncontradas(
   chamadas: readonly ChamadaDoConsole[],
 ): string[] {
-  const texto = textoDasChamadas(chamadas).toLowerCase();
-  return Object.entries(SENTINELAS)
-    .filter(([, valor]) =>
-      [valor, encodeURIComponent(valor)].some((forma) =>
-        texto.includes(forma.toLowerCase()),
-      ),
-    )
-    .map(([nome]) => nome);
+  return sentinelasNoTexto(textoDasChamadas(chamadas));
 }
 
 /** Primeira linha de cada chamada, sem os argumentos (para ver os avisos). */
@@ -237,6 +276,8 @@ const ROTAS = {
   '(app)/(abas)/_layout': LayoutDasAbas,
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
+  '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/(abas)/conversas': RotaDasConversas,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
   '(app)/perfil/editar': RotaDeEditarPerfil,
   '(app)/trampos/[id]': RotaDoTrampo,
@@ -590,6 +631,337 @@ function corpos(
   return api.requisicoes
     .filter((r) => `${r.metodo} ${r.caminho}` === rota)
     .map((r) => r.corpo);
+}
+
+// --- Jornada da 2c: dados, API falsa e varredura fora do `console` ---
+
+const AUTORA = 'c-autora';
+const FREELANCER = 'f-freela';
+const TERCEIRO = 'c-terceiro';
+const ESTRANHO = 'c-estranho';
+const ENVIADA_EM = '2026-10-21T14:00:00.000Z';
+
+/**
+ * Rótulo da linha da lista de conversas (D2). Toda mensagem do cenário tem a
+ * hora `ENVIADA_EM`, formatada como a tela a formata agora.
+ */
+function linhaDaListaDa2c(nome: string, previa: string): string {
+  return textos.conversas.linhaDaLista(
+    nome,
+    previa,
+    formatarHoraDaMensagem(ENVIADA_EM, new Date()),
+  );
+}
+
+function servicoDe(id: string, autorId: string) {
+  return { ...SERVICO_NOVO, id, autorId };
+}
+
+function resumoDaConversa(
+  conversaId: string,
+  outroUsuarioId: string,
+  mensagens: readonly Mensagem[],
+) {
+  const ultima = mensagens[mensagens.length - 1];
+  return {
+    conversaId,
+    outroUsuarioId,
+    criadaEm: '2026-10-21T12:00:00.000Z',
+    ultimaMensagem:
+      ultima === undefined
+        ? null
+        : { texto: ultima.texto, enviadaEm: ultima.enviadaEm },
+  };
+}
+
+/** `GET /conversas/:id/mensagens` com `depoisDe` (400 com id desconhecido). */
+function paginaDeMensagens(
+  mensagens: readonly Mensagem[],
+  requisicao: RequisicaoFeita,
+) {
+  const { depoisDe } = requisicao.query;
+  if (depoisDe === undefined) {
+    return { corpo: mensagens.slice(0, 50) };
+  }
+  const indice = mensagens.findIndex((m) => m.id === depoisDe);
+  return indice < 0
+    ? { status: 400, corpo: { erro: 'dados_invalidos' } }
+    : { corpo: mensagens.slice(indice + 1, indice + 51) };
+}
+
+/**
+ * API falsa da jornada da 2c com as mesmas duas contas da 2b (a resposta
+ * depende do Bearer). A conversa `c1` é entre a autora e o freelancer e
+ * guarda o que chega no `POST`; a `c2` é da autora com um terceiro e some
+ * no envio (404). A abertura responde pelo `outroUsuarioId` do corpo: 200
+ * com quem tem vínculo, 409 com a própria conta e 403 com o resto.
+ */
+function criarApiDa2c() {
+  const estado = {
+    mensagensC1: [
+      {
+        id: 'm1',
+        autorId: FREELANCER,
+        texto: TEXTO_RECEBIDO,
+        enviadaEm: ENVIADA_EM,
+      },
+    ] as Mensagem[],
+    mensagensC2: [
+      {
+        id: 't1',
+        autorId: TERCEIRO,
+        texto: PREVIA_DO_TERCEIRO,
+        enviadaEm: ENVIADA_EM,
+      },
+    ] as readonly Mensagem[],
+    /** O próximo `POST` em `c1` cai a rede antes de chegar. */
+    envioCai: false,
+    /** Resposta de todo `GET` de `c1` enquanto não for `null`. */
+    falhaDoPolling: null as RespostaFalsa | null,
+    proximo: 2,
+  };
+  const daAutora = (r: RequisicaoFeita) =>
+    r.cabecalhos.authorization === `Bearer ${TOKEN_DA_AUTORA}`;
+  const doFreelancer = (r: RequisicaoFeita) =>
+    r.cabecalhos.authorization === `Bearer ${TOKEN_DO_FREELANCER}`;
+
+  const api = criarFetchFalso()
+    .responder('POST /sessoes', (r) => {
+      const { email } = r.corpo as { email?: string };
+      if (email === EMAIL_DO_FREELANCER) {
+        return { corpo: { token: TOKEN_DO_FREELANCER } };
+      }
+      return { status: 401, corpo: { erro: 'credenciais_invalidas' } };
+    })
+    .responder('GET /categorias', { corpo: CATEGORIAS })
+    .responder('GET /busca', pagina([]))
+    .responder('GET /perfis/eu', (r) => {
+      if (daAutora(r)) return { corpo: PERFIL_SALVO };
+      if (doFreelancer(r)) return { corpo: PERFIL_DO_FREELANCER };
+      return SESSAO_EXPIRADA;
+    })
+    .responder(`GET /perfis/${AUTORA}`, {
+      corpo: perfilPublico(AUTORA, NOME),
+    })
+    .responder(`GET /perfis/${FREELANCER}`, {
+      corpo: perfilPublico(FREELANCER, NOME_DO_FREELANCER),
+    })
+    .responder(`GET /perfis/${TERCEIRO}`, {
+      corpo: perfilPublico(TERCEIRO, NOME_DO_TERCEIRO),
+    })
+    .responder('GET /conversas', (r) => {
+      if (daAutora(r)) {
+        return {
+          corpo: [
+            resumoDaConversa('c1', FREELANCER, estado.mensagensC1),
+            resumoDaConversa('c2', TERCEIRO, estado.mensagensC2),
+          ],
+        };
+      }
+      if (doFreelancer(r)) {
+        return { corpo: [resumoDaConversa('c1', AUTORA, estado.mensagensC1)] };
+      }
+      return SESSAO_EXPIRADA;
+    })
+    .responder('POST /conversas', (r) => {
+      const { outroUsuarioId } = r.corpo as { outroUsuarioId?: string };
+      if (daAutora(r) && outroUsuarioId === AUTORA) {
+        return conflito('conversa_consigo_mesmo');
+      }
+      if (
+        (daAutora(r) && outroUsuarioId === FREELANCER) ||
+        (doFreelancer(r) && outroUsuarioId === AUTORA)
+      ) {
+        return { corpo: { conversaId: 'c1' } };
+      }
+      return { status: 403, corpo: { erro: 'sem_vinculo' } };
+    })
+    .responder('GET /conversas/c1/mensagens', (r) =>
+      estado.falhaDoPolling === null
+        ? paginaDeMensagens(estado.mensagensC1, r)
+        : estado.falhaDoPolling,
+    )
+    .responder('POST /conversas/c1/mensagens', (r) => {
+      if (estado.envioCai) {
+        estado.envioCai = false;
+        return { falhaDeRede: true };
+      }
+      const nova: Mensagem = {
+        id: `m${estado.proximo}`,
+        autorId: daAutora(r) ? AUTORA : FREELANCER,
+        texto: (r.corpo as { texto: string }).texto,
+        enviadaEm: ENVIADA_EM,
+      };
+      estado.proximo += 1;
+      estado.mensagensC1.push(nova);
+      return {
+        status: 201,
+        corpo: { id: nova.id, enviadaEm: nova.enviadaEm },
+      };
+    })
+    .responder('GET /conversas/c2/mensagens', (r) =>
+      paginaDeMensagens(estado.mensagensC2, r),
+    )
+    .responder('POST /conversas/c2/mensagens', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    })
+    // A lista "meus serviços" falha: o botão aparece até no serviço da
+    // própria autora, e a API decide (409).
+    .responder('GET /servicos/meus', {
+      status: 500,
+      corpo: { erro: 'erro_interno' },
+    })
+    .responder('GET /servicos/s-estranho', {
+      corpo: servicoDe('s-estranho', ESTRANHO),
+    })
+    .responder('GET /servicos/s-meu', { corpo: servicoDe('s-meu', AUTORA) })
+    .responder('GET /servicos/s-freela', {
+      corpo: servicoDe('s-freela', FREELANCER),
+    });
+  return { api, estado };
+}
+
+/** Avança os timers falsos (polling) e deixa terminar o que a volta disparou. */
+async function avancar(ms: number) {
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(20);
+  });
+}
+
+interface Fibra {
+  readonly key: string | null;
+  readonly child: Fibra | null;
+  readonly sibling: Fibra | null;
+  readonly return: Fibra | null;
+}
+
+/** Todas as chaves (`key`) da árvore do React, a partir de um elemento. */
+function chavesDaArvore(elemento: object): string[] {
+  let raiz = (elemento as { unstable_fiber?: Fibra }).unstable_fiber ?? null;
+  while (raiz?.return) {
+    raiz = raiz.return;
+  }
+  const chaves: string[] = [];
+  const pilha: Fibra[] = raiz === null ? [] : [raiz];
+  while (pilha.length > 0) {
+    const fibra = pilha.pop();
+    if (fibra === undefined) break;
+    if (typeof fibra.key === 'string') chaves.push(fibra.key);
+    if (fibra.child !== null) pilha.push(fibra.child);
+    if (fibra.sibling !== null) pilha.push(fibra.sibling);
+  }
+  return chaves;
+}
+
+/** Propriedades que levam os textos da própria tela (lidos pela pessoa). */
+const PROPRIEDADES_DE_TEXTO: ReadonlySet<string> = new Set([
+  'accessibilityLabel',
+  'accessibilityHint',
+  'value',
+]);
+
+/**
+ * Cada propriedade da árvore (`toJSON()`) que não é texto da tela, como
+ * `tipo.propriedade=valor`: `testID`, `nativeID`, estilos, estados etc.
+ */
+function propriedadesForaDosTextos(arvore: unknown): string[] {
+  const achados: string[] = [];
+  const visitar = (no: unknown) => {
+    if (Array.isArray(no)) {
+      for (const filho of no) visitar(filho);
+      return;
+    }
+    if (typeof no !== 'object' || no === null) return;
+    const { type, props, children } = no as {
+      type?: string;
+      props?: Record<string, unknown>;
+      children?: unknown;
+    };
+    for (const [chave, valor] of Object.entries(props ?? {})) {
+      if (!PROPRIEDADES_DE_TEXTO.has(chave)) {
+        achados.push(`${type}.${chave}=${emJson(valor)}`);
+      }
+    }
+    visitar(children ?? []);
+  };
+  visitar(arvore);
+  return achados;
+}
+
+const NADA_FORA_DA_TELA = {
+  testID: [],
+  propriedades: [],
+  dadosDaLista: [],
+  chaves: [],
+  url: [],
+};
+
+/** A propriedade `data` que a `FlatList` repassa ao `ScrollView` da árvore. */
+const DADOS_DA_LISTA = /^\w+\.data=/;
+
+/**
+ * CA15 fora do `console`: nenhuma sentinela em `testID`, em outra
+ * propriedade da árvore (`toJSON()`) que não seja texto da tela, em chave de
+ * lista ou na `url` (a rota com os parâmetros). `elemento` é qualquer um da
+ * tela (as chaves são lidas da árvore inteira a partir dele).
+ *
+ * A `FlatList` repassa os itens (`data`) ao `ScrollView`, e eles aparecem no
+ * `toJSON()`: lá, só vale sentinela que a própria tela mostra em texto.
+ */
+function sentinelasForaDaTela(url: string, elemento: object) {
+  const arvore = screen.toJSON();
+  const propriedades = propriedadesForaDosTextos(arvore);
+  const naTela = new Set(sentinelasNoTexto(textosDaArvore(arvore).join('\n')));
+  const dados = propriedades.filter((p) => DADOS_DA_LISTA.test(p));
+  return {
+    testID: sentinelasNoTexto(
+      propriedades.filter((p) => /\.(testID|nativeID)=/.test(p)).join('\n'),
+    ),
+    propriedades: sentinelasNoTexto(
+      propriedades.filter((p) => !DADOS_DA_LISTA.test(p)).join('\n'),
+    ),
+    dadosDaLista: sentinelasNoTexto(dados.join('\n')).filter(
+      (nome) => !naTela.has(nome),
+    ),
+    chaves: sentinelasNoTexto(chavesDaArvore(elemento).join('\n')),
+    url: sentinelasNoTexto(url),
+  };
+}
+
+/**
+ * Guarda todo erro que passa pelos caches de consultas e de mutações (o que
+ * a tela traduz e o que o TanStack guarda), para procurar sentinelas nele.
+ */
+function vigiarErros(queryClient: QueryClient) {
+  const erros = new Set<unknown>();
+  const pararConsultas = queryClient.getQueryCache().subscribe((evento) => {
+    if (evento.query.state.error) erros.add(evento.query.state.error);
+  });
+  const pararMutacoes = queryClient.getMutationCache().subscribe((evento) => {
+    const erro = evento.mutation?.state.error;
+    if (erro) erros.add(erro);
+  });
+  return {
+    erros,
+    parar: () => {
+      pararConsultas();
+      pararMutacoes();
+    },
+  };
+}
+
+/** Escapa o texto para usar dentro de uma `RegExp`. */
+function literal(texto: string): string {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Bolha com o texto, de quem for (`quem` no começo do rótulo). */
+function rotuloDaBolha(quem: string, texto: string): RegExp {
+  return new RegExp(`^${literal(quem)}, .+\\. ${literal(texto)}$`);
 }
 
 // --- Testes ---
@@ -1096,6 +1468,236 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     expect(rotas).toContain('GET /perfis/f-freela');
     expect(rotas).toContain('GET /perfis/f-outro');
   }, 60_000);
+
+  it('2c: lista, abrir (200, 403 e 409), enviar (201, queda de rede e 404) e polling com 500 e 401, com duas contas', async () => {
+    const { api, estado } = criarApiDa2c();
+    const queryClient = criarQueryClientDeTeste();
+    const vigia = vigiarErros(queryClient);
+    const rotas = await renderizarRotas(ROTAS_REAIS, {
+      initialUrl: '/',
+      fetch: api,
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN_DA_AUTORA),
+      queryClient,
+    });
+    const { armazenamento, getPathname } = rotas;
+    const nadaForaDaTela = (elemento: object) =>
+      expect(
+        sentinelasForaDaTela(rotas.getPathnameWithParams(), elemento),
+      ).toEqual(NADA_FORA_DA_TELA);
+    const enviar = () =>
+      fireEvent.press(
+        screen.getByRole('button', { name: textos.conversas.enviar }),
+      );
+
+    // A1. Autora: aba Conversas com o nome e a prévia de cada conversa.
+    expect(await screen.findByText(`Olá, ${NOME}`)).toBeOnTheScreen();
+    await fireEvent.press(ultimoBotao(textos.abas.conversas));
+    await waitFor(() => expect(getPathname()).toBe('/conversas'));
+    const comFreelancer = await screen.findByRole('button', {
+      name: linhaDaListaDa2c(NOME_DO_FREELANCER, TEXTO_RECEBIDO),
+    });
+    await screen.findByRole('button', {
+      name: linhaDaListaDa2c(NOME_DO_TERCEIRO, PREVIA_DO_TERCEIRO),
+    });
+    expect(screen.getByText(TEXTO_RECEBIDO)).toBeOnTheScreen();
+    expect(screen.getByText(PREVIA_DO_TERCEIRO)).toBeOnTheScreen();
+    nadaForaDaTela(comFreelancer);
+
+    // A2. Abre a conversa (200): a mensagem recebida com o nome do outro.
+    await fireEvent.press(comFreelancer);
+    await waitFor(() => expect(getPathname()).toBe('/conversas/c1'));
+    nadaForaDaTela(
+      await screen.findByLabelText(
+        rotuloDaBolha(NOME_DO_FREELANCER, TEXTO_RECEBIDO),
+      ),
+    );
+
+    // A3. Envia (201): o GET seguinte traz a mensagem, numa bolha só.
+    await digitar(textos.conversas.campo, TEXTO_ENVIADO);
+    await enviar();
+    await waitFor(() => expect(estado.mensagensC1).toHaveLength(2));
+    await avancar(INTERVALO_DO_POLLING_MS);
+    const enviada = screen.getAllByLabelText(
+      rotuloDaBolha('Você', TEXTO_ENVIADO),
+    );
+    expect(enviada).toHaveLength(1);
+    nadaForaDaTela(enviada[0] as object);
+
+    // A4. Queda de rede no envio: "Não enviada"; o toque faz o GET e o POST.
+    estado.envioCai = true;
+    await digitar(textos.conversas.campo, TEXTO_QUE_CAIU);
+    await enviar();
+    const naoEnviada = await screen.findByRole('button', {
+      name: new RegExp(
+        `${textos.conversas.rotuloNaoEnviada}\\. ${literal(TEXTO_QUE_CAIU)}$`,
+      ),
+    });
+    expect(screen.getByText(textos.conversas.naoEnviada)).toBeOnTheScreen();
+    nadaForaDaTela(naoEnviada);
+    await fireEvent.press(naoEnviada);
+    await waitFor(() => expect(estado.mensagensC1).toHaveLength(3));
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(screen.queryByText(textos.conversas.naoEnviada)).toBeNull();
+    expect(
+      screen.getAllByLabelText(rotuloDaBolha('Você', TEXTO_QUE_CAIU)),
+    ).toHaveLength(1);
+
+    // A5. Polling com 500: o aviso na 3ª falha seguida (5 s, 10 s e 20 s),
+    // sem esconder as mensagens; some quando a API volta.
+    estado.falhaDoPolling = { status: 500, corpo: { erro: 'erro_interno' } };
+    await avancar(5_000);
+    await avancar(10_000);
+    await avancar(20_000);
+    const avisoDoPolling = screen.getByText(
+      textos.conversas.atualizacaoFalhando,
+    );
+    expect(
+      screen.getAllByLabelText(rotuloDaBolha('Você', TEXTO_ENVIADO)),
+    ).toHaveLength(1);
+    nadaForaDaTela(avisoDoPolling);
+    estado.falhaDoPolling = null;
+    await avancar(60_000);
+    expect(screen.queryByText(textos.conversas.atualizacaoFalhando)).toBeNull();
+
+    // A6. Conversa com o terceiro: o envio dá 404 e a tela vira aviso.
+    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+    await waitFor(() => expect(getPathname()).toBe('/conversas'));
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: linhaDaListaDa2c(NOME_DO_TERCEIRO, PREVIA_DO_TERCEIRO),
+      }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/conversas/c2'));
+    await screen.findByLabelText(
+      rotuloDaBolha(NOME_DO_TERCEIRO, PREVIA_DO_TERCEIRO),
+    );
+    await digitar(textos.conversas.campo, TEXTO_DA_CONVERSA_SUMIDA);
+    await enviar();
+    nadaForaDaTela(
+      await screen.findByText(textos.conversas.indisponivelTitulo),
+    );
+    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+    await waitFor(() => expect(getPathname()).toBe('/conversas'));
+
+    // A7. "Conversar" no detalhe do serviço: 403 sem vínculo e 409 consigo
+    // mesma desabilitam o botão com o texto; com o freelancer, 200.
+    const recusas = [
+      ['s-estranho', textos.erros.sem_vinculo],
+      ['s-meu', textos.erros.conversa_consigo_mesmo],
+    ] as const;
+    for (const [servico, texto] of recusas) {
+      await act(async () => {
+        router.push({ pathname: '/servicos/[id]', params: { id: servico } });
+      });
+      await waitFor(() => expect(getPathname()).toBe(`/servicos/${servico}`));
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: textos.detalheServico.conversar,
+        }),
+      );
+      const recusa = await screen.findByText(texto);
+      expect(
+        screen.getByRole('button', { name: textos.detalheServico.conversar }),
+      ).toBeDisabled();
+      nadaForaDaTela(recusa);
+      await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+      await waitFor(() => expect(getPathname()).toBe('/conversas'));
+    }
+    await act(async () => {
+      router.push({ pathname: '/servicos/[id]', params: { id: 's-freela' } });
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.detalheServico.conversar,
+      }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/conversas/c1'));
+    nadaForaDaTela(
+      await screen.findByLabelText(rotuloDaBolha('Você', TEXTO_QUE_CAIU)),
+    );
+
+    // A8. Polling com 401: a sessão sai e a tela vai ao login (CA14).
+    estado.falhaDoPolling = SESSAO_EXPIRADA;
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(
+      await screen.findByText(textos.erros.sessao_expirada),
+    ).toBeOnTheScreen();
+    await waitFor(() => expect(getPathname()).toBe('/entrar'));
+    expect(armazenamento.atual()).toBeNull();
+    estado.falhaDoPolling = null;
+    nadaForaDaTela(screen.getByText(textos.erros.sessao_expirada));
+
+    // B1. O freelancer entra no mesmo aparelho e volta à conversa: do lado
+    // dele, as mensagens da autora com o nome dela.
+    await preencherAcesso(EMAIL_DO_FREELANCER, SENHA_DO_FREELANCER);
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.entrar.entrar }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/conversas/c1'));
+    expect(armazenamento.atual()).toBe(TOKEN_DO_FREELANCER);
+    const daAutora = await screen.findByLabelText(
+      rotuloDaBolha(NOME, TEXTO_ENVIADO),
+    );
+    expect(
+      screen.getByLabelText(rotuloDaBolha(NOME, TEXTO_QUE_CAIU)),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText(rotuloDaBolha('Você', TEXTO_RECEBIDO)),
+    ).toBeOnTheScreen();
+    nadaForaDaTela(daAutora);
+
+    // B2. A lista do freelancer: o nome da autora e a prévia da última.
+    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+    await waitFor(() => expect(getPathname()).toBe('/conversas'));
+    const comAutora = await screen.findByRole('button', {
+      name: linhaDaListaDa2c(NOME, TEXTO_QUE_CAIU),
+    });
+    expect(await screen.findByText(TEXTO_QUE_CAIU)).toBeOnTheScreen();
+    nadaForaDaTela(comAutora);
+
+    // O texto vai só no corpo do POST; o `outroUsuarioId`, só no da abertura.
+    expect(corpos(api, 'POST /conversas/c1/mensagens')).toEqual([
+      { texto: TEXTO_ENVIADO },
+      { texto: TEXTO_QUE_CAIU },
+      { texto: TEXTO_QUE_CAIU },
+    ]);
+    expect(corpos(api, 'POST /conversas/c2/mensagens')).toEqual([
+      { texto: TEXTO_DA_CONVERSA_SUMIDA },
+    ]);
+    expect(corpos(api, 'POST /conversas')).toEqual([
+      { outroUsuarioId: ESTRANHO },
+      { outroUsuarioId: AUTORA },
+      { outroUsuarioId: FREELANCER },
+    ]);
+    expect(
+      sentinelasNoTexto(api.requisicoes.map((r) => r.url).join('\n')),
+    ).toEqual([]);
+
+    // Nenhum erro guardado pelas consultas e mutações traz sentinela.
+    vigia.parar();
+    const erros = [...vigia.erros];
+    expect(erros.length).toBeGreaterThan(0);
+    expect(
+      sentinelasNoTexto(
+        erros.flatMap((erro) => [emTexto(erro), emJson(erro)]).join('\n'),
+      ),
+    ).toEqual([]);
+
+    // Todo pedido autenticado levou o Bearer da conta da vez (CA14).
+    const entradaDoFreelancer = api.requisicoes.findIndex(
+      (r) => `${r.metodo} ${r.caminho}` === 'POST /sessoes',
+    );
+    expect(entradaDoFreelancer).toBeGreaterThan(0);
+    api.requisicoes.forEach((requisicao, indice) => {
+      if (ehRotaPublica(requisicao)) return;
+      const esperado =
+        indice < entradaDoFreelancer ? TOKEN_DA_AUTORA : TOKEN_DO_FREELANCER;
+      expect([indice, requisicao.cabecalhos.authorization]).toEqual([
+        indice,
+        `Bearer ${esperado}`,
+      ]);
+    });
+  }, 60_000);
 });
 
 describe('controle da varredura', () => {
@@ -1144,6 +1746,34 @@ describe('controle da varredura', () => {
         'nome do freelancer',
       ].sort(),
     );
+  });
+
+  it('fora do console: pega a sentinela em testID, em propriedade, em chave, na URL e em `data` que a tela não mostra', async () => {
+    const itens = [{ chave: TEXTO_RECEBIDO }, { chave: PREVIA_DO_TERCEIRO }];
+    await render(
+      <View testID={`bolha-${NOME_DO_TERCEIRO}`}>
+        <Text accessibilityLabel={TEXTO_ENVIADO}>{PREVIA_DO_TERCEIRO}</Text>
+        <FlatList
+          data={itens}
+          keyExtractor={(item) => item.chave}
+          renderItem={() => null}
+        />
+      </View>,
+    );
+
+    expect(
+      sentinelasForaDaTela(
+        `/conversas/c1?t=${encodeURIComponent(TEXTO_DA_CONVERSA_SUMIDA).replace(/%20/g, '+')}`,
+        screen.getByText(PREVIA_DO_TERCEIRO),
+      ),
+    ).toEqual({
+      testID: ['nome do terceiro'],
+      propriedades: ['nome do terceiro'],
+      // A prévia está na tela em texto; o texto recebido, não.
+      dadosDaLista: ['texto recebido'],
+      chaves: ['texto recebido', 'prévia do terceiro'],
+      url: ['texto da conversa sumida'],
+    });
   });
 
   it('sem sentinela nas chamadas, não acusa nada', () => {

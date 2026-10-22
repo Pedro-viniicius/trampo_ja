@@ -66,6 +66,37 @@ export function formatarDataHora(iso: string): string {
   )}/${instante.getFullYear()}`;
 }
 
+/**
+ * Hora de uma mensagem (ou da última atividade de uma conversa), no fuso do
+ * aparelho, relativa a `agora`:
+ * - no mesmo dia: `14:32`;
+ * - em outro dia do mesmo ano: `20/10 14:32`;
+ * - em outro ano: `20/10/2025`.
+ *
+ * Só aceita instante ISO 8601 com hora; entrada inválida volta como veio.
+ */
+export function formatarHoraDaMensagem(iso: string, agora: Date): string {
+  const instante = INSTANTE_ISO.test(iso)
+    ? new Date(iso)
+    : new Date(Number.NaN);
+  if (Number.isNaN(instante.getTime())) {
+    return iso;
+  }
+  const dia = doisDigitos(instante.getDate());
+  const mes = doisDigitos(instante.getMonth() + 1);
+  const ano = instante.getFullYear();
+  if (ano !== agora.getFullYear()) {
+    return `${dia}/${mes}/${ano}`;
+  }
+  const hora = `${doisDigitos(instante.getHours())}:${doisDigitos(
+    instante.getMinutes(),
+  )}`;
+  const mesmoDia =
+    instante.getMonth() === agora.getMonth() &&
+    instante.getDate() === agora.getDate();
+  return mesmoDia ? hora : `${dia}/${mes} ${hora}`;
+}
+
 /** Rótulo da categoria, ou o próprio id se a lista ainda não o tem. */
 export function rotuloDaCategoria(
   categorias: readonly Categoria[] | undefined,

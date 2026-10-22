@@ -1,11 +1,13 @@
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
+import RotaDasConversas from '../../app/(app)/(abas)/conversas';
 import InicioRota from '../../app/(app)/(abas)/index';
 import RotaDoMeuPerfil from '../../app/(app)/(abas)/perfil';
 import RotaDePublicar from '../../app/(app)/(abas)/publicar';
 import RotaDeCandidaturaDoTrampo from '../../app/(app)/candidaturas/[trampoId]';
 import RotaDeMinhasCandidaturas from '../../app/(app)/candidaturas/index';
+import RotaDaConversa from '../../app/(app)/conversas/[id]';
 import RotaDeMeusAnuncios from '../../app/(app)/meus-anuncios';
 import RotaDeEditarPerfil from '../../app/(app)/perfil/editar';
 import RotaDoPerfilPublico from '../../app/(app)/perfis/[contaId]';
@@ -30,8 +32,10 @@ export const ROTAS_REAIS: MapaDeRotas = {
   '(app)/(abas)/buscar': BuscarRota,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
   '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/(abas)/conversas': RotaDasConversas,
   '(app)/candidaturas/index': RotaDeMinhasCandidaturas,
   '(app)/candidaturas/[trampoId]': RotaDeCandidaturaDoTrampo,
+  '(app)/conversas/[id]': RotaDaConversa,
   '(app)/servicos/novo': RotaDeNovoServico,
   '(app)/trampos/novo': RotaDeNovoTrampo,
   '(app)/meus-anuncios': RotaDeMeusAnuncios,

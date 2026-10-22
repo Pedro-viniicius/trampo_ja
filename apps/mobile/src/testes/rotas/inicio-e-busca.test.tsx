@@ -64,6 +64,7 @@ const rotas = {
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
   '(app)/(abas)/publicar': PublicarRota,
+  '(app)/(abas)/conversas': stub('conversas-stub'),
   '(app)/(abas)/perfil': stub('perfil-stub'),
   '(app)/perfil/editar': stub('editar-perfil-stub'),
   '(app)/trampos/[id]': stub('detalhe-trampo-stub'),

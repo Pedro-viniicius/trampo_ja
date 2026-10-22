@@ -314,6 +314,7 @@ export interface PropsDoRodapeDoTrampo {
   onVerCandidaturas: () => void;
   /** Chega na 2c. */
   onConversar?: () => void;
+  estadoDoConversar?: EstadoDoConversar;
 }
 
 export interface CandidaturaParaExibir {
@@ -334,6 +335,15 @@ export interface PropsDasCandidaturasRecebidas {
   /** Id em aceite: desabilita todos os "Aceitar". */
   aceitando: string | null;
   erroDoAceite?: string;
+  /** Id (conta) com abertura de conversa em andamento: desabilita o "Conversar" dele. */
+  abrindoConversaCom?: string | null;
+  /** Erro ao abrir a conversa (mensagem já traduzida), mostrado num `Aviso`. */
+  erroDaConversa?: string;
+  /**
+   * Motivo (já traduzido) pelo qual o "Conversar" de cada candidatura está desabilitado;
+   * chave = `contaId` do item. Sem entrada, o botão fica habilitado.
+   */
+  motivoDaConversa?: Readonly<Record<string, string>>;
   toast: string | null;
   semConexao?: boolean;
   /** Chamado depois da confirmação do diálogo. */
@@ -374,4 +384,65 @@ export interface PropsDosMeusAnuncios {
   onAbrirItem: (item: MeuAnuncioParaExibir) => void;
   onPublicar: () => void;
   onVoltar: () => void;
+}
+
+// ---- Entrega 2c: conversas ----
+
+export interface ConversaParaExibir {
+  id: string;
+  /** `null`: "Perfil indisponível". */
+  nome: string | null;
+  /** `null`: "Nenhuma mensagem ainda". */
+  previa: string | null;
+  horaFormatada: string;
+}
+
+export interface PropsDaListaDeConversas {
+  lista: Estado<readonly ConversaParaExibir[]>;
+  semConexao?: boolean;
+  onAbrir: (id: string) => void;
+}
+
+export type SituacaoDaMensagem = 'enviada' | 'enviando' | 'falhou';
+
+export interface MensagemParaExibir {
+  /** Chave estável da lista (nunca o texto). */
+  chave: string;
+  minha: boolean;
+  texto: string;
+  /** `null` enquanto não há hora confirmada. */
+  horaFormatada: string | null;
+  situacao: SituacaoDaMensagem;
+}
+
+export interface PropsDaConversa {
+  titulo: string;
+  /** Nome de quem escreve do outro lado, para o rótulo das bolhas; `null` = "Outra pessoa". Sem a prop, usa `titulo`. */
+  nomeDoOutro?: string | null;
+  /** Máximo de caracteres da mensagem (padrão 2000). */
+  limite?: number;
+  /** Vazio: "Nenhuma mensagem ainda. Que tal começar?". */
+  mensagens: Estado<readonly MensagemParaExibir[]>;
+  /** Aviso de conversa indisponível (nao_encontrado) com "Voltar". */
+  indisponivel: boolean;
+  rascunho: string;
+  podeEnviar: boolean;
+  semConexao?: boolean;
+  /** Três falhas seguidas ao atualizar: mostra o aviso, a lista continua visível. */
+  atualizacaoFalhando?: boolean;
+  onMudarRascunho: (texto: string) => void;
+  onEnviar: () => void;
+  onTentarDeNovo: (chave: string) => void;
+  onVoltar: () => void;
+}
+
+/** `motivo`: botão desabilitado e texto explicativo. */
+export interface EstadoDoConversar {
+  abrindo: boolean;
+  motivo: string | null;
+}
+
+export interface PropsDoRodapeDoServico {
+  conversar: EstadoDoConversar;
+  onConversar: () => void;
 }

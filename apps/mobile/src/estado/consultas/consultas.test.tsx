@@ -323,7 +323,14 @@ describe('useMeuPerfil (CA3)', () => {
       expect(result.current.dados.carregando).toBe(true);
       expect(result.current.dados.semPerfil).toBe(false);
     } finally {
-      await act(async () => onlineManager.setOnline(true));
+      // Voltar online dispara a busca que estava pausada: espera ela e a
+      // notificação do TanStack (`setTimeout(0)` agendado só depois da
+      // resposta) dentro do `act`, senão a atualização cai depois do teste.
+      await act(async () => {
+        onlineManager.setOnline(true);
+        await new Promise((resolver) => setTimeout(resolver, 0));
+        await new Promise((resolver) => setTimeout(resolver, 0));
+      });
     }
   });
 
@@ -458,6 +465,10 @@ describe('useSalvarPerfil (CA3)', () => {
     await act(() => result.current.dados.sessao.entrar(TOKEN_NOVO));
     await act(async () => {
       await salvo;
+      // A notificação do sucesso sai num `setTimeout(0)` agendado agora: o
+      // `afterEach` chega tarde, e o jest-circus deixa o timer disparar no
+      // intervalo entre o teste e o hook, fora do `act`.
+      await new Promise((resolver) => setTimeout(resolver, 0));
     });
 
     expect(provedores.queryClient.getQueryData(chaves.meuPerfil())).toBe(

@@ -145,6 +145,7 @@ const CONFLITOS: ReadonlyMap<string, ChaveDeErro> = new Map<
   ['trampo_nao_aberto', 'trampo_nao_aberto'],
   ['candidatura_nao_pendente', 'candidatura_nao_pendente'],
   ['conflito_de_versao', 'conflito_de_versao'],
+  ['conversa_consigo_mesmo', 'conversa_consigo_mesmo'],
 ]);
 
 const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
@@ -159,8 +160,11 @@ const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
  *   `sessao_expirada`.
  * - 409 com código conhecido (`email_em_uso`, `perfil_incompleto`,
  *   `autor_nao_pode_candidatar`, `candidatura_duplicada`, `trampo_nao_aberto`,
- *   `candidatura_nao_pendente`, `conflito_de_versao`) -> a chave de mesmo
- *   nome em `geral`; outro 409 -> `erro_servidor`.
+ *   `candidatura_nao_pendente`, `conflito_de_versao`,
+ *   `conversa_consigo_mesmo`) -> a chave de mesmo nome em `geral`; outro
+ *   409 -> `erro_servidor`.
+ * - 403 `sem_vinculo` (abrir conversa sem candidatura nem contratação) ->
+ *   `sem_vinculo`; outro 403 -> `erro_servidor`.
  * - 429 -> `muitas_tentativas`; 404 -> `nao_encontrado`.
  * - 400 com campos conhecidos do `formulario` -> uma chave por campo;
  *   `habilidades.N` agrupa em `habilidades`.
@@ -191,6 +195,10 @@ export function chaveDoErro(
             : 'sessao_expirada',
         campos: {},
       };
+    case 403:
+      return erro.codigo === 'sem_vinculo'
+        ? { geral: 'sem_vinculo', campos: {} }
+        : SERVIDOR;
     case 404:
       return { geral: 'nao_encontrado', campos: {} };
     case 409: {
