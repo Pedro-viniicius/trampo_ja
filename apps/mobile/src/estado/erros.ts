@@ -151,6 +151,24 @@ const CONFLITOS: ReadonlyMap<string, ChaveDeErro> = new Map<
 const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
 
 /**
+ * Formulários de acesso, em que o 429 é o limite de tentativas de senha
+ * (`muitas_tentativas`). Nos demais, é o limite de ações por conta (D29).
+ */
+const FORMULARIOS_DE_ACESSO: ReadonlySet<Formulario> = new Set<Formulario>([
+  'entrar',
+  'cadastro',
+]);
+
+/** 403 com código conhecido -> chave. Outro 403 -> `erro_servidor`. */
+const PROIBIDOS: ReadonlyMap<string, ChaveDeErro> = new Map<
+  string,
+  ChaveDeErro
+>([
+  ['sem_vinculo', 'sem_vinculo'],
+  ['senha_incorreta', 'senha_incorreta'],
+]);
+
+/**
  * Traduz um erro da API ou de rede em chaves de `textos.erros` (o contêiner
  * troca a chave pelo texto). Devolve só chaves: nunca `erro.message`, o
  * corpo, a URL nem o que a pessoa digitou (CA15).
@@ -164,8 +182,13 @@ const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
  *   `conversa_consigo_mesmo`) -> a chave de mesmo nome em `geral`; outro
  *   409 -> `erro_servidor`.
  * - 403 `sem_vinculo` (abrir conversa sem candidatura nem contratação) ->
- *   `sem_vinculo`; outro 403 -> `erro_servidor`.
- * - 429 -> `muitas_tentativas`; 404 -> `nao_encontrado`.
+ *   `sem_vinculo`; 403 `senha_incorreta` (excluir a conta, exportar os
+ *   dados) -> `senha_incorreta`; outro 403 -> `erro_servidor`.
+ * - 429 -> `muitas_tentativas` em `entrar` e `cadastro` (limite de
+ *   tentativas de senha); em qualquer outro formulário, inclusive `nenhum`
+ *   (busca, conversa, exclusão, exportação), `muitas_tentativas_acao`
+ *   (limite de ações por conta, CA20).
+ * - 404 -> `nao_encontrado`.
  * - 400 com campos conhecidos do `formulario` -> uma chave por campo;
  *   `habilidades.N` agrupa em `habilidades`.
  * - O resto (400 sem campo conhecido, 5xx, erro desconhecido) ->
@@ -195,10 +218,10 @@ export function chaveDoErro(
             : 'sessao_expirada',
         campos: {},
       };
-    case 403:
-      return erro.codigo === 'sem_vinculo'
-        ? { geral: 'sem_vinculo', campos: {} }
-        : SERVIDOR;
+    case 403: {
+      const geral = PROIBIDOS.get(erro.codigo);
+      return geral === undefined ? SERVIDOR : { geral, campos: {} };
+    }
     case 404:
       return { geral: 'nao_encontrado', campos: {} };
     case 409: {
@@ -206,7 +229,12 @@ export function chaveDoErro(
       return geral === undefined ? SERVIDOR : { geral, campos: {} };
     }
     case 429:
-      return { geral: 'muitas_tentativas', campos: {} };
+      return {
+        geral: FORMULARIOS_DE_ACESSO.has(formulario)
+          ? 'muitas_tentativas'
+          : 'muitas_tentativas_acao',
+        campos: {},
+      };
     default:
       return SERVIDOR;
   }

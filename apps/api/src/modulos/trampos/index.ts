@@ -6,7 +6,12 @@ import {
 } from '../../compartilhado/dominio/relogio.js';
 import type { ValidarSessao } from '../../compartilhado/http/autenticacao.js';
 import { rotasDeTrampos } from './adaptadores/http/rotas.js';
-import { RepositorioDeTramposPostgres } from './adaptadores/postgres/repositorio-postgres.js';
+import {
+  excluirDadosDaConta,
+  exportarDadosDaConta,
+  type ParteDeTramposNaExportacao,
+  RepositorioDeTramposPostgres,
+} from './adaptadores/postgres/repositorio-postgres.js';
 import type { TabelasDeTrampos } from './adaptadores/postgres/tabelas.js';
 import {
   criarCasosDeUsoDeTrampos,
@@ -14,6 +19,12 @@ import {
 } from './aplicacao/casos-de-uso.js';
 import type { VerificadorDePerfil } from './dominio/portas.js';
 import type { TrampoResumo } from './dominio/trampo.js';
+
+export type {
+  CandidaturaExportada,
+  ParteDeTramposNaExportacao,
+  TrampoExportado,
+} from './adaptadores/postgres/repositorio-postgres.js';
 
 export interface DependenciasDoModuloDeTrampos {
   /** Conexão com a visão das tabelas deste módulo (`trampos`, `candidaturas`). */
@@ -30,10 +41,37 @@ export interface ModuloDeTrampos {
   readonly rotas: (opcoes: {
     readonly validarSessao: ValidarSessao;
   }) => FastifyPluginAsync;
-  /** Para `conversas`: há candidatura, em qualquer estado, entre os dois? */
-  readonly existeVinculoEntre: (a: string, b: string) => Promise<boolean>;
+  /**
+   * Para `conversas`: há candidatura, em qualquer estado, entre os dois? Com
+   * `trx`, a consulta roda nessa transação (a da abertura de conversa, que
+   * segura a trava das contas contra a exclusão); sem, na conexão do módulo.
+   */
+  readonly existeVinculoEntre: (
+    a: string,
+    b: string,
+    trx?: Kysely<TabelasDeTrampos>,
+  ) => Promise<boolean>;
   /** Para `busca` (CA7): trampos abertos que atendem aos filtros. */
   readonly buscarTrampos: (filtros?: EntradaDeBusca) => Promise<TrampoResumo[]>;
+  /**
+   * Parte de `trampos` em `DadosDaConta.excluirTudo` (D25), na transação
+   * recebida, aberta pela composição: trava (`for update`) os trampos da
+   * conta e as candidaturas a apagar, e apaga as candidaturas recebidas, as
+   * feitas pela conta e os trampos dela. Lança se `contaId` não for uuid ou
+   * se `trx` não for uma transação.
+   */
+  readonly excluirDadosDaConta: (
+    trx: Kysely<TabelasDeTrampos>,
+    contaId: string,
+  ) => Promise<void>;
+  /**
+   * Parte de `trampos` na exportação (D26): os trampos da conta, com só a
+   * contagem `candidaturasRecebidas` (o texto delas é de terceiros), e as
+   * candidaturas que a conta fez.
+   */
+  readonly exportarDadosDaConta: (
+    contaId: string,
+  ) => Promise<ParteDeTramposNaExportacao>;
 }
 
 /** Fachada do módulo `trampos`: único ponto que outro módulo pode importar. */
@@ -47,7 +85,13 @@ export function criarModuloDeTrampos(
   });
   return {
     rotas: (opcoes) => rotasDeTrampos(casos, opcoes),
-    existeVinculoEntre: (a, b) => casos.existeVinculoEntre(a, b),
+    existeVinculoEntre: (a, b, trx) =>
+      trx === undefined
+        ? casos.existeVinculoEntre(a, b)
+        : // Mesma consulta do caso de uso, na conexão de quem chamou.
+          new RepositorioDeTramposPostgres(trx).existeCandidaturaEntre(a, b),
     buscarTrampos: (filtros) => casos.buscarTrampos(filtros),
+    excluirDadosDaConta,
+    exportarDadosDaConta: (contaId) => exportarDadosDaConta(deps.db, contaId),
   };
 }

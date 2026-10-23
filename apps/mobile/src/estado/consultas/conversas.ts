@@ -20,7 +20,7 @@ import { chaves } from './chaves';
 
 /** Ciclo do polling da conversa aberta, sem falhas (D20). */
 export const INTERVALO_DO_POLLING_MS = 5_000;
-/** Maior espera entre dois ciclos, com falhas seguidas de rede ou 5xx. */
+/** Maior espera entre dois ciclos, com falhas passageiras seguidas. */
 export const TETO_DO_POLLING_MS = 60_000;
 /** Ciclo da lista de conversas com a aba focada (D20). */
 export const INTERVALO_DA_LISTA_MS = 30_000;
@@ -38,8 +38,9 @@ export const PAGINAS_POR_BUSCA = 20;
 export const TETO_DE_MENSAGENS_NO_CACHE = 500;
 
 /**
- * Espera até o próximo ciclo depois de `falhas` falhas seguidas de rede ou
- * 5xx: `min(5 s × 2^falhas, 60 s)`. Valor inválido conta como zero.
+ * Espera até o próximo ciclo depois de `falhas` falhas passageiras seguidas
+ * (rede, 5xx ou 429): `min(5 s × 2^falhas, 60 s)`. Valor inválido conta como
+ * zero.
  */
 export function intervaloDoPolling(falhas: number): number {
   const n = Number.isFinite(falhas) && falhas > 0 ? Math.floor(falhas) : 0;
@@ -82,20 +83,39 @@ export interface OpcoesDeAtividade {
   readonly ativa: boolean;
 }
 
-/** 4xx da API: repetir daria a mesma resposta, então o polling para. */
-function ehErroDoCliente(erro: unknown): boolean {
-  return ehErroDaApi(erro) && erro.status >= 400 && erro.status < 500;
+/** Limite de requisições por conta (D29): passa sozinho com o tempo. */
+const STATUS_DO_LIMITE = 429;
+
+/**
+ * Queda de rede, tempo esgotado, 5xx ou 429 (limite por conta, CA20): conta
+ * para o backoff e o ciclo continua.
+ */
+function ehFalhaPassageira(erro: unknown): boolean {
+  return (
+    !ehErroDaApi(erro) || erro.status >= 500 || erro.status === STATUS_DO_LIMITE
+  );
 }
 
-/** Queda de rede, tempo esgotado ou 5xx: conta para o backoff. */
-function ehFalhaPassageira(erro: unknown): boolean {
-  return !(ehErroDaApi(erro) && erro.status < 500);
+/**
+ * Os demais 4xx da API: repetir daria a mesma resposta, então o polling
+ * para. O 429 fica de fora (ver `ehFalhaPassageira`).
+ */
+function ehErroDoCliente(erro: unknown): boolean {
+  return (
+    ehErroDaApi(erro) &&
+    erro.status >= 400 &&
+    erro.status < 500 &&
+    erro.status !== STATUS_DO_LIMITE
+  );
 }
 
 /**
  * `GET /conversas` (última atividade primeiro), só com a sessão autenticada.
  * Fresca por 5 s. Com `ativa`, recarrega a cada 30 s, ao voltar ao app e ao
  * voltar a ela (se o dado estiver velho); fora de foco, só mostra o cache.
+ * Um erro (inclusive o 429 do limite por conta, CA20) não para o ciclo de
+ * 30 s: a próxima resposta boa o substitui. Sem nova tentativa imediata no
+ * 4xx (`deveTentarDeNovo`), para não gastar mais o limite.
  * A consulta segue habilitada fora de foco de propósito: assim a abertura de
  * conversa consegue recarregá-la (`useAbrirConversa`). `conversas` é `null`
  * enquanto não há resposta. `buscando` e `atualizadaEm` deixam quem usa
@@ -204,10 +224,11 @@ async function carregarDesde(
  * - Só busca com `ativa` e a sessão autenticada; o ciclo também para com o
  *   app em segundo plano (`focusManager`) e sem rede (`onlineManager`), e
  *   volta na hora ao app voltar, à rede voltar e a tela ganhar foco.
- * - Ciclo de 5 s; depois de `n` falhas seguidas de rede ou 5xx,
- *   `intervaloDoPolling(n)`. Sem nova tentativa automática (`retry: 0`): o
- *   backoff é o do ciclo. O contador zera no sucesso.
- * - Para no 4xx: o 404 (conversa alheia ou inexistente) marca
+ * - Ciclo de 5 s; depois de `n` falhas passageiras seguidas (rede, 5xx ou
+ *   429 do limite por conta, CA20), `intervaloDoPolling(n)`, até 60 s. Sem
+ *   nova tentativa automática (`retry: 0`): o backoff é o do ciclo. O
+ *   contador zera no sucesso.
+ * - Para nos demais 4xx: o 404 (conversa alheia ou inexistente) marca
  *   `indisponivel`; o 401 já expira a sessão pelo cliente HTTP. Só
  *   `recarregar()` (ou a tela ganhar foco de novo) tenta outra vez.
  * - A sessão que sai limpa o cache (`queryClient.clear()`): a busca no ar é
@@ -221,7 +242,7 @@ export function useMensagens(conversaId: string, { ativa }: OpcoesDeAtividade) {
   const cliente = useCliente();
   const { status, geracao } = useSessao();
   const queryClient = useQueryClient();
-  // Falhas seguidas de rede ou 5xx desta conversa. Fica fora do estado da
+  // Falhas passageiras seguidas desta conversa. Fica fora do estado da
   // consulta porque o TanStack zera `fetchFailureCount` a cada busca.
   const falhas = useRef({ conversaId, n: 0 });
 
@@ -302,7 +323,7 @@ export function useMensagens(conversaId: string, { ativa }: OpcoesDeAtividade) {
     erro,
     /** A API respondeu 404: conversa alheia ou inexistente. */
     indisponivel: ehErroDaApi(erro) && erro.status === 404,
-    /** Falhas seguidas de rede ou 5xx (0 depois de um sucesso). */
+    /** Falhas seguidas de rede, 5xx ou 429 (0 depois de um sucesso). */
     falhasSeguidas: consulta.isError ? lerFalhas() : 0,
     recarregar,
   };
@@ -377,7 +398,7 @@ export function useAbrirConversa() {
  * esperar, o que puxa um ciclo do polling na hora (o cursor continua vindo
  * do GET; ver `useMensagens`), e também `chaves.conversas()`, sem esperar:
  * ao voltar à lista, a prévia já é a da mensagem enviada (Q2). A falha volta crua (`ErroDeRede`, `ErroDaApi`
- * 5xx, 404, 401) para a rota decidir; o texto nunca entra no erro (CA15).
+ * 5xx, 404, 401, 429) para a rota decidir; o texto nunca entra no erro (CA15).
  * Sem conexão falha na hora, sem fila nem nova tentativa. Se a sessão mudou
  * durante o POST, devolve `descartada` e nada é invalidado.
  */

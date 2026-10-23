@@ -107,6 +107,15 @@ describe('ListaDeConversas', () => {
 });
 
 describe('Conversa', () => {
+  it('mostra o aviso do envio acima do campo; sem a prop, não mostra', async () => {
+    const aviso = textos.erros.muitas_tentativas_acao;
+    const { rerender } = await render(<Conversa {...props()} />);
+    expect(screen.queryByText(aviso)).not.toBeOnTheScreen();
+    await rerender(<Conversa {...props({ avisoDoEnvio: aviso })} />);
+    expect(screen.getByText(aviso)).toBeOnTheScreen();
+    expect(screen.getByLabelText(textos.conversas.campo)).toBeOnTheScreen();
+  });
+
   it('mostra o título, a mensagem e o campo com limite de 2000', async () => {
     await render(<Conversa {...props()} />);
     expect(screen.getByText('Pessoa X')).toBeOnTheScreen();
@@ -216,7 +225,7 @@ describe('Conversa', () => {
   });
 
   it('chegada de mensagem do outro anuncia a novidade sem repetir o conteúdo', async () => {
-    const { rerender } = await render(<Conversa {...props()} />);
+    const { rerender, unmount } = await render(<Conversa {...props()} />);
     expect(
       screen.queryByText(textos.conversas.novaMensagemDe('Pessoa X')),
     ).toBeNull();
@@ -246,6 +255,9 @@ describe('Conversa', () => {
     expect(
       screen.getByText(textos.conversas.novaMensagemDe('Pessoa X')),
     ).toBeOnTheScreen();
+    // A `VirtualizedList` agenda um lote de células num timer que, sob carga,
+    // dispara depois do teste e fora do `act`. A desmontagem o cancela.
+    await unmount();
   });
 
   it('indisponível: aviso com "Voltar" e sem campo', async () => {

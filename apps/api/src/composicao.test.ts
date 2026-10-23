@@ -7,6 +7,11 @@ import {
 } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BancoBase } from './compartilhado/banco/conexao.js';
+import {
+  type GrupoDeLimite,
+  grupoDaRota,
+  gruposDaRota,
+} from './compartilhado/http/limite-por-conta.js';
 import { criarLogger } from './compartilhado/http/logger.js';
 import {
   type Aplicacao,
@@ -90,6 +95,8 @@ describe('montarAplicacao — rotas', () => {
         'POST /contas',
         'POST /sessoes',
         'DELETE /sessoes',
+        'POST /contas/eu/exclusao',
+        'POST /contas/eu/exportacao',
         'GET /perfis/eu',
         'PUT /perfis/eu',
         'GET /perfis/:contaId',
@@ -111,6 +118,57 @@ describe('montarAplicacao — rotas', () => {
         'POST /conversas/:id/mensagens',
       ].sort(),
     );
+  });
+
+  it('CA20 (D29) — cada rota autenticada registrada cai nos grupos de limite previstos (HEAD automático é leitura; o teto diário é só do envio de mensagem)', async () => {
+    const { rotas } = await montar({ rateLimit: false });
+    // Tabela explícita: `grupoDaRota` cai em `escrita` para rota que não
+    // conhece, então só "tem grupo" não pegaria um erro de grupo.
+    const esperado: Readonly<Record<string, readonly GrupoDeLimite[]>> = {
+      // S8: sair fica fora do limite por conta.
+      'DELETE /sessoes': [],
+      'POST /contas/eu/exclusao': ['senha'],
+      'POST /contas/eu/exportacao': ['senha'],
+      'GET /perfis/eu': ['leitura'],
+      'PUT /perfis/eu': ['escrita'],
+      'GET /perfis/:contaId': ['leitura'],
+      'POST /trampos': ['publicacao'],
+      'GET /trampos/meus': ['leitura'],
+      'GET /trampos/:id': ['leitura'],
+      'POST /trampos/:id/candidaturas': ['publicacao'],
+      'GET /trampos/:id/candidaturas': ['leitura'],
+      'POST /trampos/:id/candidaturas/:cid/aceitar': ['escrita'],
+      'GET /candidaturas/minhas': ['leitura'],
+      'POST /servicos': ['publicacao'],
+      'GET /servicos/meus': ['leitura'],
+      'GET /servicos/:id': ['leitura'],
+      'GET /busca': ['leitura'],
+      'GET /categorias': ['leitura'],
+      'POST /conversas': ['escrita'],
+      'GET /conversas': ['leitura'],
+      'GET /conversas/:id/mensagens': ['leitura'],
+      // S1 da L1: 30/min e, somado, o teto de 1000 a cada 24 h.
+      'POST /conversas/:id/mensagens': ['mensagens', 'mensagens_dia'],
+    };
+
+    const autenticadas = rotas.filter(
+      (rota) =>
+        !ROTAS_PUBLICAS.some(
+          (p) => p.metodo === rota.metodo && p.url === rota.url,
+        ),
+    );
+    const semHead = autenticadas.filter((rota) => rota.metodo !== 'HEAD');
+    expect(semHead.map((r) => `${r.metodo} ${r.url}`).sort()).toEqual(
+      Object.keys(esperado).sort(),
+    );
+    for (const rota of autenticadas) {
+      const chave = `${rota.metodo} ${rota.url}`;
+      const grupos = rota.metodo === 'HEAD' ? ['leitura'] : esperado[chave];
+      expect(gruposDaRota(rota.metodo, rota.url), chave).toEqual(grupos);
+      expect(grupoDaRota(rota.metodo, rota.url), chave).toBe(
+        grupos?.[0] ?? null,
+      );
+    }
   });
 
   it('as rotas públicas são só POST /contas e POST /sessoes', () => {
@@ -457,5 +515,23 @@ describe('S1 — trustProxy na composição', () => {
       cabecalhos: { 'x-forwarded-for': '198.51.100.3' },
     });
     expect(forjada.statusCode).toBe(429);
+  });
+});
+
+describe('D29 — limite por conta na composição', () => {
+  it('limite por conta inválido recusa a montagem, em vez de cair no padrão do plugin', async () => {
+    await expect(
+      montarAplicacao({
+        db: bancoFicticio(),
+        limitesPorConta: {
+          leitura: { max: 0, janelaMs: 60_000 },
+          mensagens: { max: 30, janelaMs: 60_000 },
+          mensagens_dia: { max: 1000, janelaMs: 86_400_000 },
+          publicacao: { max: 30, janelaMs: 60_000 },
+          senha: { max: 5, janelaMs: 60_000 },
+          escrita: { max: 60, janelaMs: 60_000 },
+        },
+      }),
+    ).rejects.toThrow('limite por conta inválido: max do grupo leitura');
   });
 });

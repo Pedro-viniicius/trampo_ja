@@ -1,7 +1,8 @@
 // CA15 no cliente: varredura do `console` durante os fluxos reais do app (2a:
 // conta, perfil e busca; 2b: publicação, candidaturas e aceite; 2c:
-// conversas, também fora do `console`) e barreira contra dependências de
-// telemetria ou de armazenamento inseguro.
+// conversas, também fora do `console`; L1: exportação e exclusão da conta com
+// a senha, CA24) e barreira contra dependências de telemetria ou de
+// armazenamento inseguro.
 import type { QueryClient } from '@tanstack/react-query';
 import { render } from '@testing-library/react-native';
 import { router } from 'expo-router';
@@ -19,6 +20,7 @@ import RotaDeEditarPerfil from '../app/(app)/perfil/editar';
 import RotaDoTrampo from '../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../estado/armazenamento-token';
 import { INTERVALO_DO_POLLING_MS } from '../estado/consultas/conversas';
+import { compartilharExportacao } from '../estado/exportacao';
 import { formatarHoraDaMensagem } from '../estado/formatacao';
 import { textos } from '../textos/pt-BR';
 import {
@@ -39,6 +41,15 @@ jest.mock('expo-network', () => ({
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
   getNetworkStateAsync: jest.fn(() => new Promise(() => undefined)),
 }));
+
+// L1: a folha de compartilhamento fica de fora; a jornada guarda o que iria
+// para o arquivo (o resto de `estado/exportacao` é o real).
+jest.mock('../estado/exportacao', () => ({
+  ...jest.requireActual('../estado/exportacao'),
+  compartilharExportacao: jest.fn(),
+}));
+
+const compartilhar = jest.mocked(compartilharExportacao);
 
 // --- Sentinelas: valores únicos que não podem aparecer em `console` ---
 
@@ -83,6 +94,48 @@ const PREVIA_DO_TERCEIRO = 'Previa sentinela da conversa com o terceiro';
 const NOME_DO_TERCEIRO = 'Terceiro Sentinela Duarte';
 const TEXTO_DA_CONVERSA_SUMIDA = 'Texto sentinela para a conversa sumida';
 
+// Pré-lançamento L1 (CA24): a conta que exporta os dados e se exclui, com a
+// senha certa e a errada.
+const EMAIL_DA_CONTA = 'conta.excluida.sentinela@exemplo.test';
+const SENHA_DA_CONTA = 'SentinelaDaExclusao#2026';
+const SENHA_ERRADA_DA_CONTA = 'SentinelaSenhaErradaL1#2026';
+const TOKEN_DA_CONTA = 'token-sentinela-excluida';
+
+// Valores que só existem no JSON exportado (diferentes dos da tela e do
+// login): o conteúdo vai para o arquivo e qualquer cópia fora dele aparece.
+const EMAIL_EXPORTADO = 'exportado.sentinela@exemplo.test';
+const NOME_EXPORTADO = 'Exportada Sentinela Moura';
+const TITULO_EXPORTADO = 'Anuncio Sentinela Exportado';
+const DESCRICAO_EXPORTADA = 'Descricao sentinela do anuncio exportado';
+const TEXTO_EXPORTADO = 'Mensagem sentinela que so existe na exportacao';
+
+/** As senhas digitadas na jornada do L1. */
+const SENHAS_DO_L1: Readonly<Record<string, string>> = {
+  'senha da conta excluída': SENHA_DA_CONTA,
+  'senha errada da conta excluída': SENHA_ERRADA_DA_CONTA,
+};
+
+/** O que só pode existir na resposta da exportação e no arquivo. */
+const SENTINELAS_DO_JSON: Readonly<Record<string, string>> = {
+  'e-mail exportado': EMAIL_EXPORTADO,
+  'nome exportado': NOME_EXPORTADO,
+  'título exportado': TITULO_EXPORTADO,
+  'descrição exportada': DESCRICAO_EXPORTADA,
+  'mensagem exportada': TEXTO_EXPORTADO,
+};
+
+/**
+ * O que não pode ficar em cache do TanStack, URL, `testID` nem erro (CA24):
+ * as senhas, o e-mail do login, o token e o JSON. O perfil da tela (nome,
+ * cidade) fica de fora: a consulta do perfil o guarda de propósito.
+ */
+const SENTINELAS_RESTRITAS_DO_L1: Readonly<Record<string, string>> = {
+  ...SENHAS_DO_L1,
+  'e-mail da conta excluída': EMAIL_DA_CONTA,
+  'token da conta excluída': TOKEN_DA_CONTA,
+  ...SENTINELAS_DO_JSON,
+};
+
 const SENTINELAS: Readonly<Record<string, string>> = {
   'e-mail': EMAIL,
   senha: SENHA,
@@ -117,6 +170,7 @@ const SENTINELAS: Readonly<Record<string, string>> = {
   'prévia do terceiro': PREVIA_DO_TERCEIRO,
   'nome do terceiro': NOME_DO_TERCEIRO,
   'texto da conversa sumida': TEXTO_DA_CONVERSA_SUMIDA,
+  ...SENTINELAS_RESTRITAS_DO_L1,
 };
 
 // --- Varredura ---
@@ -212,11 +266,14 @@ function textoDasChamadas(chamadas: readonly ChamadaDoConsole[]): string {
  * Nomes das sentinelas que aparecem em `texto`: puras ou codificadas para URL
  * (`encodeURIComponent` e a query de formulário, com `+` no lugar do
  * espaço, como o Expo Router monta a URL), sem diferenciar maiúsculas de
- * minúsculas.
+ * minúsculas. `sentinelas` restringe a procura (padrão: todas).
  */
-function sentinelasNoTexto(texto: string): string[] {
+function sentinelasNoTexto(
+  texto: string,
+  sentinelas: Readonly<Record<string, string>> = SENTINELAS,
+): string[] {
   const minusculo = texto.toLowerCase();
-  return Object.entries(SENTINELAS)
+  return Object.entries(sentinelas)
     .filter(([, valor]) =>
       [
         valor,
@@ -911,24 +968,30 @@ const DADOS_DA_LISTA = /^\w+\.data=/;
  *
  * A `FlatList` repassa os itens (`data`) ao `ScrollView`, e eles aparecem no
  * `toJSON()`: lá, só vale sentinela que a própria tela mostra em texto.
+ * `sentinelas` restringe a procura (padrão: todas).
  */
-function sentinelasForaDaTela(url: string, elemento: object) {
+function sentinelasForaDaTela(
+  url: string,
+  elemento: object,
+  sentinelas: Readonly<Record<string, string>> = SENTINELAS,
+) {
+  const procurar = (texto: string) => sentinelasNoTexto(texto, sentinelas);
   const arvore = screen.toJSON();
   const propriedades = propriedadesForaDosTextos(arvore);
-  const naTela = new Set(sentinelasNoTexto(textosDaArvore(arvore).join('\n')));
+  const naTela = new Set(procurar(textosDaArvore(arvore).join('\n')));
   const dados = propriedades.filter((p) => DADOS_DA_LISTA.test(p));
   return {
-    testID: sentinelasNoTexto(
+    testID: procurar(
       propriedades.filter((p) => /\.(testID|nativeID)=/.test(p)).join('\n'),
     ),
-    propriedades: sentinelasNoTexto(
+    propriedades: procurar(
       propriedades.filter((p) => !DADOS_DA_LISTA.test(p)).join('\n'),
     ),
-    dadosDaLista: sentinelasNoTexto(dados.join('\n')).filter(
+    dadosDaLista: procurar(dados.join('\n')).filter(
       (nome) => !naTela.has(nome),
     ),
-    chaves: sentinelasNoTexto(chavesDaArvore(elemento).join('\n')),
-    url: sentinelasNoTexto(url),
+    chaves: procurar(chavesDaArvore(elemento).join('\n')),
+    url: procurar(url),
   };
 }
 
@@ -962,6 +1025,147 @@ function literal(texto: string): string {
 /** Bolha com o texto, de quem for (`quem` no começo do rótulo). */
 function rotuloDaBolha(quem: string, texto: string): RegExp {
   return new RegExp(`^${literal(quem)}, .+\\. ${literal(texto)}$`);
+}
+
+// --- Jornada do L1: exportação e exclusão da conta (CA24) ---
+
+const EXCLUSAO = 'POST /contas/eu/exclusao';
+const EXPORTACAO = 'POST /contas/eu/exportacao';
+
+/** Únicos pedidos que podem levar uma senha, e só no corpo. */
+const PEDIDOS_COM_SENHA: ReadonlySet<string> = new Set([
+  'POST /sessoes',
+  EXCLUSAO,
+  EXPORTACAO,
+]);
+
+/** Resposta da exportação no formato `trampo-ja.exportacao.v1` (D26). */
+const DADOS_EXPORTADOS = {
+  formato: 'trampo-ja.exportacao.v1',
+  geradoEm: '2026-10-22T12:00:00.000Z',
+  conta: {
+    id: 'c-excluida',
+    email: EMAIL_EXPORTADO,
+    criadaEm: '2026-10-01T12:00:00.000Z',
+  },
+  sessoes: [
+    {
+      criadaEm: '2026-10-22T11:00:00.000Z',
+      expiraEm: '2026-11-21T11:00:00.000Z',
+    },
+  ],
+  perfil: {
+    nome: NOME_EXPORTADO,
+    cidade: 'Lavras',
+    descricao: null,
+    habilidades: [],
+    atualizadoEm: '2026-10-02T12:00:00.000Z',
+  },
+  trampos: [
+    {
+      id: 't-exportado',
+      titulo: TITULO_EXPORTADO,
+      descricao: DESCRICAO_EXPORTADA,
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 15000,
+      prazo: null,
+      status: 'aberto',
+      criadoEm: '2026-10-03T12:00:00.000Z',
+      candidaturasRecebidas: 0,
+    },
+  ],
+  servicos: [],
+  candidaturas: [],
+  conversas: [
+    {
+      id: 'v-exportada',
+      outroUsuarioId: FREELANCER,
+      criadaEm: '2026-10-04T12:00:00.000Z',
+      minhasMensagens: [
+        {
+          id: 'm-exportada',
+          texto: TEXTO_EXPORTADO,
+          enviadaEm: '2026-10-04T12:05:00.000Z',
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * API falsa da jornada do L1, com duas contas: a que exporta e se exclui
+ * (`TOKEN_DA_CONTA`) e o freelancer, que entra no mesmo aparelho depois. A
+ * resposta depende do Bearer e da senha do corpo: a errada dá 403; a certa
+ * exporta (200) e, na exclusão, primeiro bate no limite (429) e depois
+ * exclui (204). Excluída a conta, o token dela dá 401 em tudo.
+ */
+function criarApiDoL1() {
+  const estado = { excluida: false, exclusoesCertas: 0 };
+  const daConta = (r: RequisicaoFeita) =>
+    !estado.excluida &&
+    r.cabecalhos.authorization === `Bearer ${TOKEN_DA_CONTA}`;
+  const doFreelancer = (r: RequisicaoFeita) =>
+    r.cabecalhos.authorization === `Bearer ${TOKEN_DO_FREELANCER}`;
+  const senhaCerta = (r: RequisicaoFeita) =>
+    (r.corpo as { senha?: string }).senha === SENHA_DA_CONTA;
+  const SENHA_INCORRETA = { status: 403, corpo: { erro: 'senha_incorreta' } };
+
+  const api = criarFetchFalso()
+    .responder('POST /sessoes', (r) => {
+      const { email } = r.corpo as { email?: string };
+      if (email === EMAIL_DA_CONTA && !estado.excluida) {
+        return { corpo: { token: TOKEN_DA_CONTA } };
+      }
+      if (email === EMAIL_DO_FREELANCER) {
+        return { corpo: { token: TOKEN_DO_FREELANCER } };
+      }
+      return { status: 401, corpo: { erro: 'credenciais_invalidas' } };
+    })
+    .responder('DELETE /sessoes', { status: 204 })
+    .responder('GET /categorias', { corpo: CATEGORIAS })
+    .responder('GET /busca', pagina([]))
+    .responder('GET /perfis/eu', (r) => {
+      if (daConta(r)) return { corpo: PERFIL_SALVO };
+      if (doFreelancer(r)) return { corpo: PERFIL_DO_FREELANCER };
+      return SESSAO_EXPIRADA;
+    })
+    .responder(EXPORTACAO, (r) => {
+      if (!daConta(r)) return SESSAO_EXPIRADA;
+      return senhaCerta(r) ? { corpo: DADOS_EXPORTADOS } : SENHA_INCORRETA;
+    })
+    .responder(EXCLUSAO, (r) => {
+      if (!daConta(r)) return SESSAO_EXPIRADA;
+      if (!senhaCerta(r)) return SENHA_INCORRETA;
+      estado.exclusoesCertas += 1;
+      if (estado.exclusoesCertas === 1) {
+        return { status: 429, corpo: { erro: 'muitas_requisicoes' } };
+      }
+      estado.excluida = true;
+      return { status: 204 };
+    });
+  return { api, estado };
+}
+
+/**
+ * Sentinelas restritas do L1 no estado guardado pelos caches do TanStack
+ * (chave e estado de cada consulta; `variables`, `data`, `error` e o
+ * contexto de cada mutação).
+ */
+function restritasNosCaches(queryClient: QueryClient): string[] {
+  return sentinelasNoTexto(
+    emJson([
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((q) => [q.queryKey, q.state]),
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((m) => m.state),
+    ]),
+    SENTINELAS_RESTRITAS_DO_L1,
+  );
 }
 
 // --- Testes ---
@@ -1698,6 +1902,221 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       ]);
     });
   }, 60_000);
+
+  it('L1: exportar (403 e 200) e excluir a conta (403, 429 e 204) com a senha, o JSON só no arquivo e outra conta depois (CA24)', async () => {
+    const { api, estado } = criarApiDoL1();
+    const arquivos: string[] = [];
+    compartilhar.mockImplementation(async (dados) => {
+      // O que `compartilharExportacao` gravaria no arquivo temporário.
+      arquivos.push(JSON.stringify(dados));
+      return 'compartilhado';
+    });
+    const queryClient = criarQueryClientDeTeste();
+    const vigia = vigiarErros(queryClient);
+    const rotas = await renderizarRotas(ROTAS_REAIS, {
+      initialUrl: '/entrar',
+      fetch: api,
+      queryClient,
+    });
+    const { armazenamento, getPathname } = rotas;
+    const tConta = textos.contaEPrivacidade;
+    const tExcluir = textos.excluirConta;
+    const tExportar = textos.exportarDados;
+    /**
+     * CA24 a cada passo: nada restrito (senhas, e-mail do login, token e
+     * JSON) fora do texto da tela (`testID`, outras propriedades, chaves,
+     * URL); o JSON em nenhum lugar da árvore, nem no texto; e nada restrito
+     * nos caches de consultas e de mutações. O perfil da conta (nome,
+     * habilidade) aparece na tela e nas chaves da aba Perfil de propósito.
+     */
+    const conferir = (elemento: object) =>
+      expect({
+        foraDaTela: sentinelasForaDaTela(
+          rotas.getPathnameWithParams(),
+          elemento,
+          SENTINELAS_RESTRITAS_DO_L1,
+        ),
+        jsonNaArvore: sentinelasNoTexto(
+          emJson(screen.toJSON()),
+          SENTINELAS_DO_JSON,
+        ),
+        caches: restritasNosCaches(queryClient),
+      }).toEqual({
+        foraDaTela: NADA_FORA_DA_TELA,
+        jsonNaArvore: [],
+        caches: [],
+      });
+    const linhaDaConta = (titulo: string) =>
+      screen.findByRole('button', { name: new RegExp(`^${literal(titulo)}`) });
+    const digitarSenha = async (rotulo: string, senha: string) =>
+      fireEvent.changeText(await screen.findByLabelText(rotulo), senha);
+    const gerar = async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: tExportar.gerar }),
+      );
+      await avancar(50);
+    };
+    const excluir = async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: tExcluir.excluir }),
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: tExcluir.dialogoConfirmar }),
+      );
+      await avancar(50);
+    };
+
+    // A1. A conta entra (a senha vai no corpo do login) e abre Conta e
+    // privacidade pelo Perfil.
+    await preencherAcesso(EMAIL_DA_CONTA, SENHA_DA_CONTA);
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.entrar.entrar }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/'));
+    expect(armazenamento.atual()).toBe(TOKEN_DA_CONTA);
+    conferir(await screen.findByText(`Olá, ${NOME}`));
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.perfil.contaEPrivacidade,
+      }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/perfil/conta'));
+
+    // A2. Exportar com a senha errada (403): o aviso, nada compartilhado.
+    await fireEvent.press(await linhaDaConta(tConta.exportar));
+    await waitFor(() => expect(getPathname()).toBe('/perfil/exportar'));
+    await digitarSenha(tExportar.senha, SENHA_ERRADA_DA_CONTA);
+    await gerar();
+    conferir(await screen.findByText(textos.erros.senha_incorreta));
+    expect(compartilhar).not.toHaveBeenCalled();
+
+    // A3. Exportar com a senha certa (200): o JSON vai inteiro para o
+    // arquivo e a tela só diz que gerou.
+    await digitarSenha(tExportar.senha, SENHA_DA_CONTA);
+    await gerar();
+    conferir(await screen.findByText(tExportar.gerado));
+    expect(compartilhar).toHaveBeenCalledTimes(1);
+    expect(arquivos).toEqual([JSON.stringify(DADOS_EXPORTADOS)]);
+    expect(
+      sentinelasNoTexto(arquivos.join('\n'), SENTINELAS_DO_JSON).sort(),
+    ).toEqual(Object.keys(SENTINELAS_DO_JSON).sort());
+
+    // A4. Excluir com a senha errada (403): o aviso, a sessão continua.
+    await fireEvent.press(ultimoBotao(tExportar.voltar));
+    await waitFor(() => expect(getPathname()).toBe('/perfil/conta'));
+    await fireEvent.press(await linhaDaConta(tConta.excluir));
+    await waitFor(() => expect(getPathname()).toBe('/perfil/excluir'));
+    await digitarSenha(tExcluir.senha, SENHA_ERRADA_DA_CONTA);
+    await excluir();
+    conferir(await screen.findByText(textos.erros.senha_incorreta));
+    expect(armazenamento.atual()).toBe(TOKEN_DA_CONTA);
+
+    // A5. Senha certa, mas no limite (429): o aviso de ações; a senha fica
+    // só no campo.
+    await digitarSenha(tExcluir.senha, SENHA_DA_CONTA);
+    await excluir();
+    conferir(await screen.findByText(textos.erros.muitas_tentativas_acao));
+    expect(screen.getByLabelText(tExcluir.senha)).toHaveDisplayValue(
+      SENHA_DA_CONTA,
+    );
+    expect(armazenamento.atual()).toBe(TOKEN_DA_CONTA);
+
+    // A6. De novo (204): login com "Sua conta foi excluída.", token e
+    // caches vazios, sem `DELETE /sessoes`.
+    await excluir();
+    const avisoDeExcluida = await screen.findByText(
+      textos.erros.conta_excluida,
+    );
+    await waitFor(() => expect(getPathname()).toBe('/entrar'));
+    expect(estado.excluida).toBe(true);
+    expect(armazenamento.atual()).toBeNull();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    conferir(avisoDeExcluida);
+    const indiceDaExclusao = api.requisicoes.length - 1;
+
+    // B1. Outra conta entra no mesmo aparelho: só os dados dela.
+    await preencherAcesso(EMAIL_DO_FREELANCER, SENHA_DO_FREELANCER);
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.entrar.entrar }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/'));
+    expect(armazenamento.atual()).toBe(TOKEN_DO_FREELANCER);
+    conferir(await screen.findByText(`Olá, ${NOME_DO_FREELANCER}`));
+
+    // A senha vai só no corpo do login e dos POST de `/contas/eu/*`; o JSON
+    // e o e-mail exportado não vão em pedido nenhum.
+    const rotasFeitas = api.requisicoes.map((r) => `${r.metodo} ${r.caminho}`);
+    expect(corpos(api, EXPORTACAO)).toEqual([
+      { senha: SENHA_ERRADA_DA_CONTA },
+      { senha: SENHA_DA_CONTA },
+    ]);
+    expect(corpos(api, EXCLUSAO)).toEqual([
+      { senha: SENHA_ERRADA_DA_CONTA },
+      { senha: SENHA_DA_CONTA },
+      { senha: SENHA_DA_CONTA },
+    ]);
+    expect(corpos(api, 'POST /sessoes')).toEqual([
+      { email: EMAIL_DA_CONTA, senha: SENHA_DA_CONTA },
+      { email: EMAIL_DO_FREELANCER, senha: SENHA_DO_FREELANCER },
+    ]);
+    expect(rotasFeitas).not.toContain('DELETE /sessoes');
+    expect(rotasFeitas[indiceDaExclusao]).toBe(EXCLUSAO);
+    api.requisicoes.forEach((requisicao, indice) => {
+      const rota = `${requisicao.metodo} ${requisicao.caminho}`;
+      expect({
+        indice,
+        rota,
+        senhaNoCorpo: PEDIDOS_COM_SENHA.has(rota)
+          ? []
+          : sentinelasNoTexto(emJson(requisicao.corpo), SENHAS_DO_L1),
+        jsonNoCorpo: sentinelasNoTexto(
+          emJson(requisicao.corpo),
+          SENTINELAS_DO_JSON,
+        ),
+        naUrl: sentinelasNoTexto(requisicao.url, SENTINELAS_RESTRITAS_DO_L1),
+        nosCabecalhos: sentinelasNoTexto(emJson(requisicao.cabecalhos), {
+          ...SENHAS_DO_L1,
+          ...SENTINELAS_DO_JSON,
+        }),
+      }).toEqual({
+        indice,
+        rota,
+        senhaNoCorpo: [],
+        jsonNoCorpo: [],
+        naUrl: [],
+        nosCabecalhos: [],
+      });
+    });
+
+    // Nenhum erro guardado pelas consultas e mutações traz sentinela.
+    vigia.parar();
+    const erros = [...vigia.erros];
+    expect(erros.length).toBeGreaterThanOrEqual(3);
+    expect(
+      sentinelasNoTexto(
+        erros.flatMap((erro) => [emTexto(erro), emJson(erro)]).join('\n'),
+      ),
+    ).toEqual([]);
+
+    // Todo pedido autenticado levou o Bearer da conta da vez (CA14); entre
+    // a exclusão e o novo login, nenhum.
+    const entradaDoFreelancer = rotasFeitas.lastIndexOf('POST /sessoes');
+    expect(entradaDoFreelancer).toBeGreaterThan(indiceDaExclusao);
+    api.requisicoes.forEach((requisicao, indice) => {
+      if (ehRotaPublica(requisicao)) return;
+      expect(indice > indiceDaExclusao && indice < entradaDoFreelancer).toBe(
+        false,
+      );
+      const esperado =
+        indice <= indiceDaExclusao ? TOKEN_DA_CONTA : TOKEN_DO_FREELANCER;
+      expect([indice, requisicao.cabecalhos.authorization]).toEqual([
+        indice,
+        `Bearer ${esperado}`,
+      ]);
+    });
+  }, 60_000);
 });
 
 describe('controle da varredura', () => {
@@ -1774,6 +2193,29 @@ describe('controle da varredura', () => {
       chaves: ['texto recebido', 'prévia do terceiro'],
       url: ['texto da conversa sumida'],
     });
+  });
+
+  it('L1: pega a senha em `variables` e o JSON no cache de consultas, e ignora o perfil, que não é restrito', async () => {
+    const queryClient = criarQueryClientDeTeste();
+    queryClient.setQueryData(['perfil'], PERFIL_SALVO);
+    expect(restritasNosCaches(queryClient)).toEqual([]);
+
+    queryClient.setQueryData(['exportacao'], DADOS_EXPORTADOS);
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, {
+        mutationFn: () => Promise.reject(new Error('recusada')),
+      })
+      .execute(SENHA_ERRADA_DA_CONTA)
+      .catch(() => undefined);
+
+    expect(restritasNosCaches(queryClient).sort()).toEqual(
+      [
+        ...Object.keys(SENTINELAS_DO_JSON),
+        'senha errada da conta excluída',
+      ].sort(),
+    );
+    queryClient.clear();
   });
 
   it('sem sentinela nas chamadas, não acusa nada', () => {

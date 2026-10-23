@@ -499,7 +499,7 @@ describe('useMensagens: falhas e parada', () => {
     expect(cursores(provedores)).toEqual([null]);
   });
 
-  it.each([403, 429])(
+  it.each([403])(
     '%p também para o ciclo, sem marcar indisponivel',
     async (status) => {
       const { provedores, servidor } = comServidor(mensagens(1, 3));
@@ -514,6 +514,84 @@ describe('useMensagens: falhas e parada', () => {
       expect(cursores(provedores)).toHaveLength(2);
     },
   );
+
+  it('429 (limite por conta, CA20) entra no backoff até 60 s sem parar o ciclo e zera no sucesso', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 3));
+    const { result } = await montarMensagens(provedores);
+
+    servidor.falha = { status: 429, corpo: { erro: 'muitas_requisicoes' } };
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(cursores(provedores)).toHaveLength(2);
+    expect((result.current.dados.erro as ErroDaApi).status).toBe(429);
+    expect(result.current.dados.indisponivel).toBe(false);
+    expect(result.current.dados.falhasSeguidas).toBe(1);
+    // A mensagem que já veio fica.
+    expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm2', 'm3']);
+
+    // 10 s, 20 s, 40 s e depois o teto de 60 s, sem nova tentativa no meio.
+    const esperas = [10_000, 20_000, 40_000, TETO_DO_POLLING_MS];
+    for (const [i, espera] of esperas.entries()) {
+      await avancar(espera - 1);
+      expect(cursores(provedores)).toHaveLength(2 + i);
+      await avancar(1);
+      expect(cursores(provedores)).toHaveLength(3 + i);
+      expect(result.current.dados.falhasSeguidas).toBe(2 + i);
+    }
+    // Continua no teto.
+    await avancar(TETO_DO_POLLING_MS - 1);
+    expect(cursores(provedores)).toHaveLength(6);
+    await avancar(1);
+    expect(cursores(provedores)).toHaveLength(7);
+    expect(result.current.dados.falhasSeguidas).toBe(6);
+
+    servidor.falha = null;
+    servidor.mensagens.push(mensagem(4));
+    await avancar(TETO_DO_POLLING_MS);
+    expect(cursores(provedores)).toHaveLength(8);
+    expect(result.current.dados.erro).toBeNull();
+    expect(result.current.dados.falhasSeguidas).toBe(0);
+    expect(ids(result.current.dados.mensagens)).toContain('m4');
+
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(cursores(provedores)).toHaveLength(9);
+    expect(cursores(provedores).at(-1)).toBe('m4');
+  });
+
+  it('429 na primeira carga: sem indisponivel, e o ciclo segue até carregar', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 3));
+    servidor.falha = { status: 429, corpo: { erro: 'muitas_requisicoes' } };
+    const { result } = await montarMensagens(provedores);
+
+    expect(result.current.dados.mensagens).toBeNull();
+    expect((result.current.dados.erro as ErroDaApi).status).toBe(429);
+    expect(result.current.dados.indisponivel).toBe(false);
+    expect(result.current.dados.falhasSeguidas).toBe(1);
+
+    servidor.falha = null;
+    await avancar(intervaloDoPolling(1));
+    expect(cursores(provedores)).toEqual([null, null]);
+    expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm2', 'm3']);
+    expect(result.current.dados.erro).toBeNull();
+  });
+
+  it('depois de um 429, voltar ao app e à rede busca de novo', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 3));
+    await montarMensagens(provedores);
+
+    servidor.falha = { status: 429, corpo: { erro: 'muitas_requisicoes' } };
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(cursores(provedores)).toHaveLength(2);
+
+    await act(async () => focusManager.setFocused(false));
+    await act(async () => focusManager.setFocused(true));
+    await avancar(0);
+    expect(cursores(provedores)).toHaveLength(3);
+
+    await act(async () => onlineManager.setOnline(false));
+    await act(async () => onlineManager.setOnline(true));
+    await avancar(0);
+    expect(cursores(provedores)).toHaveLength(4);
+  });
 
   it('401 expira a sessão pelo cliente, limpa o cache e para o ciclo', async () => {
     const { provedores, servidor } = comServidor(mensagens(1, 3));
@@ -721,6 +799,39 @@ describe('useConversas', () => {
     await act(async () => focusManager.setFocused(true));
     await avancar(0);
     expect(gets(provedores)).toBe(2);
+  });
+
+  it('429 (limite por conta, CA20) não para o ciclo de 30 s nem apaga a lista em mãos', async () => {
+    const provedores = criarProvedores();
+    const limite = { status: 429, corpo: { erro: 'muitas_requisicoes' } };
+    provedores.fetch.responder('GET /conversas', [
+      limite,
+      { corpo: [resumo('c1')] },
+      limite,
+      { corpo: [resumo('c1'), resumo('c2')] },
+    ]);
+    const { result } = await montarLista(provedores);
+
+    // Sem nova tentativa imediata no 4xx: espera o ciclo.
+    expect(gets(provedores)).toBe(1);
+    expect(result.current.dados.conversas).toBeNull();
+    expect((result.current.dados.erro as ErroDaApi).status).toBe(429);
+    await avancar(INTERVALO_DA_LISTA_MS - 1);
+    expect(gets(provedores)).toBe(1);
+    await avancar(1);
+    expect(gets(provedores)).toBe(2);
+    expect(result.current.dados.conversas).toEqual([resumo('c1')]);
+    expect(result.current.dados.erro).toBeNull();
+
+    await avancar(INTERVALO_DA_LISTA_MS);
+    expect(gets(provedores)).toBe(3);
+    expect((result.current.dados.erro as ErroDaApi).status).toBe(429);
+    expect(result.current.dados.conversas).toEqual([resumo('c1')]);
+
+    await avancar(INTERVALO_DA_LISTA_MS);
+    expect(gets(provedores)).toBe(4);
+    expect(result.current.dados.erro).toBeNull();
+    expect(result.current.dados.conversas).toHaveLength(2);
   });
 
   it('sem sessão autenticada não busca', async () => {
@@ -971,6 +1082,7 @@ describe('useEnviarMensagem (CA12, CA15)', () => {
   it.each([
     [500, 'erro_interno'],
     [404, 'nao_encontrado'],
+    [429, 'muitas_requisicoes'],
   ])(
     '%p volta como falhou com o erro cru, sem o texto e sem invalidar',
     async (status, codigo) => {

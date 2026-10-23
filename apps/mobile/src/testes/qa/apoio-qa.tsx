@@ -9,7 +9,10 @@ import RotaDeCandidaturaDoTrampo from '../../app/(app)/candidaturas/[trampoId]';
 import RotaDeMinhasCandidaturas from '../../app/(app)/candidaturas/index';
 import RotaDaConversa from '../../app/(app)/conversas/[id]';
 import RotaDeMeusAnuncios from '../../app/(app)/meus-anuncios';
+import RotaDeContaEPrivacidade from '../../app/(app)/perfil/conta';
 import RotaDeEditarPerfil from '../../app/(app)/perfil/editar';
+import RotaDeExcluirConta from '../../app/(app)/perfil/excluir';
+import RotaDeExportarDados from '../../app/(app)/perfil/exportar';
 import RotaDoPerfilPublico from '../../app/(app)/perfis/[contaId]';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
 import RotaDeNovoServico from '../../app/(app)/servicos/novo';
@@ -40,6 +43,9 @@ export const ROTAS_REAIS: MapaDeRotas = {
   '(app)/trampos/novo': RotaDeNovoTrampo,
   '(app)/meus-anuncios': RotaDeMeusAnuncios,
   '(app)/perfil/editar': RotaDeEditarPerfil,
+  '(app)/perfil/conta': RotaDeContaEPrivacidade,
+  '(app)/perfil/excluir': RotaDeExcluirConta,
+  '(app)/perfil/exportar': RotaDeExportarDados,
   '(app)/perfis/[contaId]': RotaDoPerfilPublico,
   '(app)/servicos/[id]': RotaDoServico,
   '(app)/trampos/[id]': RotaDoTrampo,

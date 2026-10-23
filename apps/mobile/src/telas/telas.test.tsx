@@ -156,6 +156,8 @@ describe('Cadastro', () => {
     onMudarSenha: noop,
     onCriarConta: noop,
     onIrParaEntrar: noop,
+    onTermos: noop,
+    onPolitica: noop,
   };
 
   it('mostra ajuda da senha, privacidade e chama criar conta', async () => {
@@ -189,6 +191,62 @@ describe('Cadastro', () => {
     expect(
       screen.getByRole('button', { name: 'Criando conta…' }),
     ).toBeOnTheScreen();
+  });
+});
+
+describe('Cadastro: aceite e privacidade (L1)', () => {
+  const base = {
+    email: '',
+    senha: '',
+    erros: {},
+    enviando: false,
+    onMudarEmail: noop,
+    onMudarSenha: noop,
+    onCriarConta: noop,
+    onIrParaEntrar: noop,
+    onTermos: noop,
+    onPolitica: noop,
+  };
+
+  it('mostra o aceite com os dois links e o aviso de perfil público', async () => {
+    const onTermos = jest.fn();
+    const onPolitica = jest.fn();
+    await render(
+      <Cadastro {...base} onTermos={onTermos} onPolitica={onPolitica} />,
+    );
+    expect(screen.getByText(textos.cadastro.aceite)).toBeOnTheScreen();
+    expect(screen.getByText(textos.cadastro.privacidade)).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.cadastro.aceiteTermos }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.cadastro.aceitePolitica }),
+    );
+    expect(onTermos).toHaveBeenCalledTimes(1);
+    expect(onPolitica).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Entrada: links legais (L1)', () => {
+  it('mostra e aciona os links quando há callbacks', async () => {
+    const onTermos = jest.fn();
+    const onPolitica = jest.fn();
+    await render(
+      <Entrada
+        onCriarConta={noop}
+        onJaTenhoConta={noop}
+        onTermos={onTermos}
+        onPolitica={onPolitica}
+      />,
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.cadastro.aceiteTermos }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.cadastro.aceitePolitica }),
+    );
+    expect(onTermos).toHaveBeenCalledTimes(1);
+    expect(onPolitica).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -618,6 +676,24 @@ describe('Perfil', () => {
     const botoesSair = screen.getAllByRole('button', { name: 'Sair' });
     await fireEvent.press(em(botoesSair, -1));
     expect(onSair).toHaveBeenCalledTimes(1);
+  });
+
+  it('próprio: linha "Conta e privacidade" só com o callback, e Sair continua', async () => {
+    const onContaEPrivacidade = jest.fn();
+    await render(
+      <Perfil
+        proprio
+        estado={ok(dados)}
+        perfilIncompleto={null}
+        onSair={noop}
+        onContaEPrivacidade={onContaEPrivacidade}
+      />,
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.perfil.contaEPrivacidade }),
+    );
+    expect(onContaEPrivacidade).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Sair' })).toBeOnTheScreen();
   });
 
   it('de outra pessoa: sem ações de edição', async () => {

@@ -13,7 +13,12 @@ import {
   type EntradaDeServico,
   type Servico,
 } from '../../dominio/servico.js';
-import { RepositorioDeServicosPostgres } from './repositorio-postgres.js';
+import { criarModuloDeServicos } from '../../index.js';
+import { VerificadorDePerfilEmMemoria } from '../memoria/verificador-perfil-memoria.js';
+import {
+  excluirDadosDaConta,
+  RepositorioDeServicosPostgres,
+} from './repositorio-postgres.js';
 import type { TabelasDeServicos } from './tabelas.js';
 
 const AUTOR = '7d3c2f0e-0b4f-4a57-9f7a-2a4c1d9e8b10';
@@ -365,5 +370,140 @@ describe('migração 0003_servicos', () => {
 
     expect(existiaDepoisDoDown).toBeNull();
     expect(await idsDaBusca()).toEqual([]);
+  });
+});
+
+describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
+  const modulo = () =>
+    criarModuloDeServicos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    });
+
+  async function contarLinhas(): Promise<number> {
+    const { rows } = await sql<{
+      total: number;
+    }>`select count(*)::int as total from servicos`.execute(db());
+    return rows[0]?.total ?? -1;
+  }
+
+  /** Captura o erro lançado pela promessa (falha se ela resolver). */
+  async function erroDe(promessa: Promise<unknown>): Promise<unknown> {
+    try {
+      await promessa;
+    } catch (erro) {
+      return erro;
+    }
+    throw new Error('era esperada uma recusa');
+  }
+
+  it('CA17/CA18 — apaga só os serviços da conta-alvo, na transação recebida; os da outra conta ficam e continuam na busca', async () => {
+    await salvarTodos(
+      servico(1),
+      servico(2, {}, { autorId: OUTRO_AUTOR }),
+      servico(3, { cidade: undefined }),
+    );
+
+    await db()
+      .transaction()
+      .execute((trx) => modulo().excluirDadosDaConta(trx, AUTOR));
+
+    expect(await repositorio.listarDoAutor(AUTOR)).toEqual([]);
+    expect(await repositorio.buscarPorId(idDe(1))).toBeNull();
+    expect(await idsDaBusca()).toEqual([idDe(2)]);
+    expect(await contarLinhas()).toBe(1);
+  });
+
+  it('não abre transação própria: se a transação da composição desfaz, os serviços continuam', async () => {
+    await salvarTodos(servico(1));
+    class Desfazer extends Error {}
+
+    await expect(
+      db()
+        .transaction()
+        .execute(async (trx) => {
+          await excluirDadosDaConta(trx, AUTOR);
+          throw new Desfazer();
+        }),
+    ).rejects.toBeInstanceOf(Desfazer);
+
+    expect(await contarLinhas()).toBe(1);
+  });
+
+  it('recusa conexão fora de transação e contaId fora do formato uuid, sem apagar nada', async () => {
+    await salvarTodos(servico(1), servico(2, {}, { autorId: OUTRO_AUTOR }));
+
+    expect(await erroDe(excluirDadosDaConta(db(), AUTOR))).toBeInstanceOf(
+      TypeError,
+    );
+    for (const invalido of ['', 'nao-e-uuid', "' or 1=1 --"]) {
+      const erro = await erroDe(
+        db()
+          .transaction()
+          .execute((trx) => excluirDadosDaConta(trx, invalido)),
+      );
+      expect(erro).toBeInstanceOf(TypeError);
+    }
+    expect(await contarLinhas()).toBe(2);
+  });
+
+  it('conta sem serviços (ou segundo pedido): resolve sem erro e não mexe na outra', async () => {
+    await salvarTodos(servico(2, {}, { autorId: OUTRO_AUTOR }));
+
+    await db()
+      .transaction()
+      .execute((trx) => excluirDadosDaConta(trx, AUTOR));
+
+    expect(await contarLinhas()).toBe(1);
+  });
+
+  it('CA19 — exporta só os serviços da conta, do mais antigo ao mais novo, sem colunas derivadas', async () => {
+    await salvarTodos(
+      servico(3, { cidade: undefined }),
+      servico(1),
+      servico(2, { titulo: 'TEXTO-DE-TERCEIRO' }, { autorId: OUTRO_AUTOR }),
+    );
+
+    const exportado = await modulo().exportarDadosDaConta(AUTOR);
+
+    expect(exportado).toEqual({
+      servicos: [
+        {
+          id: idDe(1),
+          titulo: 'Eletricista residencial',
+          descricao: 'Instalação e conserto de tomadas, chuveiros e quadros.',
+          categoria: 'reformas',
+          cidade: 'São Paulo',
+          precoBaseCentavos: 15000,
+          status: 'ativo',
+          criadoEm: '2026-10-20T12:01:00.000Z',
+        },
+        {
+          id: idDe(3),
+          titulo: 'Eletricista residencial',
+          descricao: 'Instalação e conserto de tomadas, chuveiros e quadros.',
+          categoria: 'reformas',
+          cidade: null,
+          precoBaseCentavos: 15000,
+          status: 'ativo',
+          criadoEm: '2026-10-20T12:03:00.000Z',
+        },
+      ],
+    });
+    const json = JSON.stringify(exportado);
+    expect(json).not.toContain('TEXTO-DE-TERCEIRO');
+    expect(json).not.toContain('sao paulo');
+    expect(json).not.toContain(OUTRO_AUTOR);
+  });
+
+  it('CA19 — conta sem serviços e id fora do formato exportam lista vazia', async () => {
+    await salvarTodos(servico(2, {}, { autorId: OUTRO_AUTOR }));
+
+    expect(await modulo().exportarDadosDaConta(AUTOR)).toEqual({
+      servicos: [],
+    });
+    expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
+      servicos: [],
+    });
   });
 });

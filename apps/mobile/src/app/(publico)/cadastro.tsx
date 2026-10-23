@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useConexao } from '../../estado/conexao';
 import { useCadastrar } from '../../estado/consultas/conta';
 import { useFormularioDeAcesso } from '../../estado/formulario-de-acesso';
+import { useNavegarUmaVez } from '../../estado/navegar-uma-vez';
 import { Cadastro } from '../../telas';
 import { type ChaveDeErro, textos } from '../../textos/pt-BR';
 
@@ -12,6 +13,8 @@ export default function RotaCadastro() {
   const router = useRouter();
   const { online } = useConexao();
   const formulario = useFormularioDeAcesso('cadastro', useCadastrar());
+  // Toque duplo no link não empilha dois documentos (Q3).
+  const abrirDocumento = useNavegarUmaVez();
 
   return (
     <Cadastro
@@ -31,6 +34,9 @@ export default function RotaCadastro() {
         formulario.enviar(() => router.replace('/perfil/editar?completar=1'))
       }
       onIrParaEntrar={() => router.replace('/entrar')}
+      // `push` mantém o Cadastro na pilha: ao voltar, o rascunho continua.
+      onTermos={() => abrirDocumento('/termos-de-uso')}
+      onPolitica={() => abrirDocumento('/politica-de-privacidade')}
       onVoltar={() =>
         router.canGoBack() ? router.back() : router.replace('/entrada')
       }

@@ -69,6 +69,7 @@ export default function RotaDoMeuPerfil() {
           params: { tipo: 'servico' },
         })
       }
+      onContaEPrivacidade={() => router.push('/perfil/conta')}
       onSair={() => sair.mutate()}
     />
   );

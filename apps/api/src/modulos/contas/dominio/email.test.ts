@@ -90,6 +90,23 @@ describe('Email', () => {
     expect(performance.now() - inicio).toBeLessThan(500);
   });
 
+  it('S6 — reconstituir aceita o valor gravado como está, sem validar nem normalizar', () => {
+    // Dado lido do banco: validar de novo travaria uma conta antiga.
+    for (const recusado of ['maria silva@exemplo', 'a@b']) {
+      expect(Email.validar(recusado)).not.toBeNull();
+      expect(Email.reconstituir(recusado).valor).toBe(recusado);
+    }
+    // Nem normaliza: o valor gravado é o que volta.
+    expect(Email.reconstituir('Maria@Exemplo.com').valor).toBe(
+      'Maria@Exemplo.com',
+    );
+    expect(
+      Email.reconstituir('maria@exemplo.com').igual(
+        Email.criar('Maria@Exemplo.com '),
+      ),
+    ).toBe(true);
+  });
+
   it('CA15 — o erro não carrega o e-mail digitado', () => {
     const erro = erroDe('Maria.Silva@exemplo');
     expect(erro.message).not.toMatch(/maria/i);

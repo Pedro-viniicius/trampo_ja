@@ -9,9 +9,13 @@
  * domínio, rota inexistente, JSON malformado e falhas de banco (um erro do
  * driver forjado com o dado no `detail` e um pool já fechado).
  *
+ * Também exporta e exclui uma conta com a senha (CA24): senha errada,
+ * exportação com o JSON cheio de sentinelas e exclusão.
+ *
  * No fim, o log inteiro é varrido: nenhuma sentinela (e-mail, senha, nome,
- * cidade, descrição, habilidade, título, texto de mensagem) nem o token de
- * sessão ou o SHA-256 dele podem aparecer, e toda linha precisa ser JSON.
+ * cidade, descrição, habilidade, título, texto de mensagem), nenhum texto do
+ * JSON exportado nem o token de sessão ou o SHA-256 dele podem aparecer, e
+ * toda linha precisa ser JSON.
  *
  * Os passos dependem uns dos outros e rodam em ordem, no mesmo banco.
  */
@@ -57,6 +61,7 @@ const MENSAGEM_DA_CANDIDATURA = 'CANDIDATURA-SENTINELA-654';
 const TOKEN_FALSO = 'TokenFalsoSentinela0123456789abcdefABCDEF_-';
 const EMAIL_DO_OUTRO = 'outra.sentinela@exemplo.test';
 const NOME_DO_OUTRO = 'Outra Sentinela';
+const MENSAGEM_EXPORTADA = 'EXPORTADA-SENTINELA-852';
 
 /** Coletor do stream do pino: guarda cada `write` do logger. */
 const escritas: string[] = [];
@@ -153,6 +158,23 @@ function sha256(texto: string): string {
   return createHash('sha256').update(texto, 'utf8').digest('hex');
 }
 
+/**
+ * Todos os valores de texto de um JSON com 6+ caracteres (as chaves, como
+ * `sessoes`, são nomes de rota e de campo que o log já tem).
+ */
+function textosDoJson(valor: unknown): string[] {
+  if (typeof valor === 'string') {
+    return valor.length >= 6 ? [valor] : [];
+  }
+  if (Array.isArray(valor)) {
+    return valor.flatMap(textosDoJson);
+  }
+  if (typeof valor === 'object' && valor !== null) {
+    return Object.values(valor).flatMap(textosDoJson);
+  }
+  return [];
+}
+
 function linhasDoLog(): string[] {
   return escritas
     .join('')
@@ -168,6 +190,8 @@ let contaSentinela = '';
 let contaOutro = '';
 let trampoId = '';
 let conversaId = '';
+/** Corpo da exportação (CA24): nenhum texto dele pode ir para o log. */
+let jsonExportado = '';
 
 beforeAll(async () => {
   await truncarTabelas(TABELAS);
@@ -521,6 +545,59 @@ describe('CA15 — varredura dos logs da API com erros forçados', () => {
     }
   });
 
+  it(
+    'CA24 — exportação e exclusão com a senha: senha errada (403), exportação (200) e exclusão (204)',
+    async () => {
+      const enviada = await pedir(
+        'POST',
+        `/conversas/${conversaId}/mensagens`,
+        { token: tokenSentinela, corpo: { texto: MENSAGEM_EXPORTADA } },
+      );
+      expect(enviada.status).toBe(201);
+
+      const errada = await pedir('POST', '/contas/eu/exportacao', {
+        token: tokenSentinela,
+        corpo: { senha: SENHA_ERRADA },
+      });
+      expect(errada.status).toBe(403);
+      expect(errada.texto).toBe('{"erro":"senha_incorreta"}');
+
+      const exportada = await pedir('POST', '/contas/eu/exportacao', {
+        token: tokenSentinela,
+        corpo: { senha: SENHA },
+      });
+      expect(exportada.status).toBe(200);
+      jsonExportado = exportada.texto;
+      // O JSON traz as sentinelas: é o pior caso para o log.
+      for (const sentinela of [
+        EMAIL,
+        NOME,
+        CIDADE,
+        DESCRICAO,
+        HABILIDADE,
+        TITULO,
+        MENSAGEM_EXPORTADA,
+      ]) {
+        expect(jsonExportado).toContain(sentinela);
+      }
+
+      const exclusaoErrada = await pedir('POST', '/contas/eu/exclusao', {
+        token: tokenOutro,
+        corpo: { senha: SENHA_ERRADA },
+      });
+      expect(exclusaoErrada.status).toBe(403);
+      const excluida = await pedir('POST', '/contas/eu/exclusao', {
+        token: tokenOutro,
+        corpo: { senha: SENHA },
+      });
+      expect(excluida.status).toBe(204);
+      expect(
+        (await pedir('GET', '/perfis/eu', { token: tokenOutro })).status,
+      ).toBe(401);
+    },
+    TEMPO_LIMITE,
+  );
+
   it('controle: um objeto logado de propósito com dado pessoal sai como [redigido]', () => {
     aplicacao.app.log.info(
       {
@@ -592,6 +669,7 @@ describe('CA15 — varredura dos logs da API com erros forçados', () => {
       TEXTO_DA_MENSAGEM,
       MENSAGEM_DA_CANDIDATURA,
       TOKEN_FALSO,
+      MENSAGEM_EXPORTADA,
       'categoria-sentinela',
     ];
     for (const sentinela of sentinelas) {
@@ -609,6 +687,16 @@ describe('CA15 — varredura dos logs da API com erros forçados', () => {
     // Pedaços que sobrariam de um corte ou de uma normalização.
     for (const pedaco of ['sentinela', 'vazamento', '@exemplo.test']) {
       expect(logMinusculo, pedaco).not.toContain(pedaco);
+    }
+
+    // CA24: nenhum texto do JSON exportado (nem a marca do formato, que
+    // denunciaria o corpo da resposta no log).
+    expect(jsonExportado).not.toBe('');
+    for (const texto of textosDoJson(JSON.parse(jsonExportado))) {
+      expect(
+        log.includes(texto),
+        `texto da exportação no log: ${texto.slice(0, 6)}…`,
+      ).toBe(false);
     }
 
     expect(tokens.length).toBeGreaterThanOrEqual(3);

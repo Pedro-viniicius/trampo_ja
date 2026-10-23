@@ -64,6 +64,16 @@ export class Email {
     return new Email(analise.valor);
   }
 
+  /**
+   * E-mail lido do banco, sem validar de novo: ele foi validado e normalizado
+   * por `criar` quando a conta foi gravada. Revalidar faria uma regra de
+   * formato mais nova (ou mais estreita) travar a conta antiga, inclusive na
+   * exclusão e na exportação. Só para dado já gravado, nunca para entrada.
+   */
+  static reconstituir(valor: string): Email {
+    return new Email(valor);
+  }
+
   igual(outro: Email): boolean {
     return this.valor === outro.valor;
   }

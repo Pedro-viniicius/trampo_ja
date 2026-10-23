@@ -1,13 +1,17 @@
 export { Buscar } from './Buscar';
 export { Cadastro } from './Cadastro';
 export { CandidaturasRecebidas } from './CandidaturasRecebidas';
+export { ContaEPrivacidade } from './ContaEPrivacidade';
 export { Conversa } from './Conversa';
 export { DetalheDoServico } from './DetalheDoServico';
 export { DetalheDoTrampo } from './DetalheDoTrampo';
+export { DocumentoLegal } from './DocumentoLegal';
 export { EditarPerfil } from './EditarPerfil';
 export { Entrada } from './Entrada';
 export { Entrar } from './Entrar';
 export { EscolhaDePublicacao } from './EscolhaDePublicacao';
+export { ExcluirConta } from './ExcluirConta';
+export { ExportarDados } from './ExportarDados';
 export { FormularioDeAnuncio } from './FormularioDeAnuncio';
 export { Inicio } from './Inicio';
 export { ListaDeConversas } from './ListaDeConversas';

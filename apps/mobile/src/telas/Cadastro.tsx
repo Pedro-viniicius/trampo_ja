@@ -1,6 +1,8 @@
 import { type ComponentRef, useRef } from 'react';
 import type { TextInput } from 'react-native';
+import { Text, View } from 'react-native';
 import { Aviso, Botao, CampoDeTexto } from '../componentes';
+import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Formulario, useFocarPrimeiroErro } from './base';
 import type { PropsDeCadastro } from './tipos';
@@ -17,6 +19,8 @@ export function Cadastro({
   onMudarSenha,
   onCriarConta,
   onIrParaEntrar,
+  onPolitica,
+  onTermos,
   onVoltar,
 }: PropsDeCadastro) {
   const refEmail = useRef<ComponentRef<typeof TextInput>>(null);
@@ -35,12 +39,15 @@ export function Cadastro({
       onVoltar={onVoltar}
       semConexao={semConexao}
       rodape={
-        <Botao
-          texto={textos.cadastro.criarConta}
-          textoCarregando={textos.cadastro.criando}
-          carregando={enviando}
-          onPress={enviar}
-        />
+        <>
+          <TextoDeAceite onTermos={onTermos} onPolitica={onPolitica} />
+          <Botao
+            texto={textos.cadastro.criarConta}
+            textoCarregando={textos.cadastro.criando}
+            carregando={enviando}
+            onPress={enviar}
+          />
+        </>
       }
     >
       {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
@@ -77,5 +84,49 @@ export function Cadastro({
         onPress={onIrParaEntrar}
       />
     </Formulario>
+  );
+}
+
+/** Frase completa para o leitor de tela; os links ficam em uma linha abaixo. */
+function TextoDeAceite({
+  onTermos,
+  onPolitica,
+}: {
+  onTermos: () => void;
+  onPolitica: () => void;
+}) {
+  const t = textos.cadastro;
+  return (
+    <View style={{ gap: espaco[1] }}>
+      <Text
+        style={{
+          color: cores.textoSecundario,
+          fontSize: tipografia.tamanho.rotulo,
+          lineHeight: tipografia.lineHeight.rotulo,
+        }}
+      >
+        {t.aceite}
+      </Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          columnGap: espaco[2],
+        }}
+      >
+        <Botao
+          texto={t.aceiteTermos}
+          variante="texto"
+          larguraCheia={false}
+          onPress={onTermos}
+        />
+        <Botao
+          texto={t.aceitePolitica}
+          variante="texto"
+          larguraCheia={false}
+          onPress={onPolitica}
+        />
+      </View>
+    </View>
   );
 }

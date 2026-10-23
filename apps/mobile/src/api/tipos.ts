@@ -244,3 +244,18 @@ export interface MensagemEnviada {
   /** ISO 8601. */
   readonly enviadaEm: string;
 }
+
+/** Corpo de `POST /contas/eu/exclusao` e `POST /contas/eu/exportacao`. */
+export interface ConfirmacaoComSenha {
+  readonly senha: string;
+}
+
+/**
+ * Resposta de `POST /contas/eu/exportacao` (200, `trampo-ja.exportacao.v1`).
+ * O app não lê os campos: grava o JSON como veio num arquivo temporário e o
+ * compartilha. Traz dado pessoal (e-mail, perfil, mensagens): nunca vai para
+ * erro, log, cache de consultas nem URL (CA24).
+ */
+export type DadosExportados = { readonly formato: string } & Readonly<
+  Record<string, unknown>
+>;

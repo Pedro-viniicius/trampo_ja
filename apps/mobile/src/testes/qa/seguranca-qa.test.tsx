@@ -244,12 +244,23 @@ describe('CA15: o código do app só persiste pela porta do armazenamento seguro
 
   it('nenhum código do app usa outro meio de persistência (disco, localStorage, SQLite, MMKV)', () => {
     const proibidos =
-      /async-storage|AsyncStorage|localStorage|sessionStorage|expo-file-system|expo-sqlite|react-native-mmkv|MMKV|expo-clipboard|Clipboard\.|document\.cookie/;
+      /async-storage|AsyncStorage|localStorage|sessionStorage|expo-sqlite|react-native-mmkv|MMKV|expo-clipboard|Clipboard\.|document\.cookie/;
     const achados = arquivos(raiz).filter((a) =>
       proibidos.test(semComentarios(readFileSync(a, 'utf8'))),
     );
 
     expect(achados.map((a) => a.slice(raiz.length + 1))).toEqual([]);
+  });
+
+  it('só `estado/exportacao.ts` usa o expo-file-system (arquivo temporário da exportação, D26)', () => {
+    const importam = arquivos(raiz)
+      .filter((a) =>
+        semComentarios(readFileSync(a, 'utf8')).includes('expo-file-system'),
+      )
+      .map((a) => a.slice(raiz.length + 1))
+      .filter((a) => !/\.test\.tsx?$/.test(a));
+
+    expect(importam).toEqual(['estado/exportacao.ts']);
   });
 
   it('nenhum código do app escreve em console nem usa `debugger`', () => {

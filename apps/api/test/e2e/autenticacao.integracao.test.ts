@@ -4,7 +4,8 @@
  * sessão válida. A lista vem das rotas que o próprio Fastify registrou, então
  * uma rota nova sem o hook de autenticação faz este teste falhar.
  *
- * Também prova a D2 com token válido: o rate limit fica só nas rotas públicas.
+ * Também prova a D2 com token válido: o rate limit por IP fica só nas rotas
+ * públicas (o limite por conta, D29, está em `limite-por-conta`).
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -67,6 +68,9 @@ async function criarConta(email: string): Promise<string> {
   return (resposta.json() as { token: string }).token;
 }
 
+/** As rotas que pedem a senha de novo (exclusão e exportação da conta). */
+const ROTAS_COM_SENHA = ['/contas/eu/exclusao', '/contas/eu/exportacao'];
+
 function ehPublica(rota: RotaRegistrada): boolean {
   return ROTAS_PUBLICAS.some(
     (publica) => publica.metodo === rota.metodo && publica.url === rota.url,
@@ -103,8 +107,9 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
       expect(saida.statusCode).toBe(204);
 
       const protegidas = rotas.filter((rota) => !ehPublica(rota));
-      // Sanidade: as rotas dos seis módulos foram coletadas (GET + HEAD).
-      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(20);
+      // Sanidade: as rotas dos seis módulos foram coletadas (GET + HEAD),
+      // inclusive exclusão e exportação da conta (L1).
+      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(22);
 
       const cabecalhosInvalidos: (string | undefined)[] = [
         undefined,
@@ -146,7 +151,19 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
       for (const rota of protegidas) {
         const resposta = await chamar(rota, `Bearer ${token}`);
         expect(resposta.statusCode, `${rota.metodo} ${rota.url}`).not.toBe(401);
+        if (ROTAS_COM_SENHA.includes(rota.url)) {
+          // Corpo `{}`: sem senha, 403 e nada apagado nem exportado.
+          expect(resposta.statusCode, rota.url).toBe(403);
+          expect(resposta.body, rota.url).toBe('{"erro":"senha_incorreta"}');
+        }
       }
+      // A varredura não apagou a conta: a senha ainda abre uma sessão.
+      const entrada = await app().inject({
+        method: 'POST',
+        url: '/sessoes',
+        payload: { email: 'valida@exemplo.com', senha: 'senha-forte-123' },
+      });
+      expect(entrada.statusCode).toBe(200);
     },
     TEMPO_LIMITE,
   );
@@ -173,7 +190,7 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
   );
 });
 
-describe('D2 — rate limit só no cadastro e no login', () => {
+describe('D2 — rate limit por IP só no cadastro e no login', () => {
   it(
     'Dado o limite de 3, quando a 4ª requisição a POST /contas chega, então 429 {"erro":"muitas_requisicoes"}; GET /categorias com token segue sem limite',
     async () => {

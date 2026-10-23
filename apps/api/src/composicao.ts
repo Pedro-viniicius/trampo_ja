@@ -6,10 +6,15 @@
  * `criarServidor`:
  * - `perfis.perfilEstaCompleto` → `VerificadorDePerfil` de `trampos` e
  *   `servicos` (D9);
- * - `trampos.existeVinculoEntre` → `VerificadorDeVinculo` de `conversas` (CA13);
+ * - `trampos.existeVinculoEntre` → `VerificadorDeVinculo` de `conversas` (CA13),
+ *   inclusive na transação da abertura de conversa (Q1);
  * - `trampos.buscarTrampos` e `servicos.buscarServicos` → `busca` (CA7);
  * - `contas.validarSessao` → hook de autenticação de todas as rotas, exceto
- *   `POST /contas` e `POST /sessoes` (CA14).
+ *   `POST /contas` e `POST /sessoes` (CA14);
+ * - `excluirDadosDaConta` e `exportarDadosDaConta` de cada módulo →
+ *   `DadosDaConta` de `contas` (D25, D26), com a exclusão numa transação só;
+ * - limite por conta (D29) → `preHandler` de toda rota autenticada, menos
+ *   `DELETE /sessoes`, que passa sem contar (S8).
  *
  * Não abre nem fecha a conexão com o banco: quem cria a conexão (o entrypoint
  * `src/servidor.ts` ou o teste) é quem a fecha.
@@ -19,34 +24,47 @@ import rateLimit from '@fastify/rate-limit';
 import type {
   FastifyInstance,
   FastifyRequest,
+  preHandlerHookHandler,
   preValidationHookHandler,
   RouteOptions,
 } from 'fastify';
-import type { Kysely } from 'kysely';
+import { Kysely } from 'kysely';
 import type { BancoBase } from './compartilhado/banco/conexao.js';
+import { travarContaComExclusividade } from './compartilhado/banco/travas-de-conta.js';
 import type { Relogio } from './compartilhado/dominio/relogio.js';
+import {
+  criarLimitePorConta,
+  LIMITES_PADRAO_POR_CONTA,
+  type LimitesPorConta,
+} from './compartilhado/http/limite-por-conta.js';
 import type { OpcoesDoLoggerFastify } from './compartilhado/http/logger.js';
 import { criarServidor } from './compartilhado/http/servidor.js';
 import { criarModuloDeBusca } from './modulos/busca/index.js';
 import {
   criarModuloDeContas,
+  type DadosDaConta,
+  type ModuloDeContas,
   type OpcoesDoModuloDeContas,
 } from './modulos/contas/index.js';
 import {
   criarModuloDeConversas,
+  type ModuloDeConversas,
   type OpcoesDoModuloDeConversas,
 } from './modulos/conversas/index.js';
 import {
   criarModuloDePerfis,
+  type ModuloDePerfis,
   type OpcoesDoModuloDePerfis,
 } from './modulos/perfis/index.js';
 import {
   criarModuloDeServicos,
+  type ModuloDeServicos,
   type OpcoesDoModuloDeServicos,
 } from './modulos/servicos/index.js';
 import {
   criarModuloDeTrampos,
   type DependenciasDoModuloDeTrampos,
+  type ModuloDeTrampos,
 } from './modulos/trampos/index.js';
 
 /** Limite de requisições por IP numa janela de tempo (D2). */
@@ -132,6 +150,12 @@ export interface OpcoesDaAplicacao {
    * `LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL`. Ignorado com `rateLimit: false`.
    */
   readonly limitePorEmail?: LimiteDeRequisicoes;
+  /**
+   * Limite por conta de cada grupo de rotas autenticadas (D29). Padrão:
+   * `LIMITES_PADRAO_POR_CONTA`; `false` desliga. `rateLimit: false` também
+   * desliga este limite (testes que não são sobre limites).
+   */
+  readonly limitesPorConta?: LimitesPorConta | false;
   /** `trustProxy` de `criarServidor` (padrão `false`: o IP da conexão). */
   readonly trustProxy?: string | boolean;
 }
@@ -156,6 +180,103 @@ function visaoDoModulo<TabelasDoModulo>(
   db: Kysely<BancoBase>,
 ): TabelasDoModulo {
   return db as unknown as TabelasDoModulo;
+}
+
+/** Fachadas que guardam dados da conta fora de `contas`, mais a de `contas`. */
+interface ModulosComDadosDaConta {
+  readonly conversas: Pick<
+    ModuloDeConversas,
+    'excluirDadosDaConta' | 'exportarDadosDaConta'
+  >;
+  readonly trampos: Pick<
+    ModuloDeTrampos,
+    'excluirDadosDaConta' | 'exportarDadosDaConta'
+  >;
+  readonly servicos: Pick<
+    ModuloDeServicos,
+    'excluirDadosDaConta' | 'exportarDadosDaConta'
+  >;
+  readonly perfis: Pick<
+    ModuloDePerfis,
+    'excluirDadosDaConta' | 'exportarDadosDaConta'
+  >;
+  readonly contas: Pick<ModuloDeContas, 'excluirRegistrosDaConta'>;
+}
+
+/**
+ * A transação que `conversas` repassa ao `VerificadorDeVinculo` é opaca para o
+ * domínio dele; aqui ela volta a ser a transação do Kysely. Qualquer outra
+ * coisa é erro de ligação, não um "sem vínculo".
+ */
+function transacaoDoKysely(transacao: unknown): Kysely<BancoBase> {
+  if (!(transacao instanceof Kysely) || !transacao.isTransaction) {
+    throw new TypeError(
+      'composição: a conferência do vínculo exige a transação',
+    );
+  }
+  return transacao;
+}
+
+/**
+ * Porta `DadosDaConta` de `contas` (ADR-005).
+ *
+ * A exclusão (D25) abre **uma** transação e passa a mesma a cada módulo, na
+ * ordem conversas → trampos → serviços → perfis → contas. Antes de tudo, pega
+ * a trava exclusiva da conta (`travas-de-conta.ts`): a abertura de conversa
+ * com ela, que pega a compartilhada, ou já terminou ou espera esta transação
+ * (Q1). Depois vêm as travas (`for update`) de conversas e trampos, e as
+ * sessões caem por último, junto com a conta. Qualquer falha desfaz tudo;
+ * repetir é seguro.
+ *
+ * A exportação (D26) junta as partes de cada módulo campo a campo, para nada
+ * além do contrato v1 sair daqui.
+ */
+function criarDadosDaConta(
+  db: Kysely<BancoBase>,
+  modulos: ModulosComDadosDaConta,
+): DadosDaConta {
+  const { conversas, trampos, servicos, perfis, contas } = modulos;
+  return {
+    excluirTudo: (contaId) =>
+      db.transaction().execute(async (trx) => {
+        await travarContaComExclusividade(trx, contaId);
+        await conversas.excluirDadosDaConta(
+          visaoDoModulo<OpcoesDoModuloDeConversas['db']>(trx),
+          contaId,
+        );
+        await trampos.excluirDadosDaConta(
+          visaoDoModulo<DependenciasDoModuloDeTrampos['db']>(trx),
+          contaId,
+        );
+        await servicos.excluirDadosDaConta(
+          visaoDoModulo<OpcoesDoModuloDeServicos['db']>(trx),
+          contaId,
+        );
+        await perfis.excluirDadosDaConta(
+          visaoDoModulo<OpcoesDoModuloDePerfis['db']>(trx),
+          contaId,
+        );
+        await contas.excluirRegistrosDaConta(
+          visaoDoModulo<OpcoesDoModuloDeContas['db']>(trx),
+          contaId,
+        );
+      }),
+    coletarDosOutrosModulos: async (contaId) => {
+      const [deConversas, deTrampos, deServicos, dePerfis] = await Promise.all([
+        conversas.exportarDadosDaConta(contaId),
+        trampos.exportarDadosDaConta(contaId),
+        servicos.exportarDadosDaConta(contaId),
+        perfis.exportarDadosDaConta(contaId),
+      ]);
+      return {
+        perfil: dePerfis.perfil,
+        trampos: deTrampos.trampos,
+        servicos: deServicos.servicos,
+        candidaturas: deTrampos.candidaturas,
+        conversas: deConversas.conversas,
+      };
+    },
+  };
 }
 
 function ehRotaPublica(metodo: string, url: string): boolean {
@@ -210,11 +331,11 @@ export async function montarAplicacao(
     opcoes.rateLimit === undefined
       ? LIMITE_PADRAO_DAS_ROTAS_PUBLICAS
       : opcoes.rateLimit;
+  const limitesPorConta =
+    opcoes.limitesPorConta === undefined
+      ? LIMITES_PADRAO_POR_CONTA
+      : opcoes.limitesPorConta;
 
-  const contas = criarModuloDeContas({
-    db: visaoDoModulo<OpcoesDoModuloDeContas['db']>(db),
-    relogio,
-  });
   const perfis = criarModuloDePerfis({
     db: visaoDoModulo<OpcoesDoModuloDePerfis['db']>(db),
     relogio,
@@ -234,8 +355,36 @@ export async function montarAplicacao(
   });
   const conversas = criarModuloDeConversas({
     db: visaoDoModulo<OpcoesDoModuloDeConversas['db']>(db),
-    verificadorDeVinculo: { existeVinculoEntre: trampos.existeVinculoEntre },
+    verificadorDeVinculo: {
+      existeVinculoEntre: (a, b, transacao) =>
+        trampos.existeVinculoEntre(
+          a,
+          b,
+          transacao === undefined
+            ? undefined
+            : visaoDoModulo<DependenciasDoModuloDeTrampos['db']>(
+                transacaoDoKysely(transacao),
+              ),
+        ),
+    },
     relogio,
+  });
+  // Criado depois dos outros: a porta `DadosDaConta` usa as fachadas deles.
+  const contas = criarModuloDeContas({
+    db: visaoDoModulo<OpcoesDoModuloDeContas['db']>(db),
+    relogio,
+    dadosDaConta: criarDadosDaConta(db, {
+      conversas,
+      trampos,
+      servicos,
+      perfis,
+      // Função pura da fachada (não usa o estado do módulo); a referência é
+      // resolvida só na hora da exclusão, quando `contas` já existe.
+      contas: {
+        excluirRegistrosDaConta: (trx, contaId) =>
+          contas.excluirRegistrosDaConta(trx, contaId),
+      },
+    }),
   });
   const busca = criarModuloDeBusca({ trampos, servicos });
 
@@ -246,8 +395,9 @@ export async function montarAplicacao(
       : {}),
   });
   const rotas: RotaRegistrada[] = [];
-  // Criado depois do registro do `@fastify/rate-limit`, antes das rotas.
+  // Criados depois do registro do `@fastify/rate-limit`, antes das rotas.
   let limitarPorEmail: preValidationHookHandler | undefined;
+  let limitarPorConta: preHandlerHookHandler | undefined;
 
   // Registrado antes de qualquer plugin, este `onRoute` roda antes do
   // `onRoute` do `@fastify/rate-limit`: as rotas públicas são definidas dentro
@@ -274,17 +424,42 @@ export async function montarAplicacao(
       // schema ainda não rodou, então corpo inválido também conta.
       rota.preValidation = [...paraLista(rota.preValidation), limitarPorEmail];
     }
+    if (
+      limitarPorConta !== undefined &&
+      !metodosDa(rota).some((metodo) => ehRotaPublica(metodo, rota.url))
+    ) {
+      // `preHandler`: depois da autenticação (o `contaId` já existe) e do
+      // schema. Um hook só para todas as rotas; ele escolhe os contadores
+      // pelos grupos da rota (`gruposDaRota`; o envio de mensagem soma o teto
+      // diário), rota sem grupo previsto cai em `escrita` e `DELETE /sessoes`
+      // passa sem contar (S8). A rota HEAD automática passa por aqui por conta
+      // própria.
+      const preHandler = paraLista(rota.preHandler);
+      if (!preHandler.includes(limitarPorConta)) {
+        rota.preHandler = [limitarPorConta, ...preHandler];
+      }
+    }
   });
 
   if (limite !== false) {
-    // `global: false`: só as rotas com `config.rateLimit` são limitadas. A
-    // chave é o IP; cada rota tem o próprio contador. O 429 sai como
-    // `{"erro":"muitas_requisicoes"}` pelo tratador de erros compartilhado.
+    // `global: false`: só as rotas com `config.rateLimit` são limitadas por
+    // IP, cada uma com o próprio contador. Os limites por e-mail e por conta
+    // usam contadores próprios (`createRateLimit`) no mesmo store. O 429 sai
+    // como `{"erro":"muitas_requisicoes"}` pelo tratador compartilhado.
     await app.register(rateLimit, { global: false });
     limitarPorEmail = criarLimitePorEmail(
       app,
       opcoes.limitePorEmail ?? LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL,
     );
+    if (limitesPorConta !== false) {
+      try {
+        // Lança se algum limite não for inteiro positivo.
+        limitarPorConta = criarLimitePorConta(app, limitesPorConta);
+      } catch (erro) {
+        await app.close();
+        throw erro;
+      }
+    }
   }
 
   const { validarSessao } = contas;

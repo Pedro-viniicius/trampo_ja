@@ -1,8 +1,9 @@
 /**
  * Fachada pública do módulo `perfis`: o único arquivo que outro módulo (ou a
- * composição) pode importar. Expõe só as rotas e `perfilEstaCompleto`
- * (contrato entre módulos do plano, D9), que a composição liga como
- * `VerificadorDePerfil` de `trampos` e `servicos`.
+ * composição) pode importar. Expõe as rotas, `perfilEstaCompleto` (contrato
+ * entre módulos do plano, D9), que a composição liga como
+ * `VerificadorDePerfil` de `trampos` e `servicos`, e a parte de `perfis` na
+ * exclusão e na exportação da conta (ADR-005).
  */
 import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -12,9 +13,19 @@ import {
 } from '../../compartilhado/dominio/relogio.js';
 import type { ValidarSessao } from '../../compartilhado/http/autenticacao.js';
 import { criarRotasDePerfis } from './adaptadores/http/rotas.js';
-import { RepositorioDePerfisPostgres } from './adaptadores/postgres/repositorio-postgres.js';
+import {
+  excluirDadosDaConta,
+  exportarDadosDaConta,
+  type ParteDePerfisNaExportacao,
+  RepositorioDePerfisPostgres,
+} from './adaptadores/postgres/repositorio-postgres.js';
 import type { TabelasDePerfis } from './adaptadores/postgres/tabelas.js';
 import { criarCasosDeUsoDePerfis } from './aplicacao/casos-de-uso.js';
+
+export type {
+  ParteDePerfisNaExportacao,
+  PerfilExportado,
+} from './adaptadores/postgres/repositorio-postgres.js';
 
 export interface OpcoesDoModuloDePerfis {
   /** Conexão com o banco; o módulo só usa a tabela `perfis`. */
@@ -33,6 +44,22 @@ export interface ModuloDePerfis {
    * quando a conta não tem perfil (ou o id não é um uuid).
    */
   readonly perfilEstaCompleto: (contaId: string) => Promise<boolean>;
+  /**
+   * Parte de `perfis` em `DadosDaConta.excluirTudo` (D25): apaga o perfil na
+   * transação recebida, aberta pela composição. Lança se `contaId` não for
+   * uuid ou se `trx` não for uma transação. Sem perfil, resolve sem erro.
+   */
+  readonly excluirDadosDaConta: (
+    trx: Kysely<TabelasDePerfis>,
+    contaId: string,
+  ) => Promise<void>;
+  /**
+   * Parte de `perfis` na exportação (D26): o perfil da conta, sem a coluna
+   * derivada `cidade_normalizada`; `null` sem perfil.
+   */
+  readonly exportarDadosDaConta: (
+    contaId: string,
+  ) => Promise<ParteDePerfisNaExportacao>;
 }
 
 export function criarModuloDePerfis(
@@ -50,5 +77,7 @@ export function criarModuloDePerfis(
         await app.register(plugin, { validarSessao });
       },
     perfilEstaCompleto: casos.perfilEstaCompleto,
+    excluirDadosDaConta,
+    exportarDadosDaConta: (contaId) => exportarDadosDaConta(opcoes.db, contaId),
   };
 }

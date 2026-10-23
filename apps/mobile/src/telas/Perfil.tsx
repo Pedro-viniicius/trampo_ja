@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Avatar, Aviso, Botao, DialogoDeConfirmacao } from '../componentes';
+import {
+  Avatar,
+  Aviso,
+  Botao,
+  DialogoDeConfirmacao,
+  LinhaDeConfiguracao,
+} from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
@@ -24,6 +30,7 @@ export function Perfil({
   onMinhasCandidaturas,
   onMeusTrampos,
   onMeusServicos,
+  onContaEPrivacidade,
 }: PropsDoPerfil) {
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
 
@@ -72,8 +79,12 @@ export function Perfil({
             <View
               style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}
             >
-              {perfil.habilidades.map((habilidade) => (
-                <Etiqueta key={habilidade} texto={habilidade} />
+              {perfil.habilidades.map((habilidade, i) => (
+                <Etiqueta
+                  // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
+                  key={`${habilidade}-${i}`}
+                  texto={habilidade}
+                />
               ))}
             </View>
             {proprio ? (
@@ -104,6 +115,13 @@ export function Perfil({
                     texto={textos.perfil.meusServicos}
                     variante="secundario"
                     onPress={onMeusServicos}
+                  />
+                ) : null}
+                {onContaEPrivacidade ? (
+                  <LinhaDeConfiguracao
+                    titulo={textos.perfil.contaEPrivacidade}
+                    icone="shield-checkmark-outline"
+                    onPress={onContaEPrivacidade}
                   />
                 ) : null}
                 {onSair ? (

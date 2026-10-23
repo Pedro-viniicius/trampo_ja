@@ -59,7 +59,11 @@ export const textos = {
     criando: 'Criando conta…',
     jaTenhoConta: 'Já tenho conta',
     privacidade:
-      'Usamos seu e-mail só para a sua conta. Ele nunca aparece no seu perfil público.',
+      'Seu nome, cidade, sobre você e habilidades aparecem para quem estiver logado no app. Seu e-mail é usado só para a sua conta e nunca aparece.',
+    aceite:
+      'Ao criar a conta, você concorda com os Termos de uso e com a Política de privacidade.',
+    aceiteTermos: 'Termos de uso',
+    aceitePolitica: 'Política de privacidade',
   },
   inicio: {
     saudacao: (nome: string): string => `Olá, ${nome}`,
@@ -175,6 +179,7 @@ export const textos = {
     meusTrampos: 'Meus trampos',
     meusServicos: 'Meus serviços',
     sair: 'Sair',
+    contaEPrivacidade: 'Conta e privacidade',
     sairTitulo: 'Sair da conta?',
     sairConfirmar: 'Sair',
     sairCancelar: 'Cancelar',
@@ -330,6 +335,86 @@ export const textos = {
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
   },
+  contaEPrivacidade: {
+    titulo: 'Conta e privacidade',
+    secaoDados: 'Seus dados',
+    secaoSobre: 'Sobre o app',
+    exportar: 'Exportar meus dados',
+    exportarDescricao: 'Baixe uma cópia do que o app guarda sobre você',
+    excluir: 'Excluir minha conta',
+    excluirDescricao: 'Apaga seu perfil, seus anúncios e suas conversas',
+    politica: 'Política de privacidade',
+    termos: 'Termos de uso',
+    sair: 'Sair',
+    semConexaoMotivo: 'Sem conexão. Conecte-se para continuar.',
+  },
+  excluirConta: {
+    titulo: 'Excluir minha conta',
+    alerta: 'Esta ação não pode ser desfeita.',
+    oQueAcontece: 'O que acontece',
+    itens: [
+      'Seu perfil, seus trampos e seus serviços são apagados.',
+      'Suas candidaturas, e as recebidas nos seus trampos, são apagadas.',
+      'Suas conversas somem para você e para a outra pessoa, com todas as mensagens.',
+      'Você sai da conta neste aparelho e em todos os outros.',
+    ],
+    dica: 'Quer guardar seus dados antes?',
+    dicaLink: 'Exporte uma cópia.',
+    senha: 'Senha',
+    mostrarSenha: 'Mostrar senha',
+    ocultarSenha: 'Ocultar senha',
+    ajudaSenha: 'Digite sua senha para confirmar que é você.',
+    excluir: 'Excluir minha conta',
+    excluindo: 'Excluindo…',
+    cancelar: 'Cancelar',
+    motivoSenha: 'Digite sua senha para continuar.',
+    semConexaoMotivo:
+      'Sem conexão. Sua conta não foi excluída. Conecte-se e tente de novo.',
+    erroServidor:
+      'Algo deu errado do nosso lado. Sua conta não foi excluída. Tente de novo em instantes.',
+    dialogoTitulo: 'Excluir a conta de vez?',
+    dialogoTexto:
+      'Seu perfil, seus anúncios e suas conversas deixam de existir. Isso não pode ser desfeito.',
+    dialogoConfirmar: 'Sim, excluir minha conta',
+    dialogoCancelar: 'Cancelar',
+  },
+  exportarDados: {
+    titulo: 'Exportar meus dados',
+    intro: 'Gere um arquivo com os dados da sua conta e guarde uma cópia.',
+    oQueVem: 'O que vem no arquivo',
+    itens: [
+      'Seu e-mail e as datas da conta.',
+      'Seu perfil: nome, cidade, sobre você e habilidades.',
+      'Seus trampos e serviços.',
+      'Suas candidaturas.',
+      'As mensagens que você enviou.',
+    ],
+    formato:
+      'O arquivo é em JSON, um formato de texto que outros programas leem.',
+    aviso:
+      'O arquivo tem dados pessoais. Guarde em um lugar seguro, escolhido por você.',
+    senha: 'Senha',
+    mostrarSenha: 'Mostrar senha',
+    ocultarSenha: 'Ocultar senha',
+    ajudaSenha: 'Digite sua senha para confirmar que é você.',
+    gerar: 'Gerar e compartilhar',
+    gerarDeNovo: 'Gerar de novo',
+    gerando: 'Gerando arquivo…',
+    motivoSenha: 'Digite sua senha para continuar.',
+    semConexaoMotivo: 'Sem conexão. Conecte-se e tente de novo.',
+    gerado:
+      'Arquivo gerado. Se você escolheu onde salvar ou para quem enviar, está feito. Se fechou as opções, pode gerar de novo quando quiser.',
+    tituloDaFolha: 'Dados do Trampo Já',
+    voltar: 'Voltar',
+  },
+  documentoLegal: {
+    politica: 'Política de privacidade',
+    termos: 'Termos de uso',
+    versao: (data: string): string => `Versão de ${data}`,
+    rascunho: 'Rascunho em revisão. Este texto ainda não é a versão final.',
+    nestaPagina: 'Nesta página',
+    voltar: 'Voltar',
+  },
   erros: {
     email_invalido: 'Informe um e-mail válido, como nome@exemplo.com.',
     // Limites iguais aos da API (8 a 128).
@@ -340,6 +425,12 @@ export const textos = {
       'Não foi possível criar a conta com este e-mail. Se você já tem conta, tente entrar.',
     muitas_tentativas:
       'Muitas tentativas seguidas. Aguarde um minuto e tente de novo.',
+    muitas_tentativas_acao:
+      'Você fez muitas ações em pouco tempo. Aguarde um pouco e tente de novo mais tarde.',
+    senha_incorreta: 'Senha incorreta. Confira e tente de novo.',
+    conta_excluida: 'Sua conta foi excluída.',
+    compartilhamento_indisponivel:
+      'Não foi possível abrir as opções de compartilhamento neste aparelho. Tente de novo.',
     sessao_expirada: 'Sua sessão expirou. Entre de novo para continuar.',
     sem_conexao: 'Sem conexão. Conecte-se e tente de novo.',
     erro_servidor: 'Algo deu errado do nosso lado. Tente de novo em instantes.',

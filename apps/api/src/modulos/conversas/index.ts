@@ -1,6 +1,7 @@
 /**
  * Fachada pública do módulo `conversas`: o único arquivo que outro módulo (ou
- * a composição) pode importar. Expõe só as rotas.
+ * a composição) pode importar. Expõe as rotas e a parte de `conversas` na
+ * exclusão e na exportação da conta (ADR-005).
  */
 import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -10,11 +11,21 @@ import {
 } from '../../compartilhado/dominio/relogio.js';
 import type { ValidarSessao } from '../../compartilhado/http/autenticacao.js';
 import { criarRotasDeConversas } from './adaptadores/http/rotas.js';
-import { RepositorioDeConversasPostgres } from './adaptadores/postgres/repositorio-postgres.js';
+import {
+  excluirDadosDaConta,
+  exportarDadosDaConta,
+  type ParteDeConversasNaExportacao,
+  RepositorioDeConversasPostgres,
+} from './adaptadores/postgres/repositorio-postgres.js';
 import type { TabelasDeConversas } from './adaptadores/postgres/tabelas.js';
 import { criarCasosDeUsoDeConversas } from './aplicacao/casos-de-uso.js';
 import type { VerificadorDeVinculo } from './dominio/portas.js';
 
+export type {
+  ConversaExportada,
+  MensagemExportada,
+  ParteDeConversasNaExportacao,
+} from './adaptadores/postgres/repositorio-postgres.js';
 export type { VerificadorDeVinculo } from './dominio/portas.js';
 
 export interface OpcoesDoModuloDeConversas {
@@ -34,6 +45,23 @@ export interface ModuloDeConversas {
   readonly rotas: (opcoes: {
     readonly validarSessao: ValidarSessao;
   }) => FastifyPluginAsync;
+  /**
+   * Parte de `conversas` em `DadosDaConta.excluirTudo` (D25), na transação
+   * recebida, aberta pela composição: trava (`for update`) as conversas da
+   * conta e as apaga inteiras, com as mensagens dos dois lados. Lança se
+   * `contaId` não for uuid ou se `trx` não for uma transação.
+   */
+  readonly excluirDadosDaConta: (
+    trx: Kysely<TabelasDeConversas>,
+    contaId: string,
+  ) => Promise<void>;
+  /**
+   * Parte de `conversas` na exportação (D26): cada conversa com o
+   * `outroUsuarioId` e só as mensagens escritas pela conta.
+   */
+  readonly exportarDadosDaConta: (
+    contaId: string,
+  ) => Promise<ParteDeConversasNaExportacao>;
 }
 
 export function criarModuloDeConversas(
@@ -51,5 +79,7 @@ export function criarModuloDeConversas(
       async (app) => {
         await app.register(plugin, { validarSessao });
       },
+    excluirDadosDaConta,
+    exportarDadosDaConta: (contaId) => exportarDadosDaConta(opcoes.db, contaId),
   };
 }

@@ -1,6 +1,8 @@
+import { ErroNaoEncontrado } from '../../../../compartilhado/dominio/erros.js';
 import { Conversa } from '../../dominio/conversa.js';
 import type { Mensagem } from '../../dominio/mensagem.js';
 import type {
+  ConferirVinculo,
   ConversaComUltimaMensagem,
   OpcoesDaListagemDeMensagens,
   RepositorioDeConversas,
@@ -32,13 +34,21 @@ function deEnvio(a: MensagemGuardada, b: MensagemGuardada): number {
 /**
  * Adaptador de teste: conversas e mensagens em `Map`s, sem banco. Imita o
  * `unique` do par: inserir um par que já tem conversa devolve `par_ja_existe`.
+ * Na inserção, confere o vínculo antes de tudo (sem transação: `undefined`),
+ * como o adaptador Postgres faz depois de travar as contas.
  */
 export class RepositorioDeConversasEmMemoria implements RepositorioDeConversas {
   readonly #conversas = new Map<string, Conversa>();
   readonly #idPorPar = new Map<string, string>();
   readonly #mensagens: MensagemGuardada[] = [];
 
-  async inserirConversa(conversa: Conversa): Promise<ResultadoDaInsercao> {
+  async inserirConversa(
+    conversa: Conversa,
+    conferirVinculo: ConferirVinculo,
+  ): Promise<ResultadoDaInsercao> {
+    if (!(await conferirVinculo(undefined))) {
+      return 'sem_vinculo';
+    }
     const chave = chaveDoPar(conversa.usuarioAId, conversa.usuarioBId);
     if (this.#idPorPar.has(chave)) {
       return 'par_ja_existe';
@@ -101,7 +111,8 @@ export class RepositorioDeConversasEmMemoria implements RepositorioDeConversas {
 
   async salvarMensagem(mensagem: Mensagem): Promise<void> {
     if (!this.#conversas.has(mensagem.conversaId)) {
-      throw new Error('conversa inexistente');
+      // Como a FK no Postgres (23503), que o repositório converte em 404.
+      throw new ErroNaoEncontrado();
     }
     this.#mensagens.push({
       mensagem: copiarMensagem(mensagem),

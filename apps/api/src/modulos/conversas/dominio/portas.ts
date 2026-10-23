@@ -32,13 +32,35 @@ export interface ConversaComUltimaMensagem {
 /**
  * Resultado de `inserirConversa`. `par_ja_existe`: outra requisição criou a
  * conversa do mesmo par entre a busca e a inserção (no Postgres, o 23505 do
- * `unique (usuario_a_id, usuario_b_id)`).
+ * `unique (usuario_a_id, usuario_b_id)`). `sem_vinculo`: a conferência do
+ * vínculo, feita já sob a trava das duas contas, deu `false` (a exclusão de
+ * conta de um dos dois terminou nesse meio-tempo, D25); nada foi gravado.
  */
-export type ResultadoDaInsercao = 'inserida' | 'par_ja_existe';
+export type ResultadoDaInsercao = 'inserida' | 'par_ja_existe' | 'sem_vinculo';
+
+/**
+ * Transação em curso, opaca para o domínio. Na abertura de conversa, o
+ * adaptador Postgres a passa à conferência do vínculo, para a consulta correr
+ * na mesma conexão e sob a mesma trava (sem pedir outra conexão ao pool
+ * enquanto segura esta); o adaptador em memória passa `undefined`.
+ */
+export type TransacaoEmCurso = unknown;
+
+/** Conferência do vínculo dentro da inserção (ver `inserirConversa`). */
+export type ConferirVinculo = (transacao: TransacaoEmCurso) => Promise<boolean>;
 
 /** Porta de saída de persistência das conversas e mensagens. */
 export interface RepositorioDeConversas {
-  inserirConversa(conversa: Conversa): Promise<ResultadoDaInsercao>;
+  /**
+   * Insere a conversa só se `conferirVinculo` confirmar o vínculo, chamado
+   * depois de travar as duas contas contra a exclusão (no Postgres, a trava
+   * compartilhada de `compartilhado/banco/travas-de-conta.ts`, na transação do
+   * insert). Assim, nenhuma conversa fica com o id de uma conta excluída.
+   */
+  inserirConversa(
+    conversa: Conversa,
+    conferirVinculo: ConferirVinculo,
+  ): Promise<ResultadoDaInsercao>;
   buscarConversaPorId(id: string): Promise<Conversa | null>;
   /** A conversa do par, em qualquer ordem dos dois ids. */
   buscarConversaDoPar(
@@ -74,5 +96,13 @@ export interface RepositorioDeConversas {
  * para este módulo não importar `trampos`.
  */
 export interface VerificadorDeVinculo {
-  existeVinculoEntre(a: string, b: string): Promise<boolean>;
+  /**
+   * Com `transacao` (a de `inserirConversa`), a consulta roda nela; sem,
+   * numa conexão qualquer.
+   */
+  existeVinculoEntre(
+    a: string,
+    b: string,
+    transacao?: TransacaoEmCurso,
+  ): Promise<boolean>;
 }

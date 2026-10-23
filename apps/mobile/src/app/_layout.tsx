@@ -7,6 +7,7 @@ import {
   criarQueryClient,
   ligarGerenciadores,
 } from '../estado/cliente-de-consultas';
+import { limparExportacoesAntigas } from '../estado/exportacao';
 import { Provedores } from '../estado/provedores';
 import { useSessao } from '../estado/sessao';
 
@@ -75,6 +76,8 @@ export default function LayoutRaiz() {
 
   // `onlineManager` (expo-network) e `focusManager` (AppState), uma vez.
   useEffect(() => ligarGerenciadores(), []);
+  // Exportação que sobrou no cache se o app morreu com a folha aberta (S4).
+  useEffect(() => limparExportacoesAntigas(), []);
 
   return (
     <Provedores

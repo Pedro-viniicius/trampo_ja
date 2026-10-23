@@ -68,3 +68,69 @@ export class RepositorioDePerfisPostgres implements RepositorioDePerfis {
     return linha ? paraPerfil(linha) : null;
   }
 }
+
+/**
+ * Perfil como sai na exportação da conta (D26, ADR-005). Mesmo formato de
+ * `PerfilExportado` do módulo `contas`, declarado aqui para não acoplar os
+ * módulos: a composição liga os dois por compatibilidade estrutural. Fica de
+ * fora a coluna derivada `cidade_normalizada`.
+ */
+export interface PerfilExportado {
+  readonly nome: string;
+  readonly cidade: string;
+  readonly descricao: string | null;
+  readonly habilidades: readonly string[];
+  /** ISO 8601. */
+  readonly atualizadoEm: string;
+}
+
+/** Parte de `perfis` na exportação: `null` se a conta não tem perfil. */
+export interface ParteDePerfisNaExportacao {
+  readonly perfil: PerfilExportado | null;
+}
+
+/**
+ * Parte de `perfis` na exclusão da conta (D25, ADR-005): apaga o perfil
+ * dentro da transação aberta pela composição (`trx`). Não abre transação
+ * própria. Lança, sem consultar, com `contaId` fora do formato uuid ou com
+ * uma conexão fora de transação. Sem perfil, resolve sem erro.
+ */
+export async function excluirDadosDaConta(
+  trx: Kysely<TabelasDePerfis>,
+  contaId: string,
+): Promise<void> {
+  if (!ehUuid(contaId)) {
+    throw new TypeError('perfis.excluirDadosDaConta: contaId não é um uuid');
+  }
+  if (!trx.isTransaction) {
+    throw new TypeError('perfis.excluirDadosDaConta: exige uma transação');
+  }
+  await trx.deleteFrom('perfis').where('conta_id', '=', contaId).execute();
+}
+
+/** Parte de `perfis` na exportação da conta (D26). Id fora do formato: sem perfil. */
+export async function exportarDadosDaConta(
+  db: Kysely<TabelasDePerfis>,
+  contaId: string,
+): Promise<ParteDePerfisNaExportacao> {
+  if (!ehUuid(contaId)) {
+    return { perfil: null };
+  }
+  const linha = await db
+    .selectFrom('perfis')
+    .select(['nome', 'cidade', 'descricao', 'habilidades', 'atualizado_em'])
+    .where('conta_id', '=', contaId)
+    .executeTakeFirst();
+  if (!linha) {
+    return { perfil: null };
+  }
+  return {
+    perfil: {
+      nome: linha.nome,
+      cidade: linha.cidade,
+      descricao: linha.descricao,
+      habilidades: [...linha.habilidades],
+      atualizadoEm: linha.atualizado_em.toISOString(),
+    },
+  };
+}

@@ -314,12 +314,15 @@ export function Titulo({ texto }: { texto: string }) {
 export function Paragrafo({
   texto,
   secundario = false,
+  selecionavel = false,
 }: {
   texto: string;
   secundario?: boolean;
+  selecionavel?: boolean;
 }) {
   return (
     <Text
+      selectable={selecionavel}
       style={{
         color: secundario ? cores.textoSecundario : cores.texto,
         fontSize: tipografia.tamanho.corpo,

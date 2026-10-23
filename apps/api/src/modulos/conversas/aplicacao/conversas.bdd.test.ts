@@ -250,6 +250,99 @@ describe('CA13 — sem vínculo, sem conversa', () => {
   });
 });
 
+describe('D25 — conversa apagada pela exclusão de conta durante o pedido', () => {
+  it('CA18 — Dado que a outra requisição criou a conversa do par (par_ja_existe), quando ela some antes da releitura, então a abertura é recusada com sem_vinculo (403), não com erro interno', async () => {
+    vi.spyOn(repositorio, 'inserirConversa').mockResolvedValueOnce(
+      'par_ja_existe',
+    );
+    const releitura = vi.spyOn(repositorio, 'buscarConversaDoPar');
+
+    const erro = await erroDe(casos.abrirConversa(EMPREGADOR, FREELANCER));
+
+    expect(erro).toBeInstanceOf(ErroProibido);
+    expect((erro as ErroProibido).codigo).toBe('sem_vinculo');
+    // Busca antes de inserir e relê depois do conflito.
+    expect(releitura).toHaveBeenCalledTimes(2);
+    expect(await casos.listarConversas(EMPREGADOR)).toEqual([]);
+  });
+
+  it('Q1 — Dado o vínculo confirmado na checagem inicial, quando ele some antes da inserção (exclusão de conta concorrente), então a conferência dentro da inserção recusa com sem_vinculo e nada é gravado', async () => {
+    const consulta = vi
+      .spyOn(verificador, 'existeVinculoEntre')
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const inserir = vi.spyOn(repositorio, 'inserirConversa');
+    const buscaDoPar = vi.spyOn(repositorio, 'buscarConversaDoPar');
+
+    const erro = await erroDe(casos.abrirConversa(EMPREGADOR, FREELANCER));
+
+    expect(erro).toBeInstanceOf(ErroProibido);
+    expect((erro as ErroProibido).codigo).toBe('sem_vinculo');
+    expect(inserir).toHaveBeenCalledTimes(1);
+    // Recusa direto, sem a releitura do caminho `par_ja_existe`.
+    expect(buscaDoPar).toHaveBeenCalledTimes(1);
+    // A segunda conferência é a de dentro da inserção, com a transação dela
+    // (em memória, `undefined`), para o mesmo par.
+    expect(consulta.mock.calls).toEqual([
+      [EMPREGADOR, FREELANCER],
+      [EMPREGADOR, FREELANCER, undefined],
+    ]);
+    expect(await casos.listarConversas(EMPREGADOR)).toEqual([]);
+    expect(await casos.listarConversas(FREELANCER)).toEqual([]);
+  });
+
+  it('Q2 — Dado uma conversa que passa na checagem de participação, quando ela é apagada antes da leitura do cursor, então a leitura com depoisDe dá não encontrado (404), não o 400 do cursor', async () => {
+    const { conversaId } = await casos.abrirConversa(EMPREGADOR, FREELANCER);
+    const { id: primeira } = await enviar(EMPREGADOR, conversaId, 'um');
+    const conversa = await repositorio.buscarConversaPorId(conversaId);
+    // Outro repositório, sem a conversa nem as mensagens: só a primeira
+    // checagem ainda a vê (lida antes da exclusão).
+    const semAConversa = new RepositorioDeConversasEmMemoria();
+    const busca = vi
+      .spyOn(semAConversa, 'buscarConversaPorId')
+      .mockResolvedValueOnce(conversa);
+    const casosDepoisDaExclusao = criarCasosDeUsoDeConversas({
+      repositorio: semAConversa,
+      verificadorDeVinculo: verificador,
+      relogio,
+    });
+
+    const erro = await erroDe(
+      casosDepoisDaExclusao.listarMensagens(FREELANCER, conversaId, {
+        depoisDe: primeira,
+      }),
+    );
+
+    expect(erro).toBeInstanceOf(ErroNaoEncontrado);
+    expect(busca).toHaveBeenCalledTimes(2);
+  });
+
+  it('CA18 — Dado uma conversa que passa na checagem de participação, quando ela é apagada antes da gravação da mensagem, então o envio dá não encontrado (404) e nada é gravado', async () => {
+    const { conversaId } = await casos.abrirConversa(EMPREGADOR, FREELANCER);
+    const conversa = await repositorio.buscarConversaPorId(conversaId);
+    // Outro repositório, sem a conversa: a checagem vê a conversa (lida
+    // antes da exclusão) e a gravação já não a encontra.
+    const semAConversa = new RepositorioDeConversasEmMemoria();
+    vi.spyOn(semAConversa, 'buscarConversaPorId').mockResolvedValue(conversa);
+    const salvar = vi.spyOn(semAConversa, 'salvarMensagem');
+    const casosDepoisDaExclusao = criarCasosDeUsoDeConversas({
+      repositorio: semAConversa,
+      verificadorDeVinculo: verificador,
+      relogio,
+    });
+
+    const erro = await erroDe(
+      casosDepoisDaExclusao.enviarMensagem(FREELANCER, conversaId, 'oi'),
+    );
+
+    expect(erro).toBeInstanceOf(ErroNaoEncontrado);
+    expect(salvar).toHaveBeenCalledTimes(1);
+    expect(
+      await semAConversa.listarMensagens(conversaId, { limite: 50 }),
+    ).toEqual([]);
+  });
+});
+
 describe('listarConversas', () => {
   it('CA12 — lista as conversas de quem pede com o outro usuário e a última mensagem, pela última atividade', async () => {
     const OUTRO = 'conta-outro-freelancer';
@@ -331,6 +424,18 @@ describe('listarMensagens — paginação', () => {
     expect(
       await casos.listarMensagens(EMPREGADOR, conversaId, { depoisDe: '' }),
     ).toHaveLength(1);
+  });
+
+  it('Q2 — cursor inválido com a conversa ainda de pé: confere a participação de novo e responde o 400 do cursor', async () => {
+    const { conversaId } = await casos.abrirConversa(EMPREGADOR, FREELANCER);
+    const busca = vi.spyOn(repositorio, 'buscarConversaPorId');
+
+    const erro = await erroDe(
+      casos.listarMensagens(EMPREGADOR, conversaId, { depoisDe: 'nao-existe' }),
+    );
+
+    expect(erro).toBeInstanceOf(ErroDeValidacao);
+    expect(busca).toHaveBeenCalledTimes(2);
   });
 
   it('cursor que não é mensagem desta conversa → depoisDe invalido', async () => {

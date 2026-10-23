@@ -282,6 +282,87 @@ describe('chaveDoErro: 409 da 2b', () => {
   });
 });
 
+describe('chaveDoErro: 429 por contexto (CA20, D29)', () => {
+  it.each<Formulario>(['entrar', 'cadastro'])(
+    'no formulário %s continua muitas_tentativas (limite de senha)',
+    (formulario) => {
+      for (const codigo of ['muitas_requisicoes', '']) {
+        expect(chaveDoErro(new ErroDaApi(429, codigo), formulario)).toEqual({
+          geral: 'muitas_tentativas',
+          campos: {},
+        });
+      }
+    },
+  );
+
+  it.each<Formulario>(['perfil', 'trampo', 'servico', 'candidatura', 'nenhum'])(
+    'no formulário %s vira muitas_tentativas_acao',
+    (formulario) => {
+      for (const codigo of ['muitas_requisicoes', '']) {
+        expect(chaveDoErro(new ErroDaApi(429, codigo), formulario)).toEqual({
+          geral: 'muitas_tentativas_acao',
+          campos: {},
+        });
+      }
+    },
+  );
+
+  it('cobre todo formulário: só entrar e cadastro ficam com o texto de senha', () => {
+    const todos: Record<Formulario, true> = {
+      entrar: true,
+      cadastro: true,
+      perfil: true,
+      trampo: true,
+      servico: true,
+      candidatura: true,
+      nenhum: true,
+    };
+    const deSenha = (Object.keys(todos) as Formulario[]).filter(
+      (formulario) =>
+        chaveDoErro(new ErroDaApi(429, 'muitas_requisicoes'), formulario)
+          .geral === 'muitas_tentativas',
+    );
+    expect(deSenha).toEqual(['entrar', 'cadastro']);
+  });
+
+  it('os dois textos existem e são diferentes', () => {
+    expect(textos.erros.muitas_tentativas_acao).not.toBe(
+      textos.erros.muitas_tentativas,
+    );
+    expect(textos.erros.muitas_tentativas_acao.length).toBeGreaterThan(0);
+  });
+});
+
+describe('chaveDoErro: senha da exclusão e da exportação (CA17, CA19)', () => {
+  it.each<Formulario>(['nenhum', 'perfil', 'entrar'])(
+    '403 senha_incorreta vira geral senha_incorreta (formulário %s)',
+    (formulario) => {
+      expect(
+        chaveDoErro(new ErroDaApi(403, 'senha_incorreta'), formulario),
+      ).toEqual({ geral: 'senha_incorreta', campos: {} });
+    },
+  );
+
+  it('senha_incorreta só vale no 403: no 401 é sessão expirada', () => {
+    expect(
+      chaveDoErro(new ErroDaApi(401, 'senha_incorreta'), 'nenhum'),
+    ).toEqual({ geral: 'sessao_expirada', campos: {} });
+    expect(
+      chaveDoErro(new ErroDaApi(409, 'senha_incorreta'), 'nenhum'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+  });
+
+  it.each([
+    ['código parecido', 'senha_incorreta_x'],
+    ['nome de propriedade do Object', 'toString'],
+  ])('403 com %s continua erro_servidor', (_nome, codigo) => {
+    expect(chaveDoErro(new ErroDaApi(403, codigo), 'nenhum')).toEqual({
+      geral: 'erro_servidor',
+      campos: {},
+    });
+  });
+});
+
 describe('chaveDoErro: conversas (2c)', () => {
   const formularios: readonly Formulario[] = ['nenhum', 'candidatura'];
 
@@ -496,9 +577,14 @@ describe('mensagemDoErro', () => {
     ['rede', new ErroDeRede('falha'), textos.erros.sem_conexao],
     ['404', new ErroDaApi(404, 'nao_encontrado'), textos.erros.nao_encontrado],
     [
-      '429',
+      '429 (fora do login e do cadastro, CA20)',
       new ErroDaApi(429, 'muitas_requisicoes'),
-      textos.erros.muitas_tentativas,
+      textos.erros.muitas_tentativas_acao,
+    ],
+    [
+      '403 senha_incorreta',
+      new ErroDaApi(403, 'senha_incorreta'),
+      textos.erros.senha_incorreta,
     ],
     ['500', new ErroDaApi(500, 'interno'), textos.erros.erro_servidor],
     [

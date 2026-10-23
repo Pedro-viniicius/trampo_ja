@@ -46,6 +46,9 @@ export type AbaDaBusca = 'trampos' | 'servicos';
 export interface PropsDaEntrada {
   onCriarConta: () => void;
   onJaTenhoConta: () => void;
+  /** Links dos documentos legais (L1); sem o callback, o link não aparece. */
+  onPolitica?: () => void;
+  onTermos?: () => void;
 }
 
 export interface ErrosDeAcesso {
@@ -77,6 +80,9 @@ export interface PropsDeCadastro {
   onMudarSenha: (texto: string) => void;
   onCriarConta: () => void;
   onIrParaEntrar: () => void;
+  /** Links do texto de aceite (L1). */
+  onPolitica: () => void;
+  onTermos: () => void;
   onVoltar?: () => void;
 }
 
@@ -192,6 +198,8 @@ export interface PropsDoPerfil {
   onMinhasCandidaturas?: () => void;
   onMeusTrampos?: () => void;
   onMeusServicos?: () => void;
+  /** Atalho da L1 para "Conta e privacidade". */
+  onContaEPrivacidade?: () => void;
 }
 
 export interface ValoresDoPerfil {
@@ -430,6 +438,8 @@ export interface PropsDaConversa {
   semConexao?: boolean;
   /** Três falhas seguidas ao atualizar: mostra o aviso, a lista continua visível. */
   atualizacaoFalhando?: boolean;
+  /** Texto já traduzido de falha ao enviar (ex.: limite de ações, 429); aparece acima do campo. */
+  avisoDoEnvio?: string;
   onMudarRascunho: (texto: string) => void;
   onEnviar: () => void;
   onTentarDeNovo: (chave: string) => void;
@@ -445,4 +455,62 @@ export interface EstadoDoConversar {
 export interface PropsDoRodapeDoServico {
   conversar: EstadoDoConversar;
   onConversar: () => void;
+}
+
+/** Documento legal empacotado (mesmo formato de `textos/legal.ts`). */
+export interface DocumentoLegalParaExibir {
+  titulo: string;
+  /** AAAA-MM-DD. */
+  versao: string;
+  rascunho: boolean;
+  secoes: readonly {
+    titulo: string;
+    paragrafos: readonly string[];
+  }[];
+}
+
+export interface PropsDoDocumentoLegal {
+  documento: DocumentoLegalParaExibir;
+  onVoltar: () => void;
+}
+
+export interface PropsDeContaEPrivacidade {
+  onExportar: () => void;
+  onExcluir: () => void;
+  onPolitica: () => void;
+  onTermos: () => void;
+  /** Chamado depois da confirmação do diálogo "Sair da conta?". */
+  onSair: () => void;
+  /** Mostra o voltar no cabeçalho. */
+  onVoltar?: () => void;
+  /** Desabilita exportar e excluir, com motivo. */
+  semConexao?: boolean;
+}
+
+export interface PropsDeExcluirConta {
+  senha: string;
+  onMudarSenha: (texto: string) => void;
+  excluindo: boolean;
+  /** Mensagem já traduzida (servidor, sem conexão, 429), mostrada em aviso. */
+  erro?: string;
+  /** Erro da senha (senha incorreta), mostrado no campo. */
+  erroDaSenha?: string;
+  semConexao?: boolean;
+  /** Chamado depois do diálogo destrutivo. */
+  onExcluir: () => void;
+  onExportar: () => void;
+  onCancelar: () => void;
+}
+
+export interface PropsDeExportarDados {
+  situacao: 'inicial' | 'gerando' | 'gerado';
+  senha: string;
+  onMudarSenha: (texto: string) => void;
+  /** Mensagem já traduzida. */
+  erro?: string;
+  /** Erro da senha (senha incorreta), mostrado no campo. */
+  erroDaSenha?: string;
+  semConexao?: boolean;
+  onGerar: () => void;
+  onVoltar: () => void;
 }

@@ -11,6 +11,7 @@ import {
   criarArmazenamentoEmMemoria,
 } from '../../estado/armazenamento-token';
 import { useMeuPerfil } from '../../estado/consultas/perfil';
+import { limparExportacoesAntigas } from '../../estado/exportacao';
 import { type Sessao, useSessao } from '../../estado/sessao';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso } from '../fetch-falso';
@@ -37,6 +38,13 @@ jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(async () => null),
   setItemAsync: jest.fn(async () => undefined),
   deleteItemAsync: jest.fn(async () => undefined),
+}));
+
+// A limpeza do cache é provada em `estado/exportacao.test.ts`; aqui, só que a
+// raiz a chama ao iniciar.
+jest.mock('../../estado/exportacao', () => ({
+  ...jest.requireActual('../../estado/exportacao'),
+  limparExportacoesAntigas: jest.fn(),
 }));
 
 const EMAIL = 'maria.silva@exemplo.com';
@@ -444,6 +452,7 @@ describe('raiz do app', () => {
         >;
       });
     jest.mocked(SecureStore.getItemAsync).mockResolvedValue(null);
+    jest.mocked(limparExportacoesAntigas).mockClear();
     const urlOriginal = process.env.EXPO_PUBLIC_API_URL;
     process.env.EXPO_PUBLIC_API_URL = 'https://api.teste';
     try {
@@ -453,6 +462,8 @@ describe('raiz do app', () => {
       );
       await screen.findByLabelText(textos.entrar.senha);
 
+      // Ao iniciar, apaga a exportação que sobrou no cache (S4), uma vez.
+      expect(limparExportacoesAntigas).toHaveBeenCalledTimes(1);
       expect(SecureStore.getItemAsync).toHaveBeenCalled();
       expect(Network.addNetworkStateListener).toHaveBeenCalledTimes(1);
       expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();

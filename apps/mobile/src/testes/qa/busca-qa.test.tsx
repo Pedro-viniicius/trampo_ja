@@ -349,7 +349,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
     expect(screen.queryByText(/erro da API|erro_interno/)).toBeNull();
   });
 
-  it('429 na busca mostra "muitas tentativas"', async () => {
+  it('429 na busca mostra o texto de "muitas ações" (CA20)', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', {
       status: 429,
       corpo: { erro: 'muitas_requisicoes' },
@@ -359,7 +359,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
     await enviar();
 
     expect(
-      await screen.findByText(textos.erros.muitas_tentativas),
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
     ).toBeOnTheScreen();
   });
 

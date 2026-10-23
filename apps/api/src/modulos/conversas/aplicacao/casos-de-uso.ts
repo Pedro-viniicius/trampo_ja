@@ -86,8 +86,15 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
     return conversa;
   }
 
-  /** Cursor a partir do id informado; tem de ser mensagem desta conversa. */
+  /**
+   * Cursor a partir do id informado; tem de ser mensagem desta conversa. Se
+   * não for, confere de novo a participação antes do 400: a conversa pode ter
+   * sumido depois da primeira checagem (a exclusão de conta de um dos dois a
+   * apaga com as mensagens, D25), e aí a resposta é o 404 de conversa
+   * inexistente, não o 400 do cursor (Q2).
+   */
   async function lerCursor(
+    quem: string,
     conversaId: string,
     depoisDe: unknown,
   ): Promise<CursorDeMensagens | undefined> {
@@ -103,6 +110,7 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
       depoisDe,
     );
     if (!mensagem) {
+      await conversaDoParticipante(quem, conversaId);
       throw ErroDeValidacao.doCampo('depoisDe', 'invalido');
     }
     return { enviadaEm: mensagem.enviadaEm, id: mensagem.id };
@@ -116,7 +124,11 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
      * - par que já tem conversa → a existente, com `nova: false`.
      * Corrida: se outra requisição criar a conversa do par entre a busca e a
      * inserção, o repositório avisa (`par_ja_existe`) e a existente é
-     * devolvida.
+     * devolvida. Se ela sumir antes da releitura (a exclusão de conta de um
+     * dos dois apaga a conversa e o vínculo, D25), `ErroProibido('sem_vinculo')`.
+     * Exclusão concorrente: o vínculo é conferido de novo dentro da inserção,
+     * sob a trava das duas contas; se a exclusão terminou antes, nada é
+     * gravado e a resposta é o mesmo `sem_vinculo` (Q1).
      */
     async abrirConversa(
       quem: string,
@@ -135,14 +147,23 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
       if (existente) {
         return { conversaId: existente.id, nova: false };
       }
-      if ((await repositorio.inserirConversa(candidata)) === 'inserida') {
+      const resultado = await repositorio.inserirConversa(
+        candidata,
+        (transacao) =>
+          verificadorDeVinculo.existeVinculoEntre(quem, outro, transacao),
+      );
+      if (resultado === 'inserida') {
         return { conversaId: candidata.id, nova: true };
+      }
+      if (resultado === 'sem_vinculo') {
+        throw new ErroProibido('sem_vinculo');
       }
       const vencedora = await repositorio.buscarConversaDoPar(quem, outro);
       if (!vencedora) {
-        // Só acontece se a conversa sumir entre o 23505 e a releitura, o que o
-        // módulo não faz (não há exclusão de conversa no MVP).
-        throw new Error('conversa do par não encontrada após conflito');
+        // A conversa sumiu entre o 23505 e a releitura: só a exclusão da
+        // conta de um dos dois a apaga, e ela leva junto as candidaturas que
+        // davam o vínculo. É o mesmo 403 de quem não tem vínculo, não um 500.
+        throw new ErroProibido('sem_vinculo');
       }
       return { conversaId: vencedora.id, nova: false };
     },
@@ -167,7 +188,9 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
 
     /**
      * CA12. Conversa inexistente ou alheia → 404 (antes de olhar o texto);
-     * texto vazio ou só espaços → 400 `texto` `obrigatorio`.
+     * texto vazio ou só espaços → 400 `texto` `obrigatorio`. Conversa apagada
+     * entre a checagem e a gravação (exclusão de conta, D25) → o repositório
+     * lança `ErroNaoEncontrado`, o mesmo 404.
      */
     async enviarMensagem(
       quem: string,
@@ -191,7 +214,8 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
      * página traz as mais antigas; para a seguinte (ou para buscar as novas),
      * passe em `depoisDe` o id da última mensagem recebida. Página com menos
      * itens que o limite significa que não há mais nada por agora.
-     * `depoisDe` que não é mensagem desta conversa → 400 `depoisDe` `invalido`.
+     * `depoisDe` que não é mensagem desta conversa → 400 `depoisDe` `invalido`,
+     * a não ser que a conversa tenha sumido nesse meio-tempo (404).
      */
     async listarMensagens(
       quem: string,
@@ -199,7 +223,7 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
       opcoes: OpcoesDeListarMensagens = {},
     ): Promise<readonly Mensagem[]> {
       const conversa = await conversaDoParticipante(quem, conversaId);
-      const depoisDe = await lerCursor(conversa.id, opcoes.depoisDe);
+      const depoisDe = await lerCursor(quem, conversa.id, opcoes.depoisDe);
       return repositorio.listarMensagens(conversa.id, {
         ...(depoisDe !== undefined ? { depoisDe } : {}),
         limite: LIMITE_DE_MENSAGENS_POR_PAGINA,

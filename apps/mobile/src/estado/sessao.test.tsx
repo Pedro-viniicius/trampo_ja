@@ -535,7 +535,7 @@ describe('SessaoProvider: 401 atrasado de outra sessão (Q4)', () => {
     expect(armazenamento.atual()).toBeNull();
   });
 
-  it('geracao muda a cada entrar, sair e expirar', async () => {
+  it('geracao muda a cada entrar, sair, expirar e encerrarPorExclusao', async () => {
     const provedores = await montar({
       armazenamento: criarArmazenamentoEmMemoria(TOKEN),
     });
@@ -549,8 +549,138 @@ describe('SessaoProvider: 401 atrasado de outra sessão (Q4)', () => {
     vistas.push(provedores.result.current.sessao.geracao());
     await act(() => provedores.result.current.sessao.sair());
     vistas.push(provedores.result.current.sessao.geracao());
+    await act(() => provedores.result.current.sessao.entrar(TOKEN));
+    vistas.push(provedores.result.current.sessao.geracao());
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+    vistas.push(provedores.result.current.sessao.geracao());
 
-    expect(new Set(vistas).size).toBe(4);
+    expect(new Set(vistas).size).toBe(6);
+  });
+});
+
+describe('SessaoProvider: encerrarPorExclusao (CA17)', () => {
+  it('apaga o token e o cache, fica anônimo e deixa só o aviso, sem rede', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const provedores = await montar({
+      armazenamento,
+      obterRotaAtual: () => '/perfil/excluir',
+    });
+    semearCache(provedores);
+    const geracao = provedores.result.current.sessao.geracao();
+
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+
+    // Nenhum DELETE /sessoes (a API já derrubou as sessões) nem outra chamada.
+    expect(provedores.fetch.requisicoes).toEqual([]);
+    expect(armazenamento.atual()).toBeNull();
+    expect(provedores.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+    expect(provedores.result.current.sessao.geracao()).not.toBe(geracao);
+    // Sem rota de retorno: a conta acabou, não há para onde voltar.
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      aviso: 'conta_excluida',
+    });
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({});
+  });
+
+  it('troca o retorno de uma expiração anterior pelo aviso de conta excluída', async () => {
+    const provedores = await montar({
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+    });
+
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    await act(() => provedores.result.current.sessao.entrar(NOVO_TOKEN));
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      aviso: 'conta_excluida',
+    });
+  });
+
+  it('um 401 atrasado de um pedido anterior não troca o aviso nem a geração', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const provedores = await montar({
+      armazenamento,
+      obterRotaAtual: () => '/conversas/c1',
+    });
+    provedores.fetch.responder('GET /conversas', { status: 401, demoraMs: 30 });
+
+    let pedido: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      pedido = provedores.result.current.cliente
+        .get('/conversas')
+        .catch(() => undefined);
+      await Promise.resolve();
+    });
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+    const geracao = provedores.result.current.sessao.geracao();
+    await act(async () => {
+      await pedido;
+    });
+    await act(async () => {});
+
+    expect(provedores.fetch.requisicoes.map((r) => r.caminho)).toEqual([
+      '/conversas',
+    ]);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+    expect(provedores.result.current.sessao.geracao()).toBe(geracao);
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      aviso: 'conta_excluida',
+    });
+  });
+
+  it('com falha da porta ao apagar, não rejeita, limpa o cache e fica anônimo', async () => {
+    const armazenamento: ArmazenamentoDeToken = {
+      ler: async () => TOKEN,
+      gravar: async () => undefined,
+      apagar: async () => {
+        throw new Error('falha ao apagar o token');
+      },
+    };
+    const provedores = await montar({ armazenamento });
+    semearCache(provedores);
+
+    await act(async () => {
+      await expect(
+        provedores.result.current.sessao.encerrarPorExclusao(),
+      ).resolves.toBeUndefined();
+    });
+
+    expect(provedores.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+    expect(provedores.fetch.requisicoes).toEqual([]);
+  });
+
+  it('entrar depois descarta o aviso de conta excluída', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const provedores = await montar({ armazenamento });
+
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+    await act(() => provedores.result.current.sessao.entrar(NOVO_TOKEN));
+
+    expect(armazenamento.atual()).toBe(NOVO_TOKEN);
+    expect(provedores.result.current.sessao.status).toBe('autenticado');
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({});
+  });
+
+  it('nada vai para o console', async () => {
+    const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map(
+      (metodo) => jest.spyOn(console, metodo).mockImplementation(() => {}),
+    );
+    const chamadas = () => espioes.flatMap((espiao) => espiao.mock.calls);
+    let vistas: unknown[] = [];
+    try {
+      const provedores = await montar({
+        armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+      });
+      await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+      vistas = chamadas();
+    } finally {
+      for (const espiao of espioes) {
+        espiao.mockRestore();
+      }
+    }
+    expect(vistas).toEqual([]);
   });
 });
 

@@ -5,6 +5,8 @@ import * as LayoutPublico from '../../app/(publico)/_layout';
 import Cadastro from '../../app/(publico)/cadastro';
 import Entrada from '../../app/(publico)/entrada';
 import Entrar from '../../app/(publico)/entrar';
+import Politica from '../../app/politica-de-privacidade';
+import Termos from '../../app/termos-de-uso';
 import {
   type ArmazenamentoEmMemoria,
   criarArmazenamentoEmMemoria,
@@ -70,10 +72,16 @@ export const ROTAS_PUBLICAS: MapaDeRotas = {
   '(publico)/cadastro': Cadastro,
 };
 
+/** Rotas legais da raiz (fora das guardas), nas rotas padrão. */
+export const ROTAS_LEGAIS: MapaDeRotas = {
+  'politica-de-privacidade': Politica,
+  'termos-de-uso': Termos,
+};
+
 /**
  * `renderRouter` com a raiz real do app (`NavegacaoRaiz`: guarda por status
  * da sessão) sobre os provedores com fakes. O mapa recebe as rotas do teste;
- * o `_layout` raiz e as rotas de `(publico)` já vêm (uma rota do mapa com o
+ * o `_layout` raiz, as rotas de `(publico)` e as legais já vêm (uma rota do mapa com o
  * mesmo nome substitui a padrão).
  *
  * ```ts
@@ -108,7 +116,12 @@ export async function renderizarRotas(
     );
   }
   const resultado = await renderRouter(
-    { _layout: LayoutRaizDeTeste, ...ROTAS_PUBLICAS, ...rotas },
+    {
+      _layout: LayoutRaizDeTeste,
+      ...ROTAS_PUBLICAS,
+      ...ROTAS_LEGAIS,
+      ...rotas,
+    },
     { initialUrl },
   );
   return Object.assign(resultado, { armazenamento, fetch, queryClient });

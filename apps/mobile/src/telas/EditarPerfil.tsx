@@ -152,9 +152,10 @@ export function EditarPerfil({
         <View
           style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}
         >
-          {valores.habilidades.map((habilidade) => (
+          {valores.habilidades.map((habilidade, i) => (
             <Chip
-              key={habilidade}
+              // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
+              key={`${habilidade}-${i}`}
               texto={habilidade}
               rotuloRemover={textos.editarPerfil.remover(habilidade)}
               onRemover={() => onRemoverHabilidade(habilidade)}

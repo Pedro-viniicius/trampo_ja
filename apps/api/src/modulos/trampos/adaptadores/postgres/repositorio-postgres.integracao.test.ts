@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { sql } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { down } from '../../../../../migracoes/0002_trampos.js';
 import {
@@ -10,6 +10,7 @@ import { ErroTabelaNaoVazia } from '../../../../compartilhado/banco/migrador.js'
 import {
   ErroDeRegra,
   ErroDeValidacao,
+  ErroNaoEncontrado,
 } from '../../../../compartilhado/dominio/erros.js';
 import { RelogioFixo } from '../../../../compartilhado/dominio/relogio.js';
 import {
@@ -17,8 +18,12 @@ import {
   criarCasosDeUsoDeTrampos,
 } from '../../aplicacao/casos-de-uso.js';
 import { type EntradaDeTrampo, Trampo } from '../../dominio/trampo.js';
+import { criarModuloDeTrampos } from '../../index.js';
 import { VerificadorDePerfilEmMemoria } from '../memoria/verificador-perfil-memoria.js';
-import { RepositorioDeTramposPostgres } from './repositorio-postgres.js';
+import {
+  excluirDadosDaConta,
+  RepositorioDeTramposPostgres,
+} from './repositorio-postgres.js';
 import type { TabelasDeTrampos } from './tabelas.js';
 
 const EMPREGADOR = randomUUID();
@@ -522,5 +527,360 @@ describe('listagens e vínculo', () => {
     expect(await casos.existeVinculoEntre(EMPREGADOR, CARLA)).toBe(false);
     expect(await casos.existeVinculoEntre(EMPREGADOR, EMPREGADOR)).toBe(false);
     expect(await casos.existeVinculoEntre(EMPREGADOR, 'nao-uuid')).toBe(false);
+  });
+
+  it('Q1 — a fachada confere o vínculo na transação recebida (a da abertura de conversa), vendo o que só ela vê', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    const modulo = criarModuloDeTrampos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    });
+    class Desfazer extends Error {}
+    const vistos: boolean[] = [];
+
+    await db()
+      .transaction()
+      .execute(async (trx) => {
+        // Apagada só dentro desta transação, ainda sem commit.
+        await trx.deleteFrom('candidaturas').execute();
+        vistos.push(await modulo.existeVinculoEntre(EMPREGADOR, ANA, trx));
+        vistos.push(await modulo.existeVinculoEntre(EMPREGADOR, ANA));
+        throw new Desfazer();
+      })
+      .catch((erro: unknown) => {
+        if (!(erro instanceof Desfazer)) {
+          throw erro;
+        }
+      });
+
+    expect(vistos).toEqual([false, true]);
+    expect(await modulo.existeVinculoEntre(EMPREGADOR, ANA)).toBe(true);
+  });
+});
+
+describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
+  const modulo = () =>
+    criarModuloDeTrampos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    });
+
+  /** Captura o erro lançado pela promessa (falha se ela resolver). */
+  async function erroDe(promessa: Promise<unknown>): Promise<unknown> {
+    try {
+      await promessa;
+    } catch (erro) {
+      return erro;
+    }
+    throw new Error('era esperada uma recusa');
+  }
+
+  type Desfecho = { ok: true; valor: unknown } | { ok: false; erro: unknown };
+
+  /** Resultado de uma promessa sem deixar rejeição solta enquanto se espera. */
+  function acompanhar(promessa: Promise<unknown>): Promise<Desfecho> {
+    return promessa.then(
+      (valor) => ({ ok: true as const, valor }),
+      (erro: unknown) => ({ ok: false as const, erro }),
+    );
+  }
+
+  /** Espera até alguma conexão do banco de teste ficar parada numa trava. */
+  async function esperarAlguemNaTrava(): Promise<void> {
+    for (let tentativa = 0; tentativa < 120; tentativa += 1) {
+      const { rows } = await sql<{ total: number }>`
+        select count(*)::int as total from pg_stat_activity
+        where datname = current_database() and wait_event_type = 'Lock'
+      `.execute(db());
+      if ((rows[0]?.total ?? 0) > 0) {
+        return;
+      }
+      await new Promise((resolver) => setTimeout(resolver, 25));
+    }
+    throw new Error('nenhuma consulta ficou esperando a trava');
+  }
+
+  /**
+   * A transação `trx` com uma pausa logo depois da `ordem`-ésima consulta
+   * `for update` da exclusão: ali roda `durante()`, e só então a exclusão
+   * segue para os `delete`.
+   */
+  function pausarDepoisDaTrava<T>(
+    trx: Kysely<T>,
+    ordem: number,
+    durante: () => Promise<void>,
+  ): Kysely<T> {
+    let travasVistas = 0;
+    let consultaDaPausa: string | undefined;
+    return trx.withPlugin({
+      transformQuery({ node, queryId }) {
+        if (
+          node.kind === 'SelectQueryNode' &&
+          JSON.stringify(node).includes('"ForUpdate"')
+        ) {
+          travasVistas += 1;
+          if (travasVistas === ordem) {
+            consultaDaPausa = queryId.queryId;
+          }
+        }
+        return node;
+      },
+      async transformResult({ queryId, result }) {
+        if (queryId.queryId === consultaDaPausa) {
+          await durante();
+        }
+        return result;
+      },
+    });
+  }
+
+  async function linhas() {
+    const trampos = await db()
+      .selectFrom('trampos')
+      .select(['id', 'autor_id'])
+      .orderBy('id')
+      .execute();
+    const candidaturas = await db()
+      .selectFrom('candidaturas')
+      .select(['trampo_id', 'freelancer_id'])
+      .orderBy('trampo_id')
+      .orderBy('freelancer_id')
+      .execute();
+    return { trampos, candidaturas };
+  }
+
+  /**
+   * EMPREGADOR é autor de T1 (com prazo) e T2; ANA se candidata a T1 e
+   * BRUNO a T1 e T2. ANA é autora de T3, onde EMPREGADOR se candidata.
+   * CARLA é autora de T4, onde BRUNO se candidata (fora de tudo).
+   */
+  async function cenario() {
+    const t1 = await publicar({ prazo: '2026-11-30' });
+    relogio.avancar(60_000);
+    const t2 = await publicar();
+    relogio.avancar(60_000);
+    const t3 = await publicar({ titulo: 'Trocar o chuveiro' }, ANA);
+    relogio.avancar(60_000);
+    const t4 = await publicar({ titulo: 'Montar armário' }, CARLA);
+    relogio.avancar(60_000);
+    await casos.candidatar(ANA, t1, { ...proposta, mensagem: 'TEXTO-DA-ANA' });
+    await casos.candidatar(BRUNO, t1, {
+      ...proposta,
+      mensagem: 'TEXTO-DO-BRUNO',
+    });
+    await casos.candidatar(BRUNO, t2, {
+      ...proposta,
+      mensagem: 'TEXTO-DO-BRUNO',
+    });
+    relogio.avancar(60_000);
+    const doEmpregador = await casos.candidatar(EMPREGADOR, t3, {
+      mensagem: 'Proposta do empregador para o chuveiro.',
+      valorPropostoCentavos: 12000,
+    });
+    await casos.candidatar(BRUNO, t4, proposta);
+    return { t1, t2, t3, t4, doEmpregador: doEmpregador.id };
+  }
+
+  const excluir = (contaId: string) =>
+    db()
+      .transaction()
+      .execute((trx) => modulo().excluirDadosDaConta(trx, contaId));
+
+  it('CA17/CA18 — apaga os trampos da conta com as candidaturas recebidas e as candidaturas que ela fez; o resto fica intacto', async () => {
+    const { t3, t4 } = await cenario();
+
+    await excluir(EMPREGADOR);
+
+    expect(await linhas()).toEqual({
+      trampos: [
+        { id: t3, autor_id: ANA },
+        { id: t4, autor_id: CARLA },
+      ].sort((x, y) => (x.id < y.id ? -1 : 1)),
+      candidaturas: [{ trampo_id: t4, freelancer_id: BRUNO }],
+    });
+    // Para quem interagiu: some das recebidas, das "minhas" e da busca.
+    expect(await casos.listarCandidaturas(ANA, t3)).toEqual([]);
+    expect(await repositorio.listarCandidaturasDoFreelancer(ANA)).toEqual([]);
+    expect(
+      (await repositorio.listarCandidaturasDoFreelancer(BRUNO)).map(
+        (c) => c.trampoId,
+      ),
+    ).toEqual([t4]);
+    expect((await casos.buscarTrampos()).map((t) => t.id).sort()).toEqual(
+      [t3, t4].sort(),
+    );
+    expect(await repositorio.listarDoAutor(EMPREGADOR)).toEqual([]);
+  });
+
+  it('CA18 — candidatura num trampo apagado dá 404', async () => {
+    const { t1 } = await cenario();
+    await excluir(EMPREGADOR);
+
+    expect(await erroDe(casos.candidatar(CARLA, t1, proposta))).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+  });
+
+  it('CA18 — Dado a exclusão com a trava dos trampos já tomada, quando um terceiro se candidata ao mesmo tempo, então ele espera a trava e recebe 404, sem candidatura órfã', async () => {
+    const { t1 } = await cenario();
+    let concorrente: Promise<Desfecho> | undefined;
+
+    await db()
+      .transaction()
+      .execute((trx) =>
+        modulo().excluirDadosDaConta(
+          pausarDepoisDaTrava(trx, 1, async () => {
+            concorrente = acompanhar(casos.candidatar(CARLA, t1, proposta));
+            await esperarAlguemNaTrava();
+          }),
+          EMPREGADOR,
+        ),
+      );
+
+    const resultado = await concorrente;
+    expect(resultado?.ok).toBe(false);
+    expect(resultado?.ok === false && resultado.erro).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect(await repositorio.listarCandidaturasDoFreelancer(CARLA)).toEqual([]);
+    expect(
+      (await linhas()).trampos.some((t) => t.autor_id === EMPREGADOR),
+    ).toBe(false);
+  });
+
+  it('Dado duas contas ligadas (cada uma candidata no trampo da outra), quando as duas se excluem ao mesmo tempo, então a segunda espera a trava da primeira e as duas terminam', async () => {
+    const { t4 } = await cenario();
+    let daAna: Promise<Desfecho> | undefined;
+
+    await db()
+      .transaction()
+      .execute((trx) =>
+        modulo().excluirDadosDaConta(
+          pausarDepoisDaTrava(trx, 2, async () => {
+            daAna = acompanhar(excluir(ANA));
+            await esperarAlguemNaTrava();
+          }),
+          EMPREGADOR,
+        ),
+      );
+
+    expect(await daAna).toEqual({ ok: true, valor: undefined });
+    expect(await linhas()).toEqual({
+      trampos: [{ id: t4, autor_id: CARLA }],
+      candidaturas: [{ trampo_id: t4, freelancer_id: BRUNO }],
+    });
+  });
+
+  it('não abre transação própria: se a transação da composição desfaz, nada é apagado', async () => {
+    await cenario();
+    const antes = await linhas();
+    class Desfazer extends Error {}
+
+    await expect(
+      db()
+        .transaction()
+        .execute(async (trx) => {
+          await excluirDadosDaConta(trx, EMPREGADOR);
+          throw new Desfazer();
+        }),
+    ).rejects.toBeInstanceOf(Desfazer);
+
+    expect(await linhas()).toEqual(antes);
+  });
+
+  it('recusa conexão fora de transação e contaId fora do formato uuid, sem apagar nada', async () => {
+    await cenario();
+    const antes = await linhas();
+
+    expect(await erroDe(excluirDadosDaConta(db(), EMPREGADOR))).toBeInstanceOf(
+      TypeError,
+    );
+    for (const invalido of ['', 'nao-e-uuid', "' or 1=1 --"]) {
+      const erro = await erroDe(
+        db()
+          .transaction()
+          .execute((trx) => excluirDadosDaConta(trx, invalido)),
+      );
+      expect(erro).toBeInstanceOf(TypeError);
+    }
+    expect(await linhas()).toEqual(antes);
+  });
+
+  it('conta sem trampos nem candidaturas (ou segundo pedido): resolve sem erro e não mexe em nada', async () => {
+    await cenario();
+    const antes = await linhas();
+
+    await excluir(randomUUID());
+
+    expect(await linhas()).toEqual(antes);
+  });
+
+  it('CA19 — exporta os trampos da conta com só a contagem das candidaturas recebidas e as candidaturas que ela fez, sem texto de terceiros nem colunas derivadas', async () => {
+    const { t1, t2, t3, doEmpregador } = await cenario();
+
+    const exportado = await modulo().exportarDadosDaConta(EMPREGADOR);
+
+    const comum = {
+      titulo: 'Pintar a sala',
+      descricao: 'Pintura de uma sala de 20 m², tinta inclusa.',
+      categoria: 'reformas',
+      cidade: 'São Paulo',
+      valorCentavos: 50000,
+      status: 'aberto',
+    };
+    expect(exportado).toEqual({
+      trampos: [
+        {
+          id: t1,
+          ...comum,
+          prazo: '2026-11-30',
+          criadoEm: '2026-10-20T12:00:00.000Z',
+          candidaturasRecebidas: 2,
+        },
+        {
+          id: t2,
+          ...comum,
+          prazo: null,
+          criadoEm: '2026-10-20T12:01:00.000Z',
+          candidaturasRecebidas: 1,
+        },
+      ],
+      candidaturas: [
+        {
+          id: doEmpregador,
+          trampoId: t3,
+          mensagem: 'Proposta do empregador para o chuveiro.',
+          valorPropostoCentavos: 12000,
+          status: 'pendente',
+          criadaEm: '2026-10-20T12:05:00.000Z',
+        },
+      ],
+    });
+    const json = JSON.stringify(exportado);
+    for (const deTerceiro of [
+      'TEXTO-DA-ANA',
+      'TEXTO-DO-BRUNO',
+      ANA,
+      BRUNO,
+      CARLA,
+      'Trocar o chuveiro',
+      'sao paulo',
+    ]) {
+      expect(json).not.toContain(deTerceiro);
+    }
+  });
+
+  it('CA19 — conta sem nada e id fora do formato exportam listas vazias', async () => {
+    await cenario();
+
+    expect(await modulo().exportarDadosDaConta(randomUUID())).toEqual({
+      trampos: [],
+      candidaturas: [],
+    });
+    expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
+      trampos: [],
+      candidaturas: [],
+    });
   });
 });

@@ -40,6 +40,7 @@ export function Conversa({
   podeEnviar,
   semConexao,
   atualizacaoFalhando,
+  avisoDoEnvio,
   onMudarRascunho,
   onEnviar,
   onTentarDeNovo,
@@ -196,6 +197,7 @@ export function Conversa({
           ) : null}
         </View>
         <RodapeFixo>
+          {avisoDoEnvio ? <Aviso variante="erro" texto={avisoDoEnvio} /> : null}
           {semConexao ? (
             <Text
               style={{

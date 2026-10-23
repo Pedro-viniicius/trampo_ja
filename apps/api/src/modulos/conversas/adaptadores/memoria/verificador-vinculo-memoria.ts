@@ -25,6 +25,7 @@ export class VerificadorDeVinculoEmMemoria implements VerificadorDeVinculo {
     this.#pares.delete(chave(a, b));
   }
 
+  /** A transação, se vier, é ignorada: não há banco. */
   async existeVinculoEntre(a: string, b: string): Promise<boolean> {
     return this.#pares.has(chave(a, b));
   }

@@ -164,7 +164,7 @@ describe('useCadastrar e useEntrar (CA1)', () => {
   it('chama o onSuccess passado ao mutate mesmo com o reset', async () => {
     const provedores = criarProvedores();
     provedores.fetch.responder('POST /sessoes', { corpo: { token: TOKEN } });
-    const { result } = await montar(useEntrar, provedores);
+    const { result, unmount } = await montar(useEntrar, provedores);
     const aoTerminar = jest.fn();
 
     await act(async () => {
@@ -172,6 +172,10 @@ describe('useCadastrar e useEntrar (CA1)', () => {
     });
 
     await waitFor(() => expect(aoTerminar).toHaveBeenCalledTimes(1));
+    // O `reset()` do sucesso avisa o hook num `setTimeout(0)` que, sob carga,
+    // cai entre o fim do teste e o `afterEach`, fora do `act`. Desmontar aqui
+    // tira o ouvinte: o aviso atrasado não acha mais o componente.
+    await unmount();
   });
 
   it('senha errada sobe como ErroDaApi e a sessão segue anônima', async () => {

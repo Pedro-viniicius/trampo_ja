@@ -379,3 +379,183 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
     return linhas.map(paraCandidatura);
   }
 }
+
+/**
+ * Trampo como sai na exportação da conta (D26, ADR-005). Mesmo formato de
+ * `TrampoExportado` do módulo `contas`, declarado aqui para não acoplar os
+ * módulos. Ficam de fora as colunas derivadas (`cidade_normalizada`,
+ * `texto_busca`), a `versao` e o texto das candidaturas recebidas (de
+ * terceiros): delas, só a contagem.
+ */
+export interface TrampoExportado {
+  readonly id: string;
+  readonly titulo: string;
+  readonly descricao: string;
+  readonly categoria: string;
+  readonly cidade: string;
+  readonly valorCentavos: number;
+  /** `AAAA-MM-DD`, ou `null` sem prazo. */
+  readonly prazo: string | null;
+  readonly status: string;
+  /** ISO 8601. */
+  readonly criadoEm: string;
+  readonly candidaturasRecebidas: number;
+}
+
+/** Candidatura feita pela conta, como sai na exportação (D26). */
+export interface CandidaturaExportada {
+  readonly id: string;
+  readonly trampoId: string;
+  readonly mensagem: string;
+  readonly valorPropostoCentavos: number;
+  readonly status: string;
+  /** ISO 8601. */
+  readonly criadaEm: string;
+}
+
+/**
+ * Parte de `trampos` na exportação: os trampos de que a conta é autora e as
+ * candidaturas que ela fez, cada lista do mais antigo ao mais novo.
+ */
+export interface ParteDeTramposNaExportacao {
+  readonly trampos: readonly TrampoExportado[];
+  readonly candidaturas: readonly CandidaturaExportada[];
+}
+
+/**
+ * Parte de `trampos` na exclusão da conta (D25, ADR-005), dentro da
+ * transação aberta pela composição (`trx`); não abre transação própria.
+ * Apaga as candidaturas recebidas nos trampos da conta, as candidaturas que
+ * ela fez e, por fim, os trampos dela (`candidaturas.trampo_id` não tem
+ * cascade).
+ *
+ * Travas, antes de apagar:
+ * - `for update` nos trampos da conta. Uma candidatura concorrente de
+ *   terceiro espera a trava no `UPDATE … WHERE versao`, não acha mais a linha
+ *   depois do commit (`conflito_de_versao`), relê o trampo e recebe 404;
+ * - `for update` nas candidaturas a apagar, em ordem de id. Duas exclusões
+ *   simultâneas de contas ligadas (cada uma candidata no trampo da outra)
+ *   travam as mesmas linhas na mesma ordem, sem deadlock.
+ *
+ * Lança, sem consultar, com `contaId` fora do formato uuid ou com uma
+ * conexão fora de transação. Sem nada a apagar, resolve sem erro.
+ */
+export async function excluirDadosDaConta(
+  trx: Conexao,
+  contaId: string,
+): Promise<void> {
+  if (!ehUuid(contaId)) {
+    throw new TypeError('trampos.excluirDadosDaConta: contaId não é um uuid');
+  }
+  if (!trx.isTransaction) {
+    throw new TypeError('trampos.excluirDadosDaConta: exige uma transação');
+  }
+  const tramposDaConta = () =>
+    trx
+      .selectFrom('trampos')
+      .select('trampos.id')
+      .where('trampos.autor_id', '=', contaId);
+
+  await tramposDaConta().orderBy('trampos.id').forUpdate().execute();
+  await trx
+    .selectFrom('candidaturas')
+    .select('id')
+    .where(({ eb, or }) =>
+      or([
+        eb('trampo_id', 'in', tramposDaConta()),
+        eb('freelancer_id', '=', contaId),
+      ]),
+    )
+    .orderBy('id')
+    .forUpdate()
+    .execute();
+
+  await trx
+    .deleteFrom('candidaturas')
+    .where(({ eb, or }) =>
+      or([
+        eb('trampo_id', 'in', tramposDaConta()),
+        eb('freelancer_id', '=', contaId),
+      ]),
+    )
+    .execute();
+  await trx.deleteFrom('trampos').where('autor_id', '=', contaId).execute();
+}
+
+/**
+ * Parte de `trampos` na exportação da conta (D26), lida num só instante
+ * (`repeatable read`). Id fora do formato: listas vazias.
+ */
+export async function exportarDadosDaConta(
+  db: Conexao,
+  contaId: string,
+): Promise<ParteDeTramposNaExportacao> {
+  if (!ehUuid(contaId)) {
+    return { trampos: [], candidaturas: [] };
+  }
+  return db
+    .transaction()
+    .setIsolationLevel('repeatable read')
+    .setAccessMode('read only')
+    .execute(async (trx) => {
+      const trampos = await trx
+        .selectFrom('trampos')
+        .select((eb) => [
+          'trampos.id',
+          'trampos.titulo',
+          'trampos.descricao',
+          'trampos.categoria',
+          'trampos.cidade',
+          'trampos.valor_centavos',
+          // `date` viraria `Date` no fuso local do processo; o texto é exato.
+          sql<string | null>`to_char(trampos.prazo, 'YYYY-MM-DD')`.as('prazo'),
+          'trampos.status',
+          'trampos.criado_em',
+          eb
+            .selectFrom('candidaturas')
+            .select(sql<number>`count(*)::int`.as('total'))
+            .whereRef('candidaturas.trampo_id', '=', 'trampos.id')
+            .as('candidaturas_recebidas'),
+        ])
+        .where('trampos.autor_id', '=', contaId)
+        .orderBy('trampos.criado_em', 'asc')
+        .orderBy('trampos.id', 'asc')
+        .execute();
+      const candidaturas = await trx
+        .selectFrom('candidaturas')
+        .select([
+          'id',
+          'trampo_id',
+          'mensagem',
+          'valor_proposto_centavos',
+          'status',
+          'criada_em',
+        ])
+        .where('freelancer_id', '=', contaId)
+        .orderBy('criada_em', 'asc')
+        .orderBy('id', 'asc')
+        .execute();
+      return {
+        trampos: trampos.map((linha) => ({
+          id: linha.id,
+          titulo: linha.titulo,
+          descricao: linha.descricao,
+          categoria: linha.categoria,
+          cidade: linha.cidade,
+          valorCentavos: linha.valor_centavos,
+          prazo: linha.prazo,
+          status: linha.status,
+          criadoEm: linha.criado_em.toISOString(),
+          candidaturasRecebidas: linha.candidaturas_recebidas ?? 0,
+        })),
+        candidaturas: candidaturas.map((linha) => ({
+          id: linha.id,
+          trampoId: linha.trampo_id,
+          mensagem: linha.mensagem,
+          valorPropostoCentavos: linha.valor_proposto_centavos,
+          status: linha.status,
+          criadaEm: linha.criada_em.toISOString(),
+        })),
+      };
+    });
+}

@@ -1,7 +1,8 @@
 /**
  * Fachada pública do módulo `servicos`: o único arquivo que outro módulo (ou a
- * composição) pode importar. Expõe só as rotas e a busca (contrato entre
- * módulos do plano: `buscarServicos(filtros)`, usada pelo módulo `busca`).
+ * composição) pode importar. Expõe as rotas, a busca (contrato entre módulos
+ * do plano: `buscarServicos(filtros)`, usada pelo módulo `busca`) e a parte de
+ * `servicos` na exclusão e na exportação da conta (ADR-005).
  */
 import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -11,7 +12,12 @@ import {
 } from '../../compartilhado/dominio/relogio.js';
 import type { ValidarSessao } from '../../compartilhado/http/autenticacao.js';
 import { criarRotasDeServicos } from './adaptadores/http/rotas.js';
-import { RepositorioDeServicosPostgres } from './adaptadores/postgres/repositorio-postgres.js';
+import {
+  excluirDadosDaConta,
+  exportarDadosDaConta,
+  type ParteDeServicosNaExportacao,
+  RepositorioDeServicosPostgres,
+} from './adaptadores/postgres/repositorio-postgres.js';
 import type { TabelasDeServicos } from './adaptadores/postgres/tabelas.js';
 import {
   criarCasosDeUsoDeServicos,
@@ -19,6 +25,11 @@ import {
 } from './aplicacao/casos-de-uso.js';
 import type { VerificadorDePerfil } from './dominio/portas.js';
 import type { Servico } from './dominio/servico.js';
+
+export type {
+  ParteDeServicosNaExportacao,
+  ServicoExportado,
+} from './adaptadores/postgres/repositorio-postgres.js';
 
 export interface OpcoesDoModuloDeServicos {
   /** Conexão com o banco; o módulo só usa a tabela `servicos`. */
@@ -41,6 +52,22 @@ export interface ModuloDeServicos {
   readonly buscarServicos: (
     pedido?: PedidoDeBusca,
   ) => Promise<readonly Servico[]>;
+  /**
+   * Parte de `servicos` em `DadosDaConta.excluirTudo` (D25): apaga os
+   * serviços da conta na transação recebida, aberta pela composição. Lança se
+   * `contaId` não for uuid ou se `trx` não for uma transação.
+   */
+  readonly excluirDadosDaConta: (
+    trx: Kysely<TabelasDeServicos>,
+    contaId: string,
+  ) => Promise<void>;
+  /**
+   * Parte de `servicos` na exportação (D26): os serviços da conta, em qualquer
+   * status, sem as colunas derivadas (`cidade_normalizada`, `texto_busca`).
+   */
+  readonly exportarDadosDaConta: (
+    contaId: string,
+  ) => Promise<ParteDeServicosNaExportacao>;
 }
 
 export function criarModuloDeServicos(
@@ -59,5 +86,7 @@ export function criarModuloDeServicos(
         await app.register(plugin, { validarSessao });
       },
     buscarServicos: casos.buscarServicos,
+    excluirDadosDaConta,
+    exportarDadosDaConta: (contaId) => exportarDadosDaConta(opcoes.db, contaId),
   };
 }

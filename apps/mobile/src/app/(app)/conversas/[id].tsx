@@ -28,6 +28,10 @@ function ehNaoEncontrado(erro: unknown): boolean {
   return ehErroDaApi(erro) && erro.status === 404;
 }
 
+function ehLimiteDeAcoes(erro: unknown): boolean {
+  return ehErroDaApi(erro) && erro.status === 429;
+}
+
 /**
  * Conversa (CA12): mensagens por polling (só com a tela focada), envio com
  * pendentes locais e reconciliação sem idempotência na API (ADR-004, D21).
@@ -86,6 +90,9 @@ export default function RotaDaConversa() {
   const [rascunho, setRascunho] = useState('');
   const [pendentes, setPendentes] = useState<readonly Pendente[]>([]);
   const [envioIndisponivel, setEnvioIndisponivel] = useState(false);
+  // 429 no último envio ou reenvio (limite de ações por conta, CA20): aviso
+  // acima do campo até um envio dar certo ou o rascunho mudar.
+  const [limiteNoEnvio, setLimiteNoEnvio] = useState(false);
   // Espelhos lidos de forma síncrona: dois toques no mesmo tick (antes de a
   // tela redesenhar) veem o campo já vazio e a pendente já em `enviando`.
   const rascunhoAtual = useRef('');
@@ -131,6 +138,7 @@ export default function RotaDaConversa() {
       }
       if (resultado.tipo === 'enviada') {
         // O hook já invalidou as mensagens: o GET que vem tira a pendente.
+        setLimiteNoEnvio(false);
         mudarSituacao(chave, {
           situacao: 'enviada',
           id: resultado.id,
@@ -141,6 +149,9 @@ export default function RotaDaConversa() {
       mudarSituacao(chave, { situacao: 'falhou' });
       if (ehNaoEncontrado(resultado.erro)) {
         setEnvioIndisponivel(true);
+      }
+      if (ehLimiteDeAcoes(resultado.erro)) {
+        setLimiteNoEnvio(true);
       }
     },
     [enviar, mudarSituacao],
@@ -159,6 +170,7 @@ export default function RotaDaConversa() {
   const aoMudarRascunho = (texto: string) => {
     rascunhoAtual.current = texto;
     setRascunho(texto);
+    setLimiteNoEnvio(false);
   };
 
   const aoEnviar = () => {
@@ -257,6 +269,9 @@ export default function RotaDaConversa() {
       podeEnviar={podeEnviar}
       semConexao={!online}
       atualizacaoFalhando={consulta.falhasSeguidas >= FALHAS_PARA_AVISAR}
+      {...(limiteNoEnvio && {
+        avisoDoEnvio: textos.erros.muitas_tentativas_acao,
+      })}
       onMudarRascunho={aoMudarRascunho}
       onEnviar={aoEnviar}
       onTentarDeNovo={(chave) => {

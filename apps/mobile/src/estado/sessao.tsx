@@ -45,12 +45,21 @@ export interface Sessao {
    * em memória a rota de retorno e o aviso. Idempotente; nunca rejeita.
    */
   expirar(rotaAtual?: string): Promise<void>;
+  /**
+   * A conta acabou de ser excluída (CA17): guarda o aviso `conta_excluida`
+   * para o login (sem rota de retorno), muda a geração, passa a anônimo e
+   * apaga o token e o cache. Não chama a rede: a API já derrubou todas as
+   * sessões, e um 401 atrasado é ignorado porque o token saiu da porta.
+   * Nunca rejeita.
+   */
+  encerrarPorExclusao(): Promise<void>;
   /** Devolve o retorno guardado e o zera. */
   consumirRetorno(): RetornoDaSessao;
   /**
-   * Número da sessão atual: muda a cada entrar, sair e expirar. Quem começa
-   * algo assíncrono guarda o número e, na volta, só grava no cache se ainda
-   * for o mesmo (a resposta pode ser de uma conta que já saiu).
+   * Número da sessão atual: muda a cada entrar, sair, expirar e
+   * encerrarPorExclusao. Quem começa algo assíncrono guarda o número e, na
+   * volta, só grava no cache se ainda for o mesmo (a resposta pode ser de uma
+   * conta que já saiu).
    */
   geracao(): number;
 }
@@ -282,6 +291,13 @@ export function SessaoProvider({
     await limparLocal();
   }, [cliente, definirStatus, limparLocal]);
 
+  const encerrarPorExclusao = useCallback(async () => {
+    retorno.current = { aviso: 'conta_excluida' };
+    geracaoAtual.current += 1;
+    definirStatus('anonimo');
+    await limparLocal();
+  }, [definirStatus, limparLocal]);
+
   const consumirRetorno = useCallback((): RetornoDaSessao => {
     const { rota, aviso } = retorno.current;
     retorno.current = {};
@@ -295,10 +311,27 @@ export function SessaoProvider({
 
   const valor = useMemo(
     () => ({
-      sessao: { status, entrar, sair, expirar, consumirRetorno, geracao },
+      sessao: {
+        status,
+        entrar,
+        sair,
+        expirar,
+        encerrarPorExclusao,
+        consumirRetorno,
+        geracao,
+      },
       cliente,
     }),
-    [status, entrar, sair, expirar, consumirRetorno, geracao, cliente],
+    [
+      status,
+      entrar,
+      sair,
+      expirar,
+      encerrarPorExclusao,
+      consumirRetorno,
+      geracao,
+      cliente,
+    ],
   );
 
   return (

@@ -1,5 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import type { HasherDeSenha } from './portas.js';
+import { Semaforo } from './semaforo.js';
 
 /** Parâmetros de custo do scrypt (RFC 7914). */
 export interface ParametrosScrypt {
@@ -109,7 +110,19 @@ function lerHash(hashArmazenado: unknown): HashLido | null {
   return { parametros, salt, hash };
 }
 
-/** `scrypt` assíncrono (pool do libuv): não bloqueia o event loop. */
+/**
+ * Derivações scrypt simultâneas por processo. Cada uma usa cerca de 128 MiB
+ * com o padrão; as demais esperam numa fila FIFO sem teto (CA23, S2).
+ */
+export const DERIVACOES_SIMULTANEAS = 2;
+
+// Um só para o processo inteiro: vale para todas as instâncias do hasher.
+const semaforoDoScrypt = new Semaforo(DERIVACOES_SIMULTANEAS);
+
+/**
+ * `scrypt` assíncrono (pool do libuv): não bloqueia o event loop. Passa pelo
+ * semáforo do processo, que libera a vaga também quando a derivação falha.
+ */
 function derivar(
   senha: string,
   salt: Buffer,
@@ -117,15 +130,18 @@ function derivar(
   parametros: ParametrosScrypt,
 ): Promise<Buffer> {
   const { N, r, p } = parametros;
-  return new Promise((resolver, rejeitar) => {
-    scrypt(
-      senha,
-      salt,
-      tamanho,
-      { N, r, p, maxmem: memoriaNecessaria(parametros) + 1024 * 1024 },
-      (erro, chave) => (erro ? rejeitar(erro) : resolver(chave)),
-    );
-  });
+  return semaforoDoScrypt.executar(
+    () =>
+      new Promise<Buffer>((resolver, rejeitar) => {
+        scrypt(
+          senha,
+          salt,
+          tamanho,
+          { N, r, p, maxmem: memoriaNecessaria(parametros) + 1024 * 1024 },
+          (erro, chave) => (erro ? rejeitar(erro) : resolver(chave)),
+        );
+      }),
+  );
 }
 
 /**

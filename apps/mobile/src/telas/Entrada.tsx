@@ -5,7 +5,12 @@ import { textos } from '../textos/pt-BR';
 import type { PropsDaEntrada } from './tipos';
 
 /** Primeira tela: marca em destaque, frase de valor e as duas portas de entrada. */
-export function Entrada({ onCriarConta, onJaTenhoConta }: PropsDaEntrada) {
+export function Entrada({
+  onCriarConta,
+  onJaTenhoConta,
+  onPolitica,
+  onTermos,
+}: PropsDaEntrada) {
   return (
     <View style={{ flex: 1, backgroundColor: cores.fundo }}>
       {/* Rola em paisagem ou com fonte grande; centraliza quando cabe. */}
@@ -33,6 +38,33 @@ export function Entrada({ onCriarConta, onJaTenhoConta }: PropsDaEntrada) {
               variante="secundario"
               onPress={onJaTenhoConta}
             />
+            {onTermos || onPolitica ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                  columnGap: espaco[2],
+                }}
+              >
+                {onTermos ? (
+                  <Botao
+                    texto={textos.cadastro.aceiteTermos}
+                    variante="texto"
+                    larguraCheia={false}
+                    onPress={onTermos}
+                  />
+                ) : null}
+                {onPolitica ? (
+                  <Botao
+                    texto={textos.cadastro.aceitePolitica}
+                    variante="texto"
+                    larguraCheia={false}
+                    onPress={onPolitica}
+                  />
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
       </ScrollView>

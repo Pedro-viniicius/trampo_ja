@@ -38,6 +38,10 @@ export {
   type PropsDaFaixaSemConexao,
 } from './FaixaSemConexao';
 export { FolhaInferior, type PropsDaFolhaInferior } from './FolhaInferior';
+export {
+  LinhaDeConfiguracao,
+  type PropsDaLinhaDeConfiguracao,
+} from './LinhaDeConfiguracao';
 export { Logo, type PropsDaLogo } from './Logo';
 export { Motivo, type PropsDoMotivo } from './Motivo';
 export {

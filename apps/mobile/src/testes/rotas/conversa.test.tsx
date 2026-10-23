@@ -75,13 +75,19 @@ const INICIAIS: readonly Mensagem[] = [
   mensagem(3, OUTRO),
 ];
 
-type ModoDoPost = 'ok' | 'perdida' | 'falha' | 'nao_encontrada' | 'expirada';
+type ModoDoPost =
+  | 'ok'
+  | 'perdida'
+  | 'falha'
+  | 'nao_encontrada'
+  | 'expirada'
+  | 'limite';
 
 /**
  * Imita as mensagens da API: `GET` com `depoisDe` (400 com cursor
  * desconhecido) e `POST` que grava e devolve `{id, enviadaEm}`. O `modo` do
  * POST simula a resposta perdida (grava e falha a rede), a falha antes de
- * chegar, o 404 e o 401.
+ * chegar, o 404, o 401 e o 429 do limite por conta (D29).
  */
 function criarServidor(iniciais: readonly Mensagem[] = INICIAIS) {
   const servidor = {
@@ -123,6 +129,12 @@ function criarServidor(iniciais: readonly Mensagem[] = INICIAIS) {
           return { status: 404, corpo: { erro: 'nao_encontrado' }, ...demora };
         case 'expirada':
           return { status: 401, corpo: { erro: 'sessao_expirada' }, ...demora };
+        case 'limite':
+          return {
+            status: 429,
+            corpo: { erro: 'muitas_requisicoes' },
+            ...demora,
+          };
         default:
           break;
       }
@@ -381,6 +393,62 @@ describe('conversa: leitura (CA12, CA16)', () => {
     expect(screen.queryByText(textos.conversas.atualizacaoFalhando)).toBeNull();
   });
 
+  it('429 no polling (CA20): o ciclo segue com backoff, o aviso vem na 3ª falha e some no sucesso', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    servidor.falhaDoGet = {
+      status: 429,
+      corpo: { erro: 'muitas_requisicoes' },
+    };
+    fetch.limparRequisicoes();
+
+    // Backoff: 5 s, depois 10 s e 20 s; o 429 não para o ciclo.
+    await avancar(5_000);
+    await avancar(10_000);
+    expect(requisicoes(fetch, 'GET')).toHaveLength(2);
+    expect(screen.queryByText(textos.conversas.atualizacaoFalhando)).toBeNull();
+    await avancar(20_000);
+    expect(requisicoes(fetch, 'GET')).toHaveLength(3);
+
+    expect(
+      screen.getByText(textos.conversas.atualizacaoFalhando),
+    ).toBeOnTheScreen();
+    expect(rotulosDasBolhas()).toHaveLength(3);
+    expect(screen.queryByText(textos.conversas.indisponivelTitulo)).toBeNull();
+    semTextoCruDeErro();
+
+    servidor.falhaDoGet = null;
+    servidor.mensagens.push(mensagem(4, OUTRO));
+    await avancar(40_000);
+    expect(requisicoes(fetch, 'GET')).toHaveLength(4);
+    expect(screen.queryByText(textos.conversas.atualizacaoFalhando)).toBeNull();
+    expect(bolhasCom(4)).toHaveLength(1);
+  });
+
+  it('429 na carga inicial: aviso de ação com "Tentar de novo", e o ciclo carrega sozinho depois', async () => {
+    const servidor = criarServidor();
+    servidor.falhaDoGet = {
+      status: 429,
+      corpo: { erro: 'muitas_requisicoes' },
+    };
+    await abrir(servidor);
+
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: textos.gerais.tentarDeNovo }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(textos.conversas.indisponivelTitulo)).toBeNull();
+    expect(screen.queryByText(textos.conversas.semMensagens)).toBeNull();
+    semTextoCruDeErro();
+
+    // Sem tocar em nada: o backoff (10 s depois da 1ª falha) busca de novo.
+    servidor.falhaDoGet = null;
+    await avancar(10_000);
+    expect(await screen.findByLabelText(new RegExp(texto(3)))).toBeTruthy();
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+  });
+
   it('erro na carga inicial: mensagem traduzida e "Tentar de novo"', async () => {
     const servidor = criarServidor();
     servidor.falhaDoGet = { status: 500, corpo: { erro: 'erro_interno' } };
@@ -581,6 +649,175 @@ describe('conversa: envio (CA12)', () => {
       ).toBeOnTheScreen();
       expect(screen.getByText(textos.conversas.naoEnviada)).toBeOnTheScreen();
     });
+  });
+});
+
+describe('conversa: 429 no envio e na lista (CA20)', () => {
+  it('fica "Não enviada" com a pendente mantida; o toque faz o GET e reenvia', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    servidor.modo = 'limite';
+    await escrever(texto('limite'));
+    await fireEvent.press(botaoEnviar());
+
+    const bolha = await screen.findByRole('button', {
+      name: new RegExp(
+        `${textos.conversas.rotuloNaoEnviada}\\. ${texto('limite')}$`,
+      ),
+    });
+    expect(screen.getByText(textos.conversas.naoEnviada)).toBeOnTheScreen();
+    expect(bolhasCom('limite')).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(1);
+    // Não é "indisponível" nem sessão expirada: a conversa segue aberta.
+    expect(screen.queryByText(textos.conversas.indisponivelTitulo)).toBeNull();
+    expect(screen).toHavePathname('/conversas/c1');
+    semTextoCruDeErro();
+
+    // Nada é reenviado sozinho, nem nos ciclos do polling.
+    await avancar(INTERVALO_DO_POLLING_MS * 2);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(1);
+    expect(bolhasCom('limite')).toHaveLength(1);
+    expect(screen.getByText(textos.conversas.naoEnviada)).toBeOnTheScreen();
+
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+    await fireEvent.press(bolha);
+    await avancar(100);
+
+    const metodos = fetch.requisicoes
+      .filter((r) => r.caminho === CAMINHO)
+      .map((r) => r.metodo);
+    expect(metodos.slice(0, 2)).toEqual(['GET', 'POST']);
+    expect(requisicoes(fetch, 'POST')[0]?.corpo).toEqual({
+      texto: texto('limite'),
+    });
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(bolhasCom('limite')).toHaveLength(1);
+    expect(screen.queryByText(textos.conversas.naoEnviada)).toBeNull();
+  });
+
+  it('GET /conversas em 429 ao abrir: aviso de ação com "Tentar de novo", não "indisponível"; o toque carrega', async () => {
+    const servidor = criarServidor();
+    const fetch = criarFake(servidor).responder('GET /conversas', [
+      { status: 429, corpo: { erro: 'muitas_requisicoes' } },
+      { corpo: [RESUMO] },
+    ]);
+    await abrir(servidor, { fetch });
+
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(textos.conversas.indisponivelTitulo)).toBeNull();
+    semTextoCruDeErro();
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.tentarDeNovo }),
+    );
+    expect(await screen.findByLabelText(new RegExp(texto(3)))).toBeTruthy();
+    expect(screen.getByText(NOME_DO_OUTRO)).toBeOnTheScreen();
+  });
+
+  it('429 no envio mostra o aviso de ação acima do campo; o reenvio com sucesso o tira', async () => {
+    const { servidor } = await abrirCarregada();
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+    servidor.modo = 'limite';
+    await escrever(texto('limite'));
+    await fireEvent.press(botaoEnviar());
+
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+    semTextoCruDeErro();
+
+    // O polling seguinte não tira o aviso: só um envio que dá certo.
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(
+      screen.getByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+
+    servidor.modo = 'ok';
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: new RegExp(
+          `${textos.conversas.rotuloNaoEnviada}\\. ${texto('limite')}$`,
+        ),
+      }),
+    );
+    await avancar(100);
+
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+    expect(screen.queryByText(textos.conversas.naoEnviada)).toBeNull();
+  });
+
+  it('429 no reenvio também mostra o aviso; o próximo envio com sucesso o tira', async () => {
+    const { servidor } = await abrirCarregada();
+    servidor.modo = 'falha';
+    await escrever(texto('rede'));
+    await fireEvent.press(botaoEnviar());
+    const bolha = await screen.findByRole('button', {
+      name: new RegExp(
+        `${textos.conversas.rotuloNaoEnviada}\\. ${texto('rede')}$`,
+      ),
+    });
+    // Falha de rede não é limite: sem o aviso de ação.
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+
+    servidor.modo = 'limite';
+    await fireEvent.press(bolha);
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+
+    servidor.modo = 'ok';
+    // Escrever já tira o aviso; para provar que o sucesso também tira, o
+    // aviso volta com outro 429 antes do envio que dá certo.
+    await escrever(texto('nova'));
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+    servidor.modo = 'limite';
+    await fireEvent.press(botaoEnviar());
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+
+    servidor.modo = 'ok';
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: new RegExp(
+          `${textos.conversas.rotuloNaoEnviada}\\. ${texto('nova')}$`,
+        ),
+      }),
+    );
+    await avancar(100);
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+  });
+
+  it('o aviso do 429 some quando o rascunho muda', async () => {
+    const { servidor } = await abrirCarregada();
+    servidor.modo = 'limite';
+    await escrever(texto('limite'));
+    await fireEvent.press(botaoEnviar());
+    expect(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    ).toBeOnTheScreen();
+
+    await escrever(texto('outra'));
+
+    expect(screen.queryByText(textos.erros.muitas_tentativas_acao)).toBeNull();
+    // A pendente continua "Não enviada": só o aviso sai.
+    expect(screen.getByText(textos.conversas.naoEnviada)).toBeOnTheScreen();
+  });
+
+  it('o rascunho escrito depois do 429 fica no campo', async () => {
+    const { servidor } = await abrirCarregada();
+    servidor.modo = 'limite';
+    await escrever(texto('primeira'));
+    await fireEvent.press(botaoEnviar());
+    await screen.findByText(textos.conversas.naoEnviada);
+
+    await escrever(texto('segunda'));
+    await avancar(INTERVALO_DO_POLLING_MS);
+
+    expect(campo()).toHaveDisplayValue(texto('segunda'));
+    expect(botaoEnviar()).toBeEnabled();
   });
 });
 

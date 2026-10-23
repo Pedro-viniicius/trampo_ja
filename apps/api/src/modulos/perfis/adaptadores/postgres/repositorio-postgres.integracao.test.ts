@@ -9,7 +9,11 @@ import { ErroTabelaNaoVazia } from '../../../../compartilhado/banco/migrador.js'
 import { RelogioFixo } from '../../../../compartilhado/dominio/relogio.js';
 import { criarCasosDeUsoDePerfis } from '../../aplicacao/casos-de-uso.js';
 import { type EntradaDePerfil, Perfil } from '../../dominio/perfil.js';
-import { RepositorioDePerfisPostgres } from './repositorio-postgres.js';
+import { criarModuloDePerfis } from '../../index.js';
+import {
+  excluirDadosDaConta,
+  RepositorioDePerfisPostgres,
+} from './repositorio-postgres.js';
 import type { TabelasDePerfis } from './tabelas.js';
 
 const MARIA = '7d3c2f0e-0b4f-4a57-9f7a-2a4c1d9e8b10';
@@ -276,5 +280,115 @@ describe('migração 0004_perfis', () => {
 
     expect(existiaDepoisDoDown).toBeNull();
     expect(await contarLinhas()).toBe(0);
+  });
+});
+
+describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
+  const modulo = () => criarModuloDePerfis({ db: db() });
+
+  /** Captura o erro lançado pela promessa (falha se ela resolver). */
+  async function erroDe(promessa: Promise<unknown>): Promise<unknown> {
+    try {
+      await promessa;
+    } catch (erro) {
+      return erro;
+    }
+    throw new Error('era esperada uma recusa');
+  }
+
+  it('CA17/CA18 — apaga só o perfil da conta-alvo, na transação recebida; o da outra conta fica intacto', async () => {
+    await repositorio.salvar(perfil());
+    await repositorio.salvar(
+      perfil({ nome: 'João Batista' }, { contaId: JOAO }),
+    );
+
+    await db()
+      .transaction()
+      .execute((trx) => modulo().excluirDadosDaConta(trx, MARIA));
+
+    expect(await repositorio.buscarPorConta(MARIA)).toBeNull();
+    expect((await repositorio.buscarPorConta(JOAO))?.nome).toBe('João Batista');
+    expect(await contarLinhas()).toBe(1);
+  });
+
+  it('não abre transação própria: se a transação da composição desfaz, o perfil continua', async () => {
+    await repositorio.salvar(perfil());
+    class Desfazer extends Error {}
+
+    await expect(
+      db()
+        .transaction()
+        .execute(async (trx) => {
+          await excluirDadosDaConta(trx, MARIA);
+          throw new Desfazer();
+        }),
+    ).rejects.toBeInstanceOf(Desfazer);
+
+    expect(await repositorio.buscarPorConta(MARIA)).not.toBeNull();
+  });
+
+  it('recusa conexão fora de transação e contaId fora do formato uuid, sem apagar nada', async () => {
+    await repositorio.salvar(perfil());
+    await repositorio.salvar(perfil({}, { contaId: JOAO }));
+
+    expect(await erroDe(excluirDadosDaConta(db(), MARIA))).toBeInstanceOf(
+      TypeError,
+    );
+    for (const invalido of ['', 'nao-e-uuid', "' or 1=1 --"]) {
+      const erro = await erroDe(
+        db()
+          .transaction()
+          .execute((trx) => excluirDadosDaConta(trx, invalido)),
+      );
+      expect(erro).toBeInstanceOf(TypeError);
+    }
+    expect(await contarLinhas()).toBe(2);
+  });
+
+  it('conta sem perfil (ou segundo pedido): resolve sem erro e não mexe na outra', async () => {
+    await repositorio.salvar(perfil({}, { contaId: JOAO }));
+
+    await db()
+      .transaction()
+      .execute((trx) => excluirDadosDaConta(trx, MARIA));
+
+    expect(await contarLinhas()).toBe(1);
+  });
+
+  it('CA19 — exporta só o perfil da conta, sem a coluna derivada cidade_normalizada', async () => {
+    await repositorio.salvar(perfil());
+    await repositorio.salvar(
+      perfil(
+        { nome: 'João Batista', descricao: 'TEXTO-DE-TERCEIRO' },
+        { contaId: JOAO },
+      ),
+    );
+
+    const exportado = await modulo().exportarDadosDaConta(MARIA);
+
+    expect(exportado).toEqual({
+      perfil: {
+        nome: 'Conceição Araújo Müller',
+        cidade: 'São João del-Rei',
+        descricao:
+          'Pedreira e azulejista; faço reboco, contrapiso e acabamento.',
+        habilidades: ['Alvenaria', 'Azulejo e piso', 'Elétrica básica'],
+        atualizadoEm: '2026-10-20T12:00:00.000Z',
+      },
+    });
+    expect(JSON.stringify(exportado)).not.toContain('TEXTO-DE-TERCEIRO');
+    expect(JSON.stringify(exportado)).not.toContain('sao joao');
+  });
+
+  it('CA19 — perfil sem descrição sai com descricao null; conta sem perfil e id fora do formato saem com perfil null', async () => {
+    await repositorio.salvar(perfil({ descricao: undefined }));
+
+    expect(
+      (await modulo().exportarDadosDaConta(MARIA)).perfil?.descricao,
+    ).toBeNull();
+    expect(await modulo().exportarDadosDaConta(JOAO)).toEqual({ perfil: null });
+    expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
+      perfil: null,
+    });
   });
 });

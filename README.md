@@ -80,9 +80,10 @@ do banco.
 
 ## App mobile (`apps/mobile`)
 
-Expo SDK 57 com Expo Router, React Native e TanStack Query. Os testes usam jest-expo e a Testing Library, sem
-emulador nem serviço externo: a API é um `fetch` falso (`src/testes/fetch-falso.ts`) e o token fica num
-armazenamento em memória.
+Expo SDK 57 com Expo Router, React Native e TanStack Query. A exportação de dados usa `expo-sharing` (folha de
+compartilhamento do sistema, dependência aprovada na D26) e `expo-file-system` (arquivo temporário), as duas na versão
+do SDK 57. Os testes usam jest-expo e a Testing Library, sem emulador nem serviço externo: a API é um `fetch` falso
+(`src/testes/fetch-falso.ts`) e o token fica num armazenamento em memória.
 
 ### Ver no celular (Expo Go)
 
@@ -138,13 +139,17 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 
 | Rota | Arquivo (`src/app/`) | Tela |
 |---|---|---|
-| `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão) |
+| `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão); a entrada e o cadastro levam aos documentos legais, e o cadastro mostra o aceite por texto (D27) e o aviso de perfil público |
+| `/politica-de-privacidade`, `/termos-de-uso` | `politica-de-privacidade.tsx`, `termos-de-uso.tsx` (raiz) | documentos legais, com e sem sessão |
 | `/` | `(app)/(abas)/index.tsx` | aba Início: saudação, recentes e atalhos (Publicar trampo, Ofertar serviço, Minhas candidaturas) |
 | `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar |
 | `/publicar` | `(app)/(abas)/publicar.tsx` | aba Publicar: escolha entre publicar trampo e ofertar serviço |
 | `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas: nome do outro, prévia de uma linha e hora, última atividade primeiro |
-| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil, com os atalhos Minhas candidaturas, Meus trampos e Meus serviços |
+| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil, com os atalhos Minhas candidaturas, Meus trampos, Meus serviços e Conta e privacidade, e Sair |
 | `/perfil/editar` | `(app)/perfil/editar.tsx` | editar ou completar o perfil |
+| `/perfil/conta` | `(app)/perfil/conta.tsx` | Conta e privacidade: exportar os dados, excluir a conta, política, termos e Sair |
+| `/perfil/exportar` | `(app)/perfil/exportar.tsx` | Exportar meus dados: senha e "Gerar e compartilhar" |
+| `/perfil/excluir` | `(app)/perfil/excluir.tsx` | Excluir minha conta: o que acontece, senha e diálogo de confirmação |
 | `/perfis/:contaId` | `(app)/perfis/[contaId].tsx` | perfil público |
 | `/trampos/novo` | `(app)/trampos/novo.tsx` | formulário Publicar trampo (a confirmação é estado da tela) |
 | `/servicos/novo` | `(app)/servicos/novo.tsx` | formulário Ofertar serviço |
@@ -167,8 +172,25 @@ o 403 `sem_vinculo` mostra "Você só pode conversar com quem tem uma candidatur
 texto, até a tela ser aberta outra vez. Sem conexão, o botão fica desabilitado com o motivo.
 
 Na conversa, as mensagens chegam por consulta periódica (D20): a cada 5 s, até 60 s depois de falhas seguidas de
-rede ou 5xx, e param no 404 (ou outro 4xx) e no 401. A lista da aba Conversas recarrega a cada 30 s, só com a aba
-focada.
+rede, 5xx ou 429 (limite por conta), e param no 404 (ou outro 4xx) e no 401. A lista da aba Conversas recarrega a
+cada 30 s, só com a aba focada.
+
+Fora do login e do cadastro, o 429 do limite por conta (D29) mostra "Você fez muitas ações em pouco tempo. Aguarde um
+minuto e tente de novo." e mantém o que foi digitado; a mensagem enviada com 429 fica "Não enviada", com o mesmo
+aviso. No login e no cadastro, o 429 continua "Muitas tentativas seguidas…".
+
+Conta e privacidade (D25 a D28):
+
+- **Documentos legais.** As rotas ficam na raiz, fora das guardas de sessão: abrem pela Entrada e pelo Cadastro (o
+  rascunho do cadastro continua lá na volta) e por Conta e privacidade. O texto é empacotado em
+  `src/textos/legal.ts`, espelho dos rascunhos de `docs/produto/legal/`, e abre sem rede.
+- **Exportar.** Com a senha, `POST /contas/eu/exportacao`; o app grava o JSON num arquivo temporário, abre a folha
+  de compartilhamento e mostra "Arquivo gerado…" quando ela fecha (cancelar não é detectável). Sem folha no
+  aparelho, mostra que o compartilhamento está indisponível. Sair da conta durante o pedido descarta o resultado.
+- **Excluir.** Com a senha e a confirmação no diálogo ("Cancelar" é o padrão), `POST /contas/eu/exclusao`. No 204,
+  o app apaga o token e os caches sem chamar `DELETE /sessoes` (a API já derrubou as sessões) e vai ao login com
+  "Sua conta foi excluída.". Senha errada (403) mostra "Senha incorreta…" no campo, e a sessão continua.
+- Sem conexão, exportar e excluir ficam desabilitados com o motivo. Toque duplo faz um pedido só.
 
 Link que chega do sistema (deep link) passa antes por `src/app/+native-intent.tsx`: acima de 2 KB ou com escape `%`
 malformado, o app abre o Início em vez de tentar interpretá-lo.
@@ -189,17 +211,23 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
     recebidas com o nome dos candidatos e o aceite (200, `trampo_nao_aberto` e `conflito_de_versao`);
   - 2c, com as mesmas duas contas: a lista de conversas, abrir conversa (200, 403 `sem_vinculo` e 409
     `conversa_consigo_mesmo`), enviar mensagem (201, queda de rede com novo toque e 404), a consulta periódica
-    com 500 e com 401, e a conversa vista pela outra conta depois do login.
+    com 500 e com 401, e a conversa vista pela outra conta depois do login;
+  - L1 (CA24): login, exportar com a senha errada (403) e com a certa (200), excluir com a senha errada (403), no
+    limite (429) e com a certa (204, de volta ao login com token e caches vazios e sem `DELETE /sessoes`), e outra
+    conta entrando no mesmo aparelho depois.
 
   O teste falha se aparecer, em texto puro, em maiúsculas ou codificado para URL, e-mail, senha, nome, cidade,
   habilidade, texto da busca, token, título, descrição, cidade do anúncio, mensagem da candidatura, nome de
   candidato, valor digitado (como `9.876,54`, e também em centavos), texto de mensagem enviada ou recebida, prévia
   de conversa ou nome de quem está do outro lado. Na jornada 2c, essas sentinelas também não podem aparecer em
   `testID`, em chave de lista, em propriedade da árvore renderizada que não seja texto da tela, na URL nem nos
-  parâmetros de rota, na URL das requisições nem em erro guardado pelo cache de consultas ou de mutações. O mesmo
-  arquivo falha se
-  `apps/mobile/package.json` ganhar dependência de AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment,
-  Amplitude ou Mixpanel.
+  parâmetros de rota, na URL das requisições nem em erro guardado pelo cache de consultas ou de mutações. Na
+  jornada L1, a senha (certa e errada), o e-mail do login, o token e o JSON exportado (e-mail, nome, título e
+  descrição de anúncio, texto de mensagem) também não podem aparecer em nada disso nem em estado algum dos caches
+  de consultas e de mutações, depois do sucesso e depois do erro. O JSON só pode chegar ao arquivo (a folha é
+  simulada e guarda o que seria gravado): nem o texto da tela o mostra. A senha só vai no corpo de `POST /sessoes`
+  e dos `POST /contas/eu/*`. O mesmo arquivo falha se `apps/mobile/package.json` ganhar dependência de
+  AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment, Amplitude ou Mixpanel.
 - O que fica em memória nos fluxos da 2b (nada vai para disco):
   - **Rascunhos.** Título, descrição, categoria, cidade, valor e prazo de Publicar trampo e Ofertar serviço, e a
     mensagem e o valor proposto da folha Candidatar-se, ficam só no estado do componente da tela. Somem quando a
@@ -230,6 +258,20 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
     aba Conversas focada; com a conversa aberta, não.
   - **Rota.** `/conversas/:id` leva só o `conversaId`. O id da outra conta vai só no corpo de `POST /conversas`, e
     o texto da mensagem, só no corpo de `POST /conversas/:id/mensagens`.
+- O que fica em memória na exclusão e na exportação (L1, CA24):
+  - **Senha.** Fica só no estado do componente da tela (nunca na URL, em `testID` ou no `console`). No pedido, vai
+    como `variables` da mutação, que sai do cache de mutações com o `reset()` depois do sucesso e do erro e com
+    `gcTime: 0`. A mutação não tenta de novo sozinha (`retry: 0`), para não gastar o limite de 5 tentativas.
+  - **JSON exportado.** Nunca entra no TanStack: a mutação devolve só o resultado (`compartilhado`,
+    `indisponivel`). O app grava `trampo-ja-meus-dados-AAAA-MM-DD.json` no cache do app (`Paths.cache`), abre a
+    folha com `application/json` e apaga o arquivo no `finally`: depois que a folha fecha e também quando a
+    gravação ou a folha falham. O erro da biblioteca não vai para log nem para a tela. Se o app morre com a folha
+    aberta, o `finally` não roda: por isso, ao abrir, a raiz (`src/app/_layout.tsx`) chama
+    `limparExportacoesAntigas()` (`src/estado/exportacao.ts`), que apaga de `Paths.cache` os arquivos
+    `trampo-ja-meus-dados-*` que sobraram, sem log (S4).
+  - **Exclusão.** `sessao.encerrarPorExclusao()` guarda o aviso `conta_excluida`, apaga o token e limpa os dois
+    caches, sem `DELETE /sessoes`. Um 401 atrasado (da consulta periódica, por exemplo) é ignorado, porque o token
+    já saiu.
 - Opcional: `EXPO_NO_TELEMETRY=1` no shell desliga a coleta de uso do CLI do Expo (`expo start`, `expo export`).
   Isso vale para a máquina de desenvolvimento; o app em si não envia nada.
 
@@ -309,18 +351,42 @@ valor enviado. Códigos gerais:
 | 409 | código da regra | regra de domínio (ex.: `perfil_incompleto`, `email_em_uso`) |
 | 413 | `corpo_grande_demais` | corpo acima do limite do Fastify (1 MiB) |
 | 415 | `tipo_nao_suportado` | `Content-Type` que não é JSON nem `text/plain` (corpo `text/plain` dá 400 `dados_invalidos`) |
-| 429 | `muitas_requisicoes` | rate limit de cadastro ou entrada (por IP ou, na entrada, por e-mail) |
+| 429 | `muitas_requisicoes` | rate limit de cadastro ou entrada (por IP ou, na entrada, por e-mail) ou limite por conta nas rotas autenticadas (D29) |
 | 500 | `interno` | falha inesperada (o detalhe fica só no log, sem dado pessoal) |
 
 ### Endpoints
 
-Contas (públicas, exceto `DELETE /sessoes`):
+Contas (públicas, exceto `DELETE /sessoes` e as de `/contas/eu`):
 
 | Rota | Corpo | Sucesso | Erros |
 |---|---|---|---|
 | `POST /contas` | `{email, senha}` | 201 `{token}` | 400; 409 `email_em_uso` |
 | `POST /sessoes` | `{email, senha}` | 200 `{token}` | 400; 401 `credenciais_invalidas` (genérico) |
 | `DELETE /sessoes` | — | 204 | 401 |
+| `POST /contas/eu/exclusao` | `{senha}` | 204 | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 429 |
+| `POST /contas/eu/exportacao` | `{senha}` | 200, JSON `trampo-ja.exportacao.v1` (abaixo) | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 429 |
+
+As duas rotas de `/contas/eu` respondem sempre com `Cache-Control: no-store`, inclusive nos erros. O corpo só aceita
+a chave `senha` (outra chave dá 400). Senha errada, ausente, vazia ou acima de 128 caracteres dá 403
+`senha_incorreta`, e acima do teto nem roda o scrypt. É 403, e não 401, para o app não tratar como sessão expirada.
+No máximo duas derivações scrypt rodam ao mesmo tempo por processo (CA23); as demais esperam numa fila.
+
+- **Exclusão (D25, CA17):** apaga na hora, numa só transação, a conta, as sessões de todos os aparelhos, o perfil,
+  os trampos (com as candidaturas recebidas), os serviços, as candidaturas da conta e as conversas inteiras de que
+  ela participa. O que os outros veem está em "Dados pessoais (LGPD) e logs".
+- **Exportação (D26, CA19):** só os dados da própria conta, com o schema da resposta fechado em todos os níveis. É
+  a única rota que devolve o e-mail da conta. Ficam fora o hash da senha, o hash do token, as colunas derivadas
+  (`cidade_normalizada`, `texto_busca`) e textos de terceiros; da outra pessoa de cada conversa, só o id.
+
+```jsonc
+{ "formato": "trampo-ja.exportacao.v1", "geradoEm": "ISO",
+  "conta": { "id", "email", "criadaEm" }, "sessoes": [{ "criadaEm", "expiraEm" }],
+  "perfil": { "nome", "cidade", "descricao", "habilidades", "atualizadoEm" } | null,
+  "trampos": [{ "id", "titulo", "descricao", "categoria", "cidade", "valorCentavos", "prazo", "status", "criadoEm", "candidaturasRecebidas" }],
+  "servicos": [{ "id", "titulo", "descricao", "categoria", "cidade", "precoBaseCentavos", "status", "criadoEm" }],
+  "candidaturas": [{ "id", "trampoId", "mensagem", "valorPropostoCentavos", "status", "criadaEm" }],
+  "conversas": [{ "id", "outroUsuarioId", "criadaEm", "minhasMensagens": [{ "id", "texto", "enviadaEm" }] }] }
+```
 
 Perfis:
 
@@ -382,14 +448,42 @@ Conversas:
 Só abre conversa quem tem candidatura em comum, em qualquer estado (CA13). Quem não participa da conversa recebe
 404, não 403, para não confirmar que ela existe.
 
-### Rate limit (D2)
+### Rate limit (D2, D29)
 
 `POST /contas` e `POST /sessoes` aceitam até 10 requisições por minuto por IP, com contador separado por rota
 (constante `LIMITE_PADRAO_DAS_ROTAS_PUBLICAS` em `apps/api/src/composicao.ts`). `POST /sessoes` tem ainda um
 segundo limite, por conta: 10 tentativas por 15 minutos no mesmo e-mail, venham de qualquer IP
 (`LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL`). O contador guarda só o SHA-256 do e-mail normalizado (aparado e em
 minúsculas), nunca o e-mail; corpo sem e-mail conta pelo IP. Acima de qualquer limite, 429 `muitas_requisicoes`.
-As rotas autenticadas não têm limite.
+
+As rotas autenticadas têm limite por conta (D29, CA20): cada rota pertence a um grupo, e cada grupo tem um contador
+próprio por conta (`LIMITES_PADRAO_POR_CONTA`, `grupoDaRota` e `gruposDaRota` em
+`apps/api/src/compartilhado/http/limite-por-conta.ts`):
+
+| Grupo | Rotas | Limite |
+|---|---|---|
+| `leitura` | todo `GET` autenticado | 600 por minuto |
+| `mensagens` | `POST /conversas/:id/mensagens` | 30 por minuto |
+| `mensagens_dia` | `POST /conversas/:id/mensagens` (teto diário, somado a `mensagens`) | 1000 a cada 24 h |
+| `publicacao` | `POST /trampos`, `POST /servicos`, `POST /trampos/:id/candidaturas` | 30 por hora |
+| `senha` | `POST /contas/eu/exclusao`, `POST /contas/eu/exportacao` | 5 a cada 15 minutos |
+| `escrita` | os demais `POST`, `PUT` e `DELETE` autenticados (rota nova sem grupo cai aqui) | 60 por minuto |
+
+`DELETE /sessoes` (sair) fica fora do limite por conta: o logout nunca recebe 429 nem gasta o contador de `escrita`.
+
+Enviar mensagem consome dois contadores, conferidos nesta ordem: os 30 por minuto e o teto de 1000 a cada 24 h (nota
+de 2026-10-23 na D29; sem ele, uma conta incharia a própria exportação). A mensagem recusada pelo limite por minuto
+não gasta o teto diário. Acima do teto, 429 `muitas_requisicoes` com `retry-after` de até 86 400 s (o que falta para
+fechar as 24 h contadas da primeira mensagem da janela). O teto não vale para ler nem abrir conversa.
+
+A chave é o `contaId` (`conta:<grupo>:<contaId>`), contada depois da autenticação: outra conta atrás do mesmo IP não
+é afetada. Acima do limite, 429 `muitas_requisicoes` com o cabeçalho `retry-after` (segundos até a janela abrir). O
+contador fica em memória, por processo, como na D2. Os números são constantes, não variáveis de ambiente: mudar um
+limite é decisão de produto. Além dos limites, a exportação tem uma fila por processo (uma coletando por vez; ver
+"Exportação" em "Dados pessoais (LGPD) e logs").
+
+Nos testes, `montarAplicacao({ limitesPorConta })` troca os números e `limitesPorConta: false` desliga só o limite
+por conta; `rateLimit: false` desliga todos os limites (o dos testes que não são sobre limites).
 
 O IP vem da conexão, a menos que `TRUST_PROXY` (em `apps/api/.env`) diga quais proxies são confiáveis. Atrás de
 proxy reverso ou balanceador, sem isso todos os clientes chegam com o IP do proxy e dividem o mesmo limite: liste
@@ -419,16 +513,53 @@ Regras (CA15):
 
 `test/e2e/logs-sem-dado-pessoal.integracao.test.ts` força os erros (cadastro duplicado, senha errada, token
 inválido, validação, regras, JSON malformado, falha de banco) e varre o log inteiro atrás de dado pessoal e tokens.
-Exclusão e exportação de conta ficam para antes da publicação nas lojas (D10).
+Também exporta e exclui uma conta com a senha (403, 200 e 204): nem a senha nem os textos do JSON exportado podem
+aparecer no log (CA24).
+
+Exclusão da conta (D25, CA17): imediata e definitiva, sem prazo de carência, confirmada com a senha. Tudo numa
+transação; se falhar, nada é apagado e repetir é seguro. Para quem interagiu com a conta (CA18):
+
+| O que some | O que o outro participante vê |
+|---|---|
+| perfil | 404 e "Perfil indisponível" |
+| trampos da conta, com as candidaturas recebidas | o candidato perde a candidatura em "Minhas candidaturas"; o detalhe dá 404 |
+| serviços da conta | some da busca; o detalhe dá 404 |
+| candidaturas da conta | some das recebidas; se era a aceita, o trampo fica em andamento sem contratado (encerrar entra na L2) |
+| conversas inteiras, com as mensagens dos dois lados | some da lista; com a conversa aberta, a próxima consulta dá 404 (nunca o 400 do cursor) e a tela mostra "indisponível" |
+| sessões de todos os aparelhos | outro aparelho da conta recebe 401 no próximo pedido e vai ao login com "sessão expirada" |
+
+Os logs (com IP e sem `contaId`) não mudam: ficam fora do banco. Escritas de terceiros que chegam durante a exclusão
+esperam as travas e nunca dão 500 nem deixam linha com o id da conta excluída: enviar mensagem e se candidatar ao
+trampo dela terminam em 201 (antes da exclusão, que depois apaga tudo) ou 404; ler a conversa com cursor dá 404, não o
+400 do cursor. Abrir conversa com ela (`POST /conversas`) termina em 201 ou 200 (antes; a exclusão espera e apaga a
+conversa junto) ou em 403 `sem_vinculo` (depois): a exclusão pega uma trava consultiva exclusiva da conta no início da
+transação, e a abertura pega a compartilhada das duas contas e só então confere o vínculo, na mesma transação do
+insert (`apps/api/src/compartilhado/banco/travas-de-conta.ts`).
+
+Exportação (D26, CA19): o JSON `trampo-ja.exportacao.v1` (ver "Endpoints"), pedido com a senha. A API monta o JSON
+em memória, então só uma exportação coleta por vez em cada processo (`EXPORTACOES_SIMULTANEAS` em
+`apps/api/src/modulos/contas/aplicacao/casos-de-uso.ts`); as outras esperam numa fila, depois de conferir a senha. No
+app, o arquivo temporário fica só no cache do app e é apagado depois que a folha de compartilhamento fecha; o que
+sobrar (o app morreu com a folha aberta) é apagado na próxima abertura do app (ver "Dados pessoais no app").
+
+Textos legais (D27, D28): a política de privacidade e os termos de uso são RASCUNHO em `docs/produto/legal/`, com
+marcadores para a identidade do controlador até a revisão jurídica. O app empacota uma cópia em
+`apps/mobile/src/textos/legal.ts` (um teste confere versões e títulos com os `.md`). O aceite é só pelo texto do
+cadastro, sem registro na API. Ficam fora do código: hospedar a política e a página de pedido de exclusão na web
+(exigência das lojas) e o prazo de guarda dos registros de acesso.
 
 ## Documentos de produto
 
 Em `docs/produto/`:
 
 - `visao.md`: visão do produto;
-- `decisoes.md`: decisões do dono (D1 a D19), que não se reabrem sem fato novo;
+- `decisoes.md`: decisões do dono (D1 a D32), que não se reabrem sem fato novo;
 - `briefs/mvp-trampo-ja.md`: brief do MVP com os critérios de aceite (CA1 a CA16);
 - `planos/mvp-trampo-ja.md`: plano técnico da entrega 1 (backend), com etapas, contratos e ADR;
 - `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2);
 - `planos/mvp-trampo-ja-app.md`: plano técnico da entrega 2a (app mobile);
-- `planos/mvp-trampo-ja-app-2b.md`: plano técnico da entrega 2b (publicação, candidaturas e meus anúncios).
+- `planos/mvp-trampo-ja-app-2b.md`: plano técnico da entrega 2b (publicação, candidaturas e meus anúncios);
+- `planos/mvp-trampo-ja-app-2c.md`: plano técnico da entrega 2c (conversas);
+- `planos/pre-lancamento-lojas.md` e `specs/pre-lancamento-lojas.md`: plano e spec do pré-lançamento nas lojas
+  (entrega L1: conta, privacidade e limites);
+- `legal/politica-de-privacidade.md` e `legal/termos-de-uso.md`: rascunhos dos textos legais (D28).

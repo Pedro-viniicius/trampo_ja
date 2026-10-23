@@ -1,5 +1,41 @@
-import { describe, expect, it } from 'vitest';
-import { HasherScrypt, PARAMETROS_SCRYPT_PADRAO } from './hasher.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  DERIVACOES_SIMULTANEAS,
+  HasherScrypt,
+  PARAMETROS_SCRYPT_PADRAO,
+} from './hasher.js';
+
+type RetornoDoScrypt = (erro: Error | null, chave?: Buffer) => void;
+interface Derivacao {
+  readonly salt: Buffer;
+  readonly tamanho: number;
+  readonly concluir: RetornoDoScrypt;
+}
+
+// Espião na derivação: por padrão repassa ao scrypt real; com `interceptar`
+// ligado, segura a chamada até o teste concluir.
+const espiao = vi.hoisted(() => ({
+  interceptar: null as ((derivacao: Derivacao) => void) | null,
+}));
+
+vi.mock('node:crypto', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:crypto')>();
+  const scryptReal = real.scrypt as (...args: unknown[]) => void;
+  return {
+    ...real,
+    scrypt: (...args: unknown[]) => {
+      if (espiao.interceptar === null) {
+        scryptReal(...args);
+        return;
+      }
+      espiao.interceptar({
+        salt: Buffer.from(args[1] as Buffer),
+        tamanho: args[2] as number,
+        concluir: args[4] as RetornoDoScrypt,
+      });
+    },
+  };
+});
 
 // Custo baixo para os testes de formato; o custo real tem o seu bloco abaixo.
 const rapido = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 });
@@ -143,5 +179,146 @@ describe('HasherScrypt (formato e parsing)', () => {
     { N: Number.NaN, r: 8, p: 1 },
   ])('recusa parâmetros fora dos limites: %j', (parametros) => {
     expect(() => new HasherScrypt(parametros)).toThrow(TypeError);
+  });
+});
+
+describe('HasherScrypt (limite de derivações simultâneas, CA23)', () => {
+  /** Deixa rodar as continuações pendentes (microtarefas e um tique). */
+  const esvaziar = () =>
+    new Promise<void>((resolver) => setImmediate(resolver));
+
+  /** Liga o espião e devolve as derivações que chegaram ao scrypt. */
+  function segurarDerivacoes() {
+    const chegaram: Derivacao[] = [];
+    let concluidas = 0;
+    espiao.interceptar = (derivacao) => {
+      chegaram.push({
+        ...derivacao,
+        concluir: (erro, chave) => {
+          concluidas += 1;
+          derivacao.concluir(erro, chave);
+        },
+      });
+    };
+    return {
+      chegaram,
+      rodando: () => chegaram.length - concluidas,
+    };
+  }
+
+  afterEach(() => {
+    espiao.interceptar = null;
+  });
+
+  it('o limite por processo é 2', () => {
+    expect(DERIVACOES_SIMULTANEAS).toBe(2);
+  });
+
+  it('com 5 hashes simultâneos, no máximo 2 derivações rodam ao mesmo tempo', async () => {
+    const derivacoes = segurarDerivacoes();
+    // Duas instâncias: o limite é do processo, não da instância.
+    const outro = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 });
+    const hashes = [
+      rapido.gerarHash('senha-0'),
+      outro.gerarHash('senha-1'),
+      rapido.gerarHash('senha-2'),
+      outro.gerarHash('senha-3'),
+      rapido.gerarHash('senha-4'),
+    ];
+    await esvaziar();
+
+    expect(derivacoes.chegaram).toHaveLength(2);
+    let pico = derivacoes.rodando();
+    for (let i = 0; i < 5; i += 1) {
+      derivacoes.chegaram[i]?.concluir(null, Buffer.alloc(64, i));
+      await esvaziar();
+      pico = Math.max(pico, derivacoes.rodando());
+      expect(derivacoes.chegaram).toHaveLength(Math.min(5, i + 3));
+    }
+
+    expect(pico).toBe(2);
+    const prontos = await Promise.all(hashes);
+    expect(prontos.every((hash) => hash.startsWith('scrypt$16$8$1$'))).toBe(
+      true,
+    );
+  });
+
+  it('verificar também respeita o limite e atende na ordem de chegada', async () => {
+    const armazenados = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => rapido.gerarHash(`senha-${i}`)),
+    );
+    const saltDe = (hash: string) => hash.split('$')[4];
+    const derivacoes = segurarDerivacoes();
+
+    const verificacoes = armazenados.map((hash, i) =>
+      rapido.verificar(`senha-${i}`, hash),
+    );
+    await esvaziar();
+    expect(derivacoes.chegaram).toHaveLength(2);
+
+    // Conclui fora de ordem: a vaga vai sempre para o primeiro da fila.
+    for (const i of [1, 0, 3, 2, 4]) {
+      derivacoes.chegaram[i]?.concluir(null, Buffer.alloc(64));
+      await esvaziar();
+      expect(derivacoes.rodando()).toBeLessThanOrEqual(2);
+    }
+
+    expect(derivacoes.chegaram.map((d) => d.salt.toString('base64'))).toEqual(
+      armazenados.map(saltDe),
+    );
+    // Chave falsa: nenhuma confere, mas todas terminam.
+    expect(await Promise.all(verificacoes)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it('depois de um erro na derivação, a vaga é liberada e a fila anda', async () => {
+    const derivacoes = segurarDerivacoes();
+    const hashes = Array.from({ length: 4 }, (_, i) =>
+      rapido.gerarHash(`senha-${i}`),
+    );
+    // Trata as rejeições desde já, para não virarem "unhandled rejection".
+    const resultados = Promise.allSettled(hashes);
+    await esvaziar();
+    expect(derivacoes.chegaram).toHaveLength(2);
+
+    derivacoes.chegaram[0]?.concluir(new Error('falha no scrypt'));
+    derivacoes.chegaram[1]?.concluir(new Error('falha no scrypt'));
+    await esvaziar();
+    expect(derivacoes.chegaram).toHaveLength(4);
+
+    derivacoes.chegaram[2]?.concluir(null, Buffer.alloc(64));
+    derivacoes.chegaram[3]?.concluir(null, Buffer.alloc(64));
+    const estados = (await resultados).map((r) => r.status);
+    expect(estados).toEqual(['rejected', 'rejected', 'fulfilled', 'fulfilled']);
+    await expect(hashes[0]).rejects.toThrow('falha no scrypt');
+
+    // Sem o espião, o scrypt real ainda acha vaga: nenhuma ficou presa.
+    espiao.interceptar = null;
+    const hash = await rapido.gerarHash('segredo-123');
+    expect(await rapido.verificar('segredo-123', hash)).toBe(true);
+  });
+
+  it('erro síncrono do scrypt também libera a vaga', async () => {
+    espiao.interceptar = () => {
+      throw new Error('parâmetro recusado');
+    };
+    const falhas = await Promise.allSettled(
+      Array.from({ length: 3 }, () => rapido.gerarHash('segredo-123')),
+    );
+    for (const falha of falhas) {
+      expect(falha.status).toBe('rejected');
+      expect((falha as PromiseRejectedResult).reason).toEqual(
+        new Error('parâmetro recusado'),
+      );
+    }
+
+    espiao.interceptar = null;
+    const hash = await rapido.gerarHash('segredo-123');
+    expect(await rapido.verificar('segredo-123', hash)).toBe(true);
   });
 });
