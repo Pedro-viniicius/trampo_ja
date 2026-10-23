@@ -37,6 +37,11 @@ export interface Servico {
   readonly precoBaseCentavos: number;
   readonly status: StatusDeServico;
   readonly criadoEm: Date;
+  /**
+   * Trava otimista da edição (D33, ADR-006): 1 na criação e mais 1 a cada
+   * edição. Só o autor a vê.
+   */
+  readonly versao: number;
 }
 
 /**
@@ -49,6 +54,11 @@ export interface EntradaDeServico {
   readonly categoria?: unknown;
   readonly cidade?: unknown;
   readonly precoBaseCentavos?: unknown;
+}
+
+/** Corpo da edição (CA26): os campos da oferta e a `versao` lida pelo app. */
+export interface EntradaDeEdicaoDeServico extends EntradaDeServico {
+  readonly versao?: unknown;
 }
 
 export interface ContextoDeCriacao {
@@ -102,14 +112,26 @@ function validarTextoObrigatorio(
   return leitura.texto;
 }
 
+/** Campos que o autor escolhe, já validados, e os derivados para a busca. */
+type CamposDoServico = Pick<
+  Servico,
+  | 'titulo'
+  | 'descricao'
+  | 'categoria'
+  | 'cidade'
+  | 'cidadeNormalizada'
+  | 'textoBusca'
+  | 'precoBaseCentavos'
+>;
+
 /**
- * Cria um serviço ativo. Junta todos os campos inválidos num único
- * `ErroDeValidacao`; o valor informado nunca entra no erro (CA15).
+ * Valida os campos da oferta (CA6 e D7), a mesma regra na criação e na
+ * edição. Junta todos os campos inválidos num único `ErroDeValidacao`; o
+ * valor informado nunca entra no erro (CA15).
  */
-export function criarServico(
+function lerCamposDoServico(
   entrada: EntradaDeServico | null | undefined,
-  contexto: ContextoDeCriacao,
-): Servico {
+): CamposDoServico {
   const dados = entrada ?? {};
   const erros: CampoInvalido[] = [];
 
@@ -182,9 +204,7 @@ export function criarServico(
     throw new ErroDeValidacao(erros);
   }
 
-  return Object.freeze({
-    id: contexto.id,
-    autorId: contexto.autorId,
+  return {
     titulo,
     descricao,
     categoria,
@@ -193,7 +213,45 @@ export function criarServico(
       : {}),
     textoBusca: normalizarTexto(`${titulo} ${descricao}`),
     precoBaseCentavos,
+  };
+}
+
+/**
+ * Cria um serviço ativo, na versão 1. Campos inválidos: `ErroDeValidacao`
+ * com todos eles (CA6).
+ */
+export function criarServico(
+  entrada: EntradaDeServico | null | undefined,
+  contexto: ContextoDeCriacao,
+): Servico {
+  return Object.freeze({
+    id: contexto.id,
+    autorId: contexto.autorId,
+    ...lerCamposDoServico(entrada),
     status: 'ativo' as const,
     criadoEm: new Date(contexto.agora.getTime()),
+    versao: 1,
+  });
+}
+
+/**
+ * Substitui os campos do serviço `atual` pelos da `entrada` (CA26), com a
+ * mesma validação de `criarServico`: sem `cidade`, ou com ela nula, o serviço
+ * fica sem cidade (D7). Recalcula a cidade normalizada e o texto de busca.
+ * Id, autor, status e `criadoEm` não mudam; a `versao` sobe 1, e o
+ * repositório só grava se a guardada ainda for a de `atual` (ADR-006).
+ * A `versao` da entrada não é lida aqui: a conferência é do caso de uso.
+ */
+export function editarServico(
+  atual: Servico,
+  entrada: EntradaDeServico | null | undefined,
+): Servico {
+  return Object.freeze({
+    id: atual.id,
+    autorId: atual.autorId,
+    ...lerCamposDoServico(entrada),
+    status: atual.status,
+    criadoEm: new Date(atual.criadoEm.getTime()),
+    versao: atual.versao + 1,
   });
 }

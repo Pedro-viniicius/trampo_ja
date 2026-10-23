@@ -1,9 +1,10 @@
 import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
+import { impressaoDaConta } from '../../estado/sessao';
 import { textos } from '../../textos/pt-BR';
 import type { criarFetchFalso } from '../fetch-falso';
-import { renderizarRotas } from '../rotas/apoio';
+import { renderizarRotas, TOKEN_DE_TESTE } from '../rotas/apoio';
 import {
   abrirApp,
   fakeComCategorias,
@@ -329,8 +330,15 @@ describe('Sessão no app completo (CA14)', () => {
         corpo: { erro: 'sessao_invalida' },
       })
       .responder('POST /sessoes', { corpo: { token: TOKEN_NOVO } });
-    const { armazenamento, getPathname } = await abrirApp('/perfil/editar', {
+    // Sessão restaurada da mesma conta que entra de novo: a rota só volta
+    // para ela (CA50).
+    const { armazenamento, getPathname } = await renderizarRotas(ROTAS_REAIS, {
+      initialUrl: '/perfil/editar',
       fetch,
+      armazenamento: criarArmazenamentoEmMemoria(
+        TOKEN_DE_TESTE,
+        impressaoDaConta(EMAIL),
+      ),
     });
 
     await screen.findByDisplayValue('Maria Souza');

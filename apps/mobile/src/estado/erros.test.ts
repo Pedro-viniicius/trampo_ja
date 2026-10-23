@@ -1,7 +1,12 @@
 import { ErroDaApi, ErroDeRede } from '../api/erros';
 import type { CampoInvalido, MotivoDeCampo } from '../api/tipos';
 import { textos } from '../textos/pt-BR';
-import { chaveDoErro, type Formulario, mensagemDoErro } from './erros';
+import {
+  chaveDoErro,
+  type Formulario,
+  mensagemDoErro,
+  textoDeErroDeAcao,
+} from './erros';
 
 type ItemDeCampo = readonly [string, MotivoDeCampo];
 
@@ -244,6 +249,7 @@ describe('chaveDoErro: 409 da 2b', () => {
       ['trampo_nao_aberto'],
       ['candidatura_nao_pendente'],
       ['conflito_de_versao'],
+      ['trampo_nao_editavel'],
     ] as const)('409 %s vira geral com a mesma chave', (codigo) => {
       expect(chaveDoErro(new ErroDaApi(409, codigo), formulario)).toEqual({
         geral: codigo,
@@ -262,6 +268,7 @@ describe('chaveDoErro: 409 da 2b', () => {
     ['trampo_nao_aberto', 'Este trampo não recebe mais candidaturas.'],
     ['candidatura_nao_pendente', textos.erros.candidatura_nao_pendente],
     ['conflito_de_versao', textos.erros.conflito_de_versao],
+    ['trampo_nao_editavel', 'Este trampo não pode mais ser editado.'],
   ])('mensagemDoErro traduz o 409 %s', (codigo, texto) => {
     expect(mensagemDoErro(new ErroDaApi(409, codigo))).toBe(texto);
   });
@@ -360,6 +367,43 @@ describe('chaveDoErro: senha da exclusão e da exportação (CA17, CA19)', () =>
       geral: 'erro_servidor',
       campos: {},
     });
+  });
+});
+
+describe('chaveDoErro: exportação grande demais (CA48, D41)', () => {
+  it.each<Formulario>(['nenhum', 'perfil', 'entrar'])(
+    '409 exportacao_grande vira geral exportacao_grande (formulário %s)',
+    (formulario) => {
+      expect(
+        chaveDoErro(new ErroDaApi(409, 'exportacao_grande'), formulario),
+      ).toEqual({ geral: 'exportacao_grande', campos: {} });
+    },
+  );
+
+  it('mensagemDoErro mostra o texto que orienta pedir os dados por e-mail', () => {
+    expect(mensagemDoErro(new ErroDaApi(409, 'exportacao_grande'))).toBe(
+      textos.erros.exportacao_grande,
+    );
+  });
+
+  it.each([
+    ['403', 403, 'erro_servidor'],
+    ['400', 400, 'erro_servidor'],
+    ['500', 500, 'erro_servidor'],
+    ['401', 401, 'sessao_expirada'],
+  ] as const)(
+    'exportacao_grande só vale no 409: no %s não vira o texto da exportação',
+    (_nome, status, geral) => {
+      expect(
+        chaveDoErro(new ErroDaApi(status, 'exportacao_grande'), 'nenhum'),
+      ).toEqual({ geral, campos: {} });
+    },
+  );
+
+  it('409 com código parecido continua erro_servidor', () => {
+    expect(
+      chaveDoErro(new ErroDaApi(409, 'exportacao_grande_x'), 'nenhum'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
   });
 });
 
@@ -603,5 +647,23 @@ describe('mensagemDoErro', () => {
     expect(mensagemDoErro(new Error('token-123 em https://x'))).not.toMatch(
       /token-123|https/,
     );
+  });
+});
+
+describe('textoDeErroDeAcao (D5)', () => {
+  const PADRAO = 'texto padrão da ação';
+
+  it.each([
+    [
+      '429',
+      new ErroDaApi(429, 'muitas_requisicoes'),
+      textos.erros.muitas_tentativas_acao,
+    ],
+    ['falta de rede', new ErroDeRede('falha'), textos.erros.sem_conexao],
+    ['500', new ErroDaApi(500, 'interno'), PADRAO],
+    ['409', new ErroDaApi(409, 'candidatura_nao_pendente'), PADRAO],
+    ['desconhecido', new Error('segredo da URL'), PADRAO],
+  ])('%s', (_nome, erro, esperado) => {
+    expect(textoDeErroDeAcao(erro, PADRAO)).toBe(esperado);
   });
 });

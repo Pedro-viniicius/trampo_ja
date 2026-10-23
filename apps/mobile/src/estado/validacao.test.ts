@@ -79,6 +79,32 @@ describe('validarSenha', () => {
   it('não apara a senha', () => {
     expect(validarSenha(`  ${'a'.repeat(6)}  `)).toBeNull();
   });
+
+  // Como a API (S3): o mínimo vale na forma NFC, que é a que vira hash, e o
+  // teto na forma crua.
+  describe('em NFD', () => {
+    const eNfd = 'e\u0301';
+
+    it('"éééé" tem 8 pontos de código, mas só 4 em NFC: é curta', () => {
+      const senha = eNfd.repeat(4);
+      expect(Array.from(senha)).toHaveLength(8);
+      expect(validarSenha(senha)).toBe('senha_curta');
+    });
+
+    it('8 letras acentuadas em NFD (16 pontos de código) é válida', () => {
+      expect(validarSenha(eNfd.repeat(8))).toBeNull();
+    });
+
+    it('o teto vale na forma crua: 129 pontos de código são demais, mesmo com 65 em NFC', () => {
+      const senha = `a${eNfd.repeat(64)}`;
+      expect(senha.normalize('NFC')).toHaveLength(65);
+      expect(validarSenha(senha)).toBe('senha_curta');
+    });
+
+    it('128 pontos de código na forma crua é o teto e passa', () => {
+      expect(validarSenha(eNfd.repeat(64))).toBeNull();
+    });
+  });
 });
 
 describe('normalizarHabilidade', () => {

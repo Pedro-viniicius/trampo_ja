@@ -18,6 +18,7 @@ import type {
 import type {
   CursorDeBusca,
   FiltrosDeBusca,
+  GravacaoSobTrava,
   RepositorioDeTrampos,
   VerificadorDePerfil,
 } from '../dominio/portas.js';
@@ -25,6 +26,7 @@ import {
   CIDADE_TAMANHO,
   type EntradaDeTrampo,
   Trampo,
+  type TrampoDoAutor,
   type TrampoResumo,
 } from '../dominio/trampo.js';
 
@@ -63,6 +65,18 @@ export interface CandidaturaVisao {
   readonly criadaEm: Date;
 }
 
+/** Corpo de `PUT /trampos/:id` (CA25): os campos do trampo e a `versao` lida. */
+export interface EntradaDeEdicaoDeTrampo extends EntradaDeTrampo {
+  readonly versao?: unknown;
+}
+
+/**
+ * Trampo como quem pede o vê (D33): `versao` e `candidaturasRecebidas` só
+ * existem na visão do autor; para os demais, as propriedades não existem.
+ */
+export type VisaoDoTrampo = TrampoResumo &
+  Partial<Pick<TrampoDoAutor, 'versao' | 'candidaturasRecebidas'>>;
+
 /** Candidatura vista pelo próprio freelancer, com o trampo a que se refere. */
 export interface CandidaturaDoFreelancer extends CandidaturaVisao {
   readonly trampoId: string;
@@ -85,6 +99,20 @@ function visaoDaCandidatura(candidatura: Candidatura): CandidaturaVisao {
  */
 function normalizarId(id: string): string {
   return id.toLowerCase();
+}
+
+/**
+ * `versao` do corpo da edição. Vem antes de qualquer leitura (passo do schema
+ * na ordem do plano), para o 400 não revelar se o trampo existe.
+ */
+function lerVersaoDaEdicao(bruta: unknown): number {
+  if (bruta === undefined || bruta === null) {
+    throw ErroDeValidacao.doCampo('versao', 'obrigatorio');
+  }
+  if (typeof bruta !== 'number' || !Number.isSafeInteger(bruta) || bruta < 1) {
+    throw ErroDeValidacao.doCampo('versao', 'invalido');
+  }
+  return bruta;
 }
 
 /**
@@ -199,8 +227,9 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
    * Lê o trampo, aplica a mudança e grava. Se outra gravação venceu a trava
    * otimista (`conflito_de_versao`), relê e reaplica a mudança sobre o estado
    * novo: as regras do agregado decidem de novo (o duplo toque vira
-   * `candidatura_duplicada`; o trampo já aceito vira `trampo_nao_aberto`).
-   * Esgotadas as tentativas, o conflito chega a quem chamou.
+   * `candidatura_duplicada`; o trampo já aceito vira `trampo_nao_aberto`; o
+   * trampo excluído vira 404). Esgotadas as tentativas, o conflito chega a
+   * quem chamou, a não ser que o trampo tenha sumido (404).
    */
   async function alterarTrampo<T>(
     trampoId: string,
@@ -214,13 +243,31 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
         return resultado;
       } catch (erro) {
         if (
-          tentativa >= TENTATIVAS_DE_GRAVACAO ||
           !(erro instanceof ErroDeRegra) ||
           erro.codigo !== 'conflito_de_versao'
         ) {
           throw erro;
         }
+        if (tentativa >= TENTATIVAS_DE_GRAVACAO) {
+          // CA28: se quem venceu a última rodada foi a exclusão do trampo, a
+          // resposta é 404, não um conflito.
+          await carregarTrampo(trampoId);
+          throw erro;
+        }
       }
+    }
+  }
+
+  /**
+   * Ação de estado do autor sob a trava pessimista do trampo (D33, S1): sem
+   * releitura nem teto de tentativas. Trampo inexistente: 404.
+   */
+  async function alterarSobTrava(
+    trampoId: string,
+    decidir: (trampo: Trampo) => GravacaoSobTrava,
+  ): Promise<void> {
+    if (!(await repositorio.alterarSobTrava(normalizarId(trampoId), decidir))) {
+      throw new ErroNaoEncontrado();
     }
   }
 
@@ -288,12 +335,101 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
       );
     },
 
-    async obterTrampo(trampoId: string): Promise<TrampoResumo> {
-      return (await carregarTrampo(trampoId)).resumo();
+    /**
+     * Detalhe do trampo para qualquer conta autenticada. `versao` e
+     * `candidaturasRecebidas` só vão para o autor (D33); para os demais, o
+     * corpo é o de antes da L2.
+     */
+    async obterTrampo(trampoId: string, quem: string): Promise<VisaoDoTrampo> {
+      const trampo = await carregarTrampo(trampoId);
+      return trampo.autorId === quem ? trampo.resumoDoAutor() : trampo.resumo();
     },
 
-    async listarMeusTrampos(autorId: string): Promise<TrampoResumo[]> {
+    /** Os trampos do autor, em qualquer status, na visão do autor (D33). */
+    async listarMeusTrampos(autorId: string): Promise<TrampoDoAutor[]> {
       return repositorio.listarDoAutor(autorId);
+    },
+
+    /**
+     * CA25: o autor substitui os campos do trampo aberto e sem candidaturas,
+     * mandando a `versao` lida. Ordem das checagens (plano, "Decisão"):
+     * `versao` ausente ou inválida (400), trampo inexistente ou de outra conta
+     * (404), regra (409 `trampo_nao_editavel`), versão velha (409
+     * `conflito_de_versao`) e só então os campos (400). Se a gravação perder a
+     * trava, relê e confere de novo, na mesma ordem: o trampo sumido dá 404, o
+     * que recebeu candidatura dá `trampo_nao_editavel` e o editado por outro
+     * aparelho dá `conflito_de_versao`. Não tenta de novo: a versão do
+     * cliente já é velha.
+     */
+    async editarTrampo(
+      quem: string,
+      trampoId: string,
+      dados: EntradaDeEdicaoDeTrampo | null | undefined,
+    ): Promise<void> {
+      const versaoLida = lerVersaoDaEdicao(dados?.versao);
+      const entrada: EntradaDeTrampo = dados ?? {};
+      const trampo = await carregarTrampo(trampoId);
+      trampo.editar(quem, versaoLida, entrada);
+      try {
+        await repositorio.salvar(trampo);
+      } catch (erro) {
+        if (
+          !(erro instanceof ErroDeRegra) ||
+          erro.codigo !== 'conflito_de_versao'
+        ) {
+          throw erro;
+        }
+        const relido = await carregarTrampo(trampoId);
+        relido.editar(quem, versaoLida, entrada);
+        // Defesa: a versão só sobe, então a releitura já não tem a versão
+        // lida e `editar` lança acima; se não lançar, fica o conflito.
+        throw erro;
+      }
+    },
+
+    /**
+     * CA27: o autor encerra o trampo aberto ou em andamento; as pendentes
+     * viram recusadas e o trampo sai da busca. Já encerrado, não grava nada
+     * (D34). A regra roda no servidor sob a trava do trampo (ADR-006, S1): a
+     * candidatura que gravou antes é recusada junto; a que chega durante
+     * espera e recebe `trampo_nao_aberto`. Nunca dá `conflito_de_versao`.
+     */
+    async encerrarTrampo(quem: string, trampoId: string): Promise<void> {
+      await alterarSobTrava(trampoId, (trampo) =>
+        trampo.encerrar(quem) ? 'salvar' : 'nada',
+      );
+    },
+
+    /**
+     * CA28: o autor exclui o trampo aberto, com as candidaturas. A regra roda
+     * no servidor sob a trava do trampo (ADR-006, S1): a candidatura que
+     * gravou antes é apagada junto; a que chega durante espera e recebe 404;
+     * o trampo que saiu de `aberto` dá `trampo_nao_aberto`; o que sumiu, 404.
+     * Nunca dá `conflito_de_versao`.
+     */
+    async excluirTrampo(quem: string, trampoId: string): Promise<void> {
+      await alterarSobTrava(trampoId, (trampo) => {
+        trampo.conferirExclusao(quem);
+        return 'excluir';
+      });
+    },
+
+    /**
+     * CA29: o freelancer retira a própria candidatura pendente; a linha é
+     * apagada e ele pode se candidatar de novo. Inexistente ou de outra conta
+     * dá 404; aceita ou recusada, `candidatura_nao_pendente`. Passa pela trava
+     * do trampo, como o aceite: os dois nunca gravam sobre a mesma leitura.
+     */
+    async retirarCandidatura(
+      quem: string,
+      candidaturaId: string,
+    ): Promise<void> {
+      const id = normalizarId(candidaturaId);
+      const trampoId = await repositorio.trampoDaCandidatura(id);
+      if (trampoId === null) {
+        throw new ErroNaoEncontrado();
+      }
+      await alterarTrampo(trampoId, (trampo) => trampo.retirar(id, quem));
     },
 
     /** CA4 e CA7 (parte de trampos): filtros com E lógico, mais recentes primeiro. */

@@ -4,8 +4,9 @@ import type { StatusDaCandidatura } from '../../dominio/candidatura.js';
 import type { StatusDoTrampo } from '../../dominio/trampo.js';
 
 /**
- * Tabelas do módulo `trampos` (migração `0002_trampos.ts`). O módulo recebe
- * uma conexão `Kysely<TabelasDeTrampos>` e não enxerga tabela de outro módulo.
+ * Tabelas do módulo `trampos` (migração `0002_trampos.ts`; a `0006_anuncios.ts`
+ * acrescenta o status `encerrado`). O módulo recebe uma conexão
+ * `Kysely<TabelasDeTrampos>` e não enxerga tabela de outro módulo.
  */
 export interface TabelasDeTrampos {
   trampos: TabelaTrampos;

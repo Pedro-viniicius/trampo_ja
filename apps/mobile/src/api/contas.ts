@@ -36,9 +36,14 @@ export async function entrar(
   );
 }
 
-/** `DELETE /sessoes`: revoga só a sessão do token enviado. */
-export async function sair(cliente: ClienteHttp): Promise<void> {
-  await cliente.delete<void>('/sessoes');
+/**
+ * `DELETE /sessoes`: revoga só a sessão do `token` dado, e não a que a porta
+ * guarda agora. O `sair` captura o token, limpa o local e só então chama
+ * esta função, em segundo plano (S6). Um 401 aqui não chama `aoExpirar`
+ * (rota de entrada).
+ */
+export async function sair(cliente: ClienteHttp, token: string): Promise<void> {
+  await cliente.delete<void>('/sessoes', { token });
 }
 
 /**

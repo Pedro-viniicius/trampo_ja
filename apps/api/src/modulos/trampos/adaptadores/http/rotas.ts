@@ -7,9 +7,11 @@ import type {
   CandidaturaDoFreelancer,
   CandidaturaVisao,
   CasosDeUsoDeTrampos,
+  EntradaDeEdicaoDeTrampo,
+  VisaoDoTrampo,
 } from '../../aplicacao/casos-de-uso.js';
 import type { EntradaDeCandidatura } from '../../dominio/candidatura.js';
-import type { EntradaDeTrampo, TrampoResumo } from '../../dominio/trampo.js';
+import type { EntradaDeTrampo } from '../../dominio/trampo.js';
 
 export interface OpcoesDasRotasDeTrampos {
   /** Fachada de `contas`: devolve a conta dona do token ou `null`. */
@@ -51,6 +53,25 @@ const corpoDoTrampo = {
   },
 } as const;
 
+const CAMPOS_DA_EDICAO = [...CAMPOS_DO_TRAMPO, 'versao'] as const;
+
+/**
+ * Corpo de `PUT /trampos/:id` (CA25): os campos do trampo e a `versao` lida
+ * (D33). Fechado como o da publicação, então não há como trocar autor,
+ * status nem data. A `versao` só aceita inteiro a partir de 1; ausente ou
+ * nula, o caso de uso responde `obrigatorio` antes de ler o trampo (o 400 vem
+ * antes do 404). Fica fora de `required`, como os outros campos: com ela lá,
+ * o `{}` da varredura de limites daria 400 antes do limite por conta.
+ */
+const corpoDaEdicao = {
+  ...corpoDoTrampo,
+  propertyNames: { enum: CAMPOS_DA_EDICAO },
+  properties: {
+    ...corpoDoTrampo.properties,
+    versao: { type: ['integer', 'null'], minimum: 1 },
+  },
+} as const;
+
 const corpoDaCandidatura = {
   type: 'object',
   additionalProperties: false,
@@ -63,8 +84,10 @@ const corpoDaCandidatura = {
 
 /*
  * Schemas de resposta: o `fast-json-stringify` só serializa as chaves
- * listadas, então uma coluna interna (`textoBusca`, `versao`) nunca sai na API
- * mesmo que alguém a ponha no objeto de resposta.
+ * listadas, então uma coluna interna (`textoBusca`, `cidadeNormalizada`) nunca
+ * sai na API mesmo que alguém a ponha no objeto de resposta. `versao` e
+ * `candidaturasRecebidas` são opcionais: só o caso de uso as põe, e só na
+ * visão do autor (D33).
  */
 const RESPOSTA_DE_CRIACAO = {
   type: 'object',
@@ -106,6 +129,8 @@ export const TRAMPO_PUBLICO = {
     prazo: { type: ['string', 'null'] },
     status: { type: 'string' },
     criadoEm: { type: 'string' },
+    versao: { type: 'integer' },
+    candidaturasRecebidas: { type: 'integer' },
   },
 } as const;
 
@@ -141,8 +166,11 @@ interface ParametrosDaCandidatura {
   cid: string;
 }
 
-/** Visão pública do trampo: sem as colunas internas de busca. */
-function trampoParaResposta(trampo: TrampoResumo) {
+/**
+ * Trampo como sai na API: sem as colunas internas de busca. `versao` e
+ * `candidaturasRecebidas` só saem quando o caso de uso as trouxe (autor).
+ */
+function trampoParaResposta(trampo: VisaoDoTrampo) {
   return {
     id: trampo.id,
     autorId: trampo.autorId,
@@ -154,6 +182,10 @@ function trampoParaResposta(trampo: TrampoResumo) {
     prazo: trampo.prazo,
     status: trampo.status,
     criadoEm: trampo.criadoEm.toISOString(),
+    ...(trampo.versao !== undefined && { versao: trampo.versao }),
+    ...(trampo.candidaturasRecebidas !== undefined && {
+      candidaturasRecebidas: trampo.candidaturasRecebidas,
+    }),
   };
 }
 
@@ -179,6 +211,18 @@ function minhaCandidaturaParaResposta(candidatura: CandidaturaDoFreelancer) {
  * Rotas de trampos e candidaturas (plugin Fastify). Todas exigem sessão
  * (CA14): o hook roda no `onRequest`, antes de ler o corpo. Os erros de
  * domínio viram 400/404/409 no tratador compartilhado.
+ *
+ * Rotas da L2 (CA25, CA27 a CA29), todas com 204 no sucesso:
+ * - `PUT /trampos/:id` → 400; 404; 409 `trampo_nao_editavel`,
+ *   `conflito_de_versao`;
+ * - `POST /trampos/:id/encerrar` (sem corpo) → 404; 204 também se já estava
+ *   encerrado;
+ * - `DELETE /trampos/:id` → 404; 409 `trampo_nao_aberto`;
+ * - `DELETE /candidaturas/:id` → 404; 409 `candidatura_nao_pendente`.
+ *
+ * Inexistente, de outra conta ou com id fora do formato uuid dão o mesmo 404.
+ * Os limites por conta (`PUT` em `publicacao`; encerrar e os `DELETE` em
+ * `escrita`, D36) casam pela url modelo: não troque o nome do parâmetro.
  */
 export function rotasDeTrampos(
   casos: CasosDeUsoDeTrampos,
@@ -224,8 +268,40 @@ export function rotasDeTrampos(
       { schema: { response: { 200: TRAMPO_PUBLICO } } },
       async (requisicao) => {
         return trampoParaResposta(
-          await casos.obterTrampo(requisicao.params.id),
+          await casos.obterTrampo(requisicao.params.id, requisicao.contaId),
         );
+      },
+    );
+
+    // CA25: só o autor (404 para os demais).
+    app.put<{ Params: ParametrosDoTrampo }>(
+      '/trampos/:id',
+      { schema: { body: corpoDaEdicao } },
+      async (requisicao, resposta) => {
+        await casos.editarTrampo(
+          requisicao.contaId,
+          requisicao.params.id,
+          requisicao.body as EntradaDeEdicaoDeTrampo,
+        );
+        return resposta.code(204).send();
+      },
+    );
+
+    // CA27: só o autor; encerrar de novo também dá 204 (D34).
+    app.post<{ Params: ParametrosDoTrampo }>(
+      '/trampos/:id/encerrar',
+      async (requisicao, resposta) => {
+        await casos.encerrarTrampo(requisicao.contaId, requisicao.params.id);
+        return resposta.code(204).send();
+      },
+    );
+
+    // CA28: só o autor e só trampo aberto.
+    app.delete<{ Params: ParametrosDoTrampo }>(
+      '/trampos/:id',
+      async (requisicao, resposta) => {
+        await casos.excluirTrampo(requisicao.contaId, requisicao.params.id);
+        return resposta.code(204).send();
       },
     );
 
@@ -291,6 +367,18 @@ export function rotasDeTrampos(
           requisicao.contaId,
         );
         return candidaturas.map(minhaCandidaturaParaResposta);
+      },
+    );
+
+    // CA29: só a candidatura pendente do próprio freelancer.
+    app.delete<{ Params: ParametrosDoTrampo }>(
+      '/candidaturas/:id',
+      async (requisicao, resposta) => {
+        await casos.retirarCandidatura(
+          requisicao.contaId,
+          requisicao.params.id,
+        );
+        return resposta.code(204).send();
       },
     );
   };

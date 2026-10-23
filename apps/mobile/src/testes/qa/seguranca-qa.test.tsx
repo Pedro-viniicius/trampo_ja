@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
+import { impressaoDaConta } from '../../estado/sessao';
 import { textos } from '../../textos/pt-BR';
 import { renderizarRotas } from '../rotas/apoio';
 import {
@@ -159,7 +160,8 @@ describe('CA15: token, senha e rascunho no app completo', () => {
     });
 
     expect(gravar).toHaveBeenCalledTimes(1);
-    expect(gravar).toHaveBeenCalledWith(TOKEN);
+    // Com o token vai só a impressão do e-mail (D43), nunca o e-mail.
+    expect(gravar).toHaveBeenCalledWith(TOKEN, impressaoDaConta(EMAIL));
     expect(getPathname()).toBe('/buscar');
   });
 
@@ -252,7 +254,7 @@ describe('CA15: o código do app só persiste pela porta do armazenamento seguro
     expect(achados.map((a) => a.slice(raiz.length + 1))).toEqual([]);
   });
 
-  it('só `estado/exportacao.ts` usa o expo-file-system (arquivo temporário da exportação, D26)', () => {
+  it('só `estado/exportacao.ts` (arquivo temporário da exportação, D26) e `estado/armazenamento-token.ts` (marcador de instalação sem dado, S2/CA49) usam o expo-file-system', () => {
     const importam = arquivos(raiz)
       .filter((a) =>
         semComentarios(readFileSync(a, 'utf8')).includes('expo-file-system'),
@@ -260,7 +262,10 @@ describe('CA15: o código do app só persiste pela porta do armazenamento seguro
       .map((a) => a.slice(raiz.length + 1))
       .filter((a) => !/\.test\.tsx?$/.test(a));
 
-    expect(importam).toEqual(['estado/exportacao.ts']);
+    expect(importam.sort()).toEqual([
+      'estado/armazenamento-token.ts',
+      'estado/exportacao.ts',
+    ]);
   });
 
   it('nenhum código do app escreve em console nem usa `debugger`', () => {

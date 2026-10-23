@@ -18,7 +18,10 @@ import {
   criarCasosDeUsoDeTrampos,
 } from '../../aplicacao/casos-de-uso.js';
 import { type EntradaDeTrampo, Trampo } from '../../dominio/trampo.js';
-import { criarModuloDeTrampos } from '../../index.js';
+import {
+  criarModuloDeTrampos,
+  type ParteDeTramposNaExportacao,
+} from '../../index.js';
 import { VerificadorDePerfilEmMemoria } from '../memoria/verificador-perfil-memoria.js';
 import {
   excluirDadosDaConta,
@@ -96,6 +99,65 @@ async function versaoNoBanco(id: string): Promise<number | undefined> {
     .where('id', '=', id)
     .executeTakeFirst();
   return linha?.versao;
+}
+
+type Desfecho = { ok: true; valor: unknown } | { ok: false; erro: unknown };
+
+/** Resultado de uma promessa sem deixar rejeição solta enquanto se espera. */
+function acompanhar(promessa: Promise<unknown>): Promise<Desfecho> {
+  return promessa.then(
+    (valor) => ({ ok: true as const, valor }),
+    (erro: unknown) => ({ ok: false as const, erro }),
+  );
+}
+
+/** Espera até alguma conexão do banco de teste ficar parada numa trava. */
+async function esperarAlguemNaTrava(): Promise<void> {
+  for (let tentativa = 0; tentativa < 120; tentativa += 1) {
+    const { rows } = await sql<{ total: number }>`
+      select count(*)::int as total from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'
+    `.execute(db());
+    if ((rows[0]?.total ?? 0) > 0) {
+      return;
+    }
+    await new Promise((resolver) => setTimeout(resolver, 25));
+  }
+  throw new Error('nenhuma consulta ficou esperando a trava');
+}
+
+/**
+ * A conexão `trx` com uma pausa logo depois da `ordem`-ésima consulta
+ * `for update` (da exclusão de conta ou de trampo): ali roda `durante()`, e
+ * só então a exclusão segue para os `delete`.
+ */
+function pausarDepoisDaTrava<T>(
+  trx: Kysely<T>,
+  ordem: number,
+  durante: () => Promise<void>,
+): Kysely<T> {
+  let travasVistas = 0;
+  let consultaDaPausa: string | undefined;
+  return trx.withPlugin({
+    transformQuery({ node, queryId }) {
+      if (
+        node.kind === 'SelectQueryNode' &&
+        JSON.stringify(node).includes('"ForUpdate"')
+      ) {
+        travasVistas += 1;
+        if (travasVistas === ordem) {
+          consultaDaPausa = queryId.queryId;
+        }
+      }
+      return node;
+    },
+    async transformResult({ queryId, result }) {
+      if (queryId.queryId === consultaDaPausa) {
+        await durante();
+      }
+      return result;
+    },
+  });
 }
 
 describe('migração 0002_trampos', () => {
@@ -576,65 +638,6 @@ describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
     throw new Error('era esperada uma recusa');
   }
 
-  type Desfecho = { ok: true; valor: unknown } | { ok: false; erro: unknown };
-
-  /** Resultado de uma promessa sem deixar rejeição solta enquanto se espera. */
-  function acompanhar(promessa: Promise<unknown>): Promise<Desfecho> {
-    return promessa.then(
-      (valor) => ({ ok: true as const, valor }),
-      (erro: unknown) => ({ ok: false as const, erro }),
-    );
-  }
-
-  /** Espera até alguma conexão do banco de teste ficar parada numa trava. */
-  async function esperarAlguemNaTrava(): Promise<void> {
-    for (let tentativa = 0; tentativa < 120; tentativa += 1) {
-      const { rows } = await sql<{ total: number }>`
-        select count(*)::int as total from pg_stat_activity
-        where datname = current_database() and wait_event_type = 'Lock'
-      `.execute(db());
-      if ((rows[0]?.total ?? 0) > 0) {
-        return;
-      }
-      await new Promise((resolver) => setTimeout(resolver, 25));
-    }
-    throw new Error('nenhuma consulta ficou esperando a trava');
-  }
-
-  /**
-   * A transação `trx` com uma pausa logo depois da `ordem`-ésima consulta
-   * `for update` da exclusão: ali roda `durante()`, e só então a exclusão
-   * segue para os `delete`.
-   */
-  function pausarDepoisDaTrava<T>(
-    trx: Kysely<T>,
-    ordem: number,
-    durante: () => Promise<void>,
-  ): Kysely<T> {
-    let travasVistas = 0;
-    let consultaDaPausa: string | undefined;
-    return trx.withPlugin({
-      transformQuery({ node, queryId }) {
-        if (
-          node.kind === 'SelectQueryNode' &&
-          JSON.stringify(node).includes('"ForUpdate"')
-        ) {
-          travasVistas += 1;
-          if (travasVistas === ordem) {
-            consultaDaPausa = queryId.queryId;
-          }
-        }
-        return node;
-      },
-      async transformResult({ queryId, result }) {
-        if (queryId.queryId === consultaDaPausa) {
-          await durante();
-        }
-        return result;
-      },
-    });
-  }
-
   async function linhas() {
     const trampos = await db()
       .selectFrom('trampos')
@@ -881,6 +884,561 @@ describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
     expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
       trampos: [],
       candidaturas: [],
+    });
+  });
+
+  /**
+   * O que a medida deve dar, calculado sobre o que a exportação devolve:
+   * bytes UTF-8 de cada texto exportado mais 256 por trampo e por
+   * candidatura.
+   */
+  function bytesEsperados(parte: ParteDeTramposNaExportacao): number {
+    const bytes = (...textos: string[]) =>
+      textos.reduce((soma, texto) => soma + Buffer.byteLength(texto), 256);
+    return (
+      parte.trampos.reduce(
+        (total, t) =>
+          total + bytes(t.titulo, t.descricao, t.categoria, t.cidade, t.status),
+        0,
+      ) +
+      parte.candidaturas.reduce(
+        (total, c) => total + bytes(c.mensagem, c.status),
+        0,
+      )
+    );
+  }
+
+  it('CA48 — mede no banco os bytes dos textos exportados mais 256 por linha, e cresce com o texto', async () => {
+    expect(await modulo().medirExportacao(EMPREGADOR)).toBe(0);
+    const { t4 } = await cenario();
+
+    const antes = await modulo().medirExportacao(EMPREGADOR);
+    expect(antes).toBe(
+      bytesEsperados(await modulo().exportarDadosDaConta(EMPREGADOR)),
+    );
+    // O banco guarda o uuid em minúsculas: a mesma conta, a mesma medida.
+    expect(await modulo().medirExportacao(EMPREGADOR.toUpperCase())).toBe(
+      antes,
+    );
+
+    // Candidatura com dois mil caracteres de dois bytes: a medida é em
+    // bytes, não em caracteres.
+    await casos.candidatar(EMPREGADOR, t4, {
+      ...proposta,
+      mensagem: 'ç'.repeat(2000),
+    });
+    const comCandidatura = await modulo().medirExportacao(EMPREGADOR);
+    expect(comCandidatura - antes).toBe(
+      4000 + Buffer.byteLength('pendente') + 256,
+    );
+
+    await publicar({ descricao: 'd'.repeat(2000) });
+    const comTrampo = await modulo().medirExportacao(EMPREGADOR);
+    expect(comTrampo).toBeGreaterThan(comCandidatura + 2000);
+    expect(comTrampo).toBe(
+      bytesEsperados(await modulo().exportarDadosDaConta(EMPREGADOR)),
+    );
+  });
+
+  it('CA48 — ignora o texto de terceiros: candidaturas recebidas e trampos de outras contas não contam', async () => {
+    const { t1 } = await cenario();
+    const antes = await modulo().medirExportacao(EMPREGADOR);
+
+    await casos.candidatar(CARLA, t1, {
+      ...proposta,
+      mensagem: 'TEXTO-DA-CARLA '.repeat(100),
+    });
+    await publicar({ descricao: 'x'.repeat(2000) }, ANA);
+
+    expect(await modulo().medirExportacao(EMPREGADOR)).toBe(antes);
+    for (const conta of [ANA, BRUNO, CARLA]) {
+      expect(await modulo().medirExportacao(conta)).toBe(
+        bytesEsperados(await modulo().exportarDadosDaConta(conta)),
+      );
+    }
+  });
+
+  it('CA48 — conta sem nada mede 0, e id fora do formato uuid também', async () => {
+    await cenario();
+
+    expect(await modulo().medirExportacao(randomUUID())).toBe(0);
+    for (const id of ['nao-e-uuid', '', `${EMPREGADOR}' or true --`]) {
+      expect(await modulo().medirExportacao(id)).toBe(0);
+    }
+  });
+});
+
+describe('L2 — editar, encerrar, excluir e retirar no Postgres (CA25, CA27 a CA29, ADR-006)', () => {
+  const modulo = () =>
+    criarModuloDeTrampos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    });
+
+  const excluirConta = (contaId: string) =>
+    db()
+      .transaction()
+      .execute((trx) => modulo().excluirDadosDaConta(trx, contaId));
+
+  async function candidaturasNoBanco(trampoId: string) {
+    return db()
+      .selectFrom('candidaturas')
+      .select(['freelancer_id', 'status', 'mensagem'])
+      .where('trampo_id', '=', trampoId)
+      .orderBy('criada_em')
+      .orderBy('id')
+      .execute();
+  }
+
+  const edicao = {
+    titulo: 'Trocar o piso',
+    descricao: 'Piso da cozinha, 12 m².',
+    categoria: 'reformas',
+    cidade: 'Belo Horizonte',
+    valorCentavos: 90000,
+    prazo: '2026-12-01',
+  };
+
+  describe('achado: candidatura apagada por outra transação não volta', () => {
+    it('Dado a conta do candidato excluída entre a leitura e o aceite de outra candidatura, quando o aceite grava, então a candidatura apagada não é inserida de novo', async () => {
+      const id = await publicar();
+      const ana = await casos.candidatar(ANA, id, proposta);
+      relogio.avancar(1000);
+      await casos.candidatar(BRUNO, id, {
+        ...proposta,
+        mensagem: 'TEXTO-DO-BRUNO',
+      });
+      const lido = await carregar(id);
+
+      // A exclusão da conta do Bruno não mexe na linha do trampo (versão igual).
+      await excluirConta(BRUNO);
+      lido.aceitar(ana.id, EMPREGADOR);
+      await repositorio.salvar(lido);
+
+      expect(await candidaturasNoBanco(id)).toEqual([
+        { freelancer_id: ANA, status: 'aceita', mensagem: proposta.mensagem },
+      ]);
+      expect(await repositorio.listarCandidaturasDoFreelancer(BRUNO)).toEqual(
+        [],
+      );
+      expect((await modulo().exportarDadosDaConta(BRUNO)).candidaturas).toEqual(
+        [],
+      );
+      expect(await casos.existeVinculoEntre(EMPREGADOR, BRUNO)).toBe(false);
+    });
+
+    it('Dado a conta do candidato excluída entre a leitura e o encerrar, quando o encerrar grava, então a candidatura apagada não volta e as demais viram recusadas', async () => {
+      const id = await publicar();
+      await casos.candidatar(ANA, id, proposta);
+      relogio.avancar(1000);
+      await casos.candidatar(BRUNO, id, proposta);
+      const lido = await carregar(id);
+
+      await excluirConta(BRUNO);
+      expect(lido.encerrar(EMPREGADOR)).toBe(true);
+      await repositorio.salvar(lido);
+
+      expect(await candidaturasNoBanco(id)).toEqual([
+        { freelancer_id: ANA, status: 'recusada', mensagem: proposta.mensagem },
+      ]);
+    });
+
+    it('Dado a exclusão da conta com a candidatura já travada, quando o aceite atualiza o status dela, então espera a trava, não afeta linha nenhuma e não a recria', async () => {
+      const id = await publicar();
+      const ana = await casos.candidatar(ANA, id, proposta);
+      await casos.candidatar(BRUNO, id, proposta);
+      let aceite: Promise<Desfecho> | undefined;
+
+      await db()
+        .transaction()
+        .execute((trx) =>
+          modulo().excluirDadosDaConta(
+            // 1ª trava: trampos do Bruno (nenhum); 2ª: candidaturas dele.
+            pausarDepoisDaTrava(trx, 2, async () => {
+              aceite = acompanhar(
+                casos.aceitarCandidatura(EMPREGADOR, id, ana.id),
+              );
+              await esperarAlguemNaTrava();
+            }),
+            BRUNO,
+          ),
+        );
+
+      expect(await aceite).toEqual({ ok: true, valor: undefined });
+      expect(await candidaturasNoBanco(id)).toEqual([
+        { freelancer_id: ANA, status: 'aceita', mensagem: proposta.mensagem },
+      ]);
+    });
+
+    it('CA29 — Dado duas leituras, quando uma retira a candidatura e a outra aceita a de outro, então a segunda perde a trava e a retirada não volta', async () => {
+      const id = await publicar();
+      const ana = await casos.candidatar(ANA, id, proposta);
+      const bruno = await casos.candidatar(BRUNO, id, proposta);
+      const retirada = await carregar(id);
+      const aceite = await carregar(id);
+      retirada.retirar(bruno.id, BRUNO);
+      aceite.aceitar(ana.id, EMPREGADOR);
+
+      await repositorio.salvar(retirada);
+      expect(await rejeicao(repositorio.salvar(aceite))).toEqual(
+        new ErroDeRegra('conflito_de_versao'),
+      );
+
+      expect(
+        (await candidaturasNoBanco(id)).map((c) => c.freelancer_id),
+      ).toEqual([ANA]);
+      // Pelo caso de uso, o aceite relê e grava sem a retirada.
+      await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+      expect(await candidaturasNoBanco(id)).toEqual([
+        { freelancer_id: ANA, status: 'aceita', mensagem: proposta.mensagem },
+      ]);
+    });
+  });
+
+  describe('CA25 — editar', () => {
+    it('regrava os campos e as colunas de busca, sobe a versão e mantém autor e criado_em; a busca acha o texto novo', async () => {
+      const id = await publicar({ prazo: '2026-11-30' });
+      relogio.avancar(60_000);
+
+      await casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 });
+
+      const linha = await db()
+        .selectFrom('trampos')
+        .select([
+          'autor_id',
+          'titulo',
+          'descricao',
+          'cidade',
+          'cidade_normalizada',
+          'texto_busca',
+          'valor_centavos',
+          sql<string>`to_char(prazo, 'YYYY-MM-DD')`.as('prazo'),
+          'status',
+          'versao',
+          'criado_em',
+        ])
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow();
+      expect(linha).toEqual({
+        autor_id: EMPREGADOR,
+        titulo: 'Trocar o piso',
+        descricao: 'Piso da cozinha, 12 m².',
+        cidade: 'Belo Horizonte',
+        cidade_normalizada: 'belo horizonte',
+        texto_busca: 'trocar o piso piso da cozinha, 12 m².',
+        valor_centavos: 90000,
+        prazo: '2026-12-01',
+        status: 'aberto',
+        versao: 2,
+        criado_em: new Date('2026-10-20T12:00:00.000Z'),
+      });
+      expect(
+        (await casos.buscarTrampos({ texto: 'cozinha' })).map((t) => t.id),
+      ).toEqual([id]);
+      expect(await casos.buscarTrampos({ texto: 'pintar' })).toEqual([]);
+
+      const { prazo: _prazo, ...semPrazo } = edicao;
+      await casos.editarTrampo(EMPREGADOR, id, { ...semPrazo, versao: 2 });
+      expect((await carregar(id)).dados().prazo).toBeNull();
+    });
+
+    it('Dado duas edições com a mesma versão ao mesmo tempo, então uma vence e a outra recebe conflito_de_versao', async () => {
+      const id = await publicar();
+
+      const resultados = await Promise.allSettled([
+        casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 }),
+        casos.editarTrampo(EMPREGADOR, id, {
+          ...edicao,
+          titulo: 'Outro título',
+          versao: 1,
+        }),
+      ]);
+
+      expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(
+        1,
+      );
+      const perdedor = resultados.find((r) => r.status === 'rejected');
+      expect((perdedor as PromiseRejectedResult).reason).toEqual(
+        new ErroDeRegra('conflito_de_versao'),
+      );
+      expect(await versaoNoBanco(id)).toBe(2);
+    });
+  });
+
+  describe('CA27 — encerrar', () => {
+    it('grava encerrado e as pendentes como recusadas, tira da busca, e encerrar de novo não sobe a versão', async () => {
+      const id = await publicar();
+      await casos.candidatar(ANA, id, proposta);
+      relogio.avancar(1000);
+      await casos.candidatar(BRUNO, id, proposta);
+
+      await casos.encerrarTrampo(EMPREGADOR, id);
+      await casos.encerrarTrampo(EMPREGADOR, id);
+
+      expect((await carregar(id)).status).toBe('encerrado');
+      expect(await versaoNoBanco(id)).toBe(4);
+      expect(
+        (await candidaturasNoBanco(id)).map((c) => [c.freelancer_id, c.status]),
+      ).toEqual([
+        [ANA, 'recusada'],
+        [BRUNO, 'recusada'],
+      ]);
+      expect(await casos.buscarTrampos()).toEqual([]);
+      expect(await rejeicao(casos.candidatar(CARLA, id, proposta))).toEqual(
+        new ErroDeRegra('trampo_nao_aberto'),
+      );
+      // Exportação sem mudança de esquema: só um valor novo de `status`.
+      expect((await modulo().exportarDadosDaConta(EMPREGADOR)).trampos).toEqual(
+        [expect.objectContaining({ id, status: 'encerrado' })],
+      );
+    });
+  });
+
+  describe('CA27 — encerrar com a trava tomada (S1)', () => {
+    it('Dado o encerrar com a trava do trampo tomada, quando um freelancer se candidata ao mesmo tempo, então espera a trava e recebe trampo_nao_aberto, sem pendente', async () => {
+      const id = await publicar();
+      await casos.candidatar(ANA, id, proposta);
+      let concorrente: Promise<Desfecho> | undefined;
+      const repositorioQuePausa = new RepositorioDeTramposPostgres(
+        pausarDepoisDaTrava(db(), 1, async () => {
+          concorrente = acompanhar(casos.candidatar(BRUNO, id, proposta));
+          await esperarAlguemNaTrava();
+        }),
+      );
+
+      await criarCasosDeUsoDeTrampos({
+        repositorio: repositorioQuePausa,
+        verificadorDePerfil: new VerificadorDePerfilEmMemoria([EMPREGADOR]),
+        relogio,
+      }).encerrarTrampo(EMPREGADOR, id);
+
+      const resultado = await concorrente;
+      expect(resultado?.ok === false && resultado.erro).toEqual(
+        new ErroDeRegra('trampo_nao_aberto'),
+      );
+      expect(
+        (await candidaturasNoBanco(id)).map((c) => [c.freelancer_id, c.status]),
+      ).toEqual([[ANA, 'recusada']]);
+      expect(await versaoNoBanco(id)).toBe(3);
+    });
+  });
+
+  describe('CA28 — excluir', () => {
+    it('alterarSobTrava: decide sobre o estado atual (sem olhar versão), apaga o trampo e as candidaturas, e nada muda se decidir lança', async () => {
+      const id = await publicar();
+      await casos.candidatar(ANA, id, proposta);
+      const vistas: number[] = [];
+
+      expect(
+        await rejeicao(
+          repositorio.alterarSobTrava(id, (trampo) => {
+            vistas.push(trampo.versao, trampo.candidaturas.length);
+            throw new ErroDeRegra('trampo_nao_aberto');
+          }),
+        ),
+      ).toEqual(new ErroDeRegra('trampo_nao_aberto'));
+      expect(vistas).toEqual([2, 1]);
+      expect(await candidaturasNoBanco(id)).toHaveLength(1);
+      expect(await repositorio.alterarSobTrava(id, () => 'nada')).toBe(true);
+      expect(await versaoNoBanco(id)).toBe(2);
+
+      expect(await repositorio.alterarSobTrava(id, () => 'excluir')).toBe(true);
+      expect(await repositorio.buscarPorId(id)).toBeNull();
+      expect(await candidaturasNoBanco(id)).toEqual([]);
+    });
+
+    it('alterarSobTrava: id fora do formato ou inexistente dá false sem chamar decidir', async () => {
+      let chamadas = 0;
+      const decidir = () => {
+        chamadas += 1;
+        return 'excluir' as const;
+      };
+
+      expect(await repositorio.alterarSobTrava('nao-uuid', decidir)).toBe(
+        false,
+      );
+      expect(await repositorio.alterarSobTrava(randomUUID(), decidir)).toBe(
+        false,
+      );
+      expect(chamadas).toBe(0);
+    });
+
+    it('Dado a exclusão com a trava do trampo tomada, quando um freelancer se candidata ao mesmo tempo, então espera a trava e recebe 404, sem candidatura órfã', async () => {
+      const id = await publicar();
+      await casos.candidatar(ANA, id, proposta);
+      let concorrente: Promise<Desfecho> | undefined;
+      const repositorioQuePausa = new RepositorioDeTramposPostgres(
+        pausarDepoisDaTrava(db(), 1, async () => {
+          concorrente = acompanhar(casos.candidatar(BRUNO, id, proposta));
+          await esperarAlguemNaTrava();
+        }),
+      );
+
+      await criarCasosDeUsoDeTrampos({
+        repositorio: repositorioQuePausa,
+        verificadorDePerfil: new VerificadorDePerfilEmMemoria([EMPREGADOR]),
+        relogio,
+      }).excluirTrampo(EMPREGADOR, id);
+
+      const resultado = await concorrente;
+      expect(resultado?.ok === false && resultado.erro).toBeInstanceOf(
+        ErroNaoEncontrado,
+      );
+      expect(await candidaturasNoBanco(id)).toEqual([]);
+      expect(await repositorio.listarCandidaturasDoFreelancer(BRUNO)).toEqual(
+        [],
+      );
+    });
+
+    it('Dado 10 candidaturas chegando durante a exclusão, então cada candidato recebe 201 ou 404 (a gravada antes é apagada junto), a exclusão termina e não sobra candidatura órfã', async () => {
+      const freelancers = Array.from({ length: 10 }, () => randomUUID());
+      const casosDaCorrida = criarCasosDeUsoDeTrampos({
+        repositorio,
+        verificadorDePerfil: new VerificadorDePerfilEmMemoria([
+          EMPREGADOR,
+          ...freelancers,
+        ]),
+        relogio,
+      });
+      const id = await publicar();
+
+      const candidaturas = freelancers.map((f) =>
+        acompanhar(casosDaCorrida.candidatar(f, id, proposta)),
+      );
+      // Sem esperar, a exclusão vence sempre (os candidatos ainda conferem o
+      // perfil): ela começa quando a primeira candidatura termina, e as
+      // demais disputam a trava com ela.
+      await Promise.race(candidaturas);
+      const exclusao = acompanhar(casosDaCorrida.excluirTrampo(EMPREGADOR, id));
+      const resultados = await Promise.all(candidaturas);
+
+      expect(await exclusao).toEqual({ ok: true, valor: undefined });
+      for (const [i, resultado] of resultados.entries()) {
+        if (!resultado.ok) {
+          expect(resultado.erro, `candidato ${i}`).toBeInstanceOf(
+            ErroNaoEncontrado,
+          );
+        }
+      }
+      // Ao menos a primeira gravou (201) e foi apagada junto com o trampo.
+      expect(resultados.filter((r) => r.ok).length).toBeGreaterThan(0);
+      expect(await repositorio.buscarPorId(id)).toBeNull();
+      const { rows } = await sql<{ total: number }>`
+        select count(*)::int as total from candidaturas c
+        where not exists (select 1 from trampos t where t.id = c.trampo_id)
+           or c.trampo_id = ${id}
+      `.execute(db());
+      expect(rows[0]?.total).toBe(0);
+    });
+  });
+
+  describe('S1 — rajada de candidaturas contra encerrar e excluir (D33)', () => {
+    const RAJADA = 20;
+
+    /** Dispara 20 candidaturas e, quando a primeira termina, a ação do autor. */
+    async function rajadaContra(acao: 'encerrar' | 'excluir') {
+      const freelancers = Array.from({ length: RAJADA }, () => randomUUID());
+      const casosDaRajada = criarCasosDeUsoDeTrampos({
+        repositorio,
+        verificadorDePerfil: new VerificadorDePerfilEmMemoria([
+          EMPREGADOR,
+          ...freelancers,
+        ]),
+        relogio,
+      });
+      const id = await publicar();
+      const candidaturas = freelancers.map((f) =>
+        acompanhar(casosDaRajada.candidatar(f, id, proposta)),
+      );
+      await Promise.race(candidaturas);
+      const doAutor = await acompanhar(
+        acao === 'encerrar'
+          ? casosDaRajada.encerrarTrampo(EMPREGADOR, id)
+          : casosDaRajada.excluirTrampo(EMPREGADOR, id),
+      );
+      return { id, doAutor, candidatos: await Promise.all(candidaturas) };
+    }
+
+    it.each([1, 2, 3, 4, 5])(
+      'rodada %i: encerrar sob 20 candidaturas simultâneas nunca dá conflito_de_versao e não sobra pendente',
+      async () => {
+        const { id, doAutor, candidatos } = await rajadaContra('encerrar');
+
+        expect(doAutor).toEqual({ ok: true, valor: undefined });
+        expect((await carregar(id)).status).toBe('encerrado');
+        const gravadas = await candidaturasNoBanco(id);
+        expect(gravadas.filter((c) => c.status === 'pendente')).toEqual([]);
+        expect(gravadas.length).toBe(candidatos.filter((r) => r.ok).length);
+      },
+    );
+
+    it.each([1, 2, 3, 4, 5])(
+      'rodada %i: excluir sob 20 candidaturas simultâneas nunca dá conflito_de_versao e não sobra candidatura',
+      async () => {
+        const { id, doAutor } = await rajadaContra('excluir');
+
+        expect(doAutor).toEqual({ ok: true, valor: undefined });
+        expect(await repositorio.buscarPorId(id)).toBeNull();
+        expect(await candidaturasNoBanco(id)).toEqual([]);
+      },
+    );
+  });
+
+  describe('CA29 — retirar', () => {
+    it('apaga a linha e o freelancer se candidata de novo (o índice único não barra)', async () => {
+      const id = await publicar();
+      const ana = await casos.candidatar(ANA, id, proposta);
+
+      expect(await repositorio.trampoDaCandidatura(ana.id)).toBe(id);
+      await casos.retirarCandidatura(ANA, ana.id);
+      expect(await candidaturasNoBanco(id)).toEqual([]);
+      expect(await repositorio.trampoDaCandidatura(ana.id)).toBeNull();
+
+      const deNovo = await casos.candidatar(ANA, id, {
+        ...proposta,
+        mensagem: 'Agora sim.',
+      });
+      expect(deNovo.id).not.toBe(ana.id);
+      expect(await candidaturasNoBanco(id)).toEqual([
+        { freelancer_id: ANA, status: 'pendente', mensagem: 'Agora sim.' },
+      ]);
+      expect(await versaoNoBanco(id)).toBe(4);
+    });
+
+    it('trampoDaCandidatura: id fora do formato ou inexistente dá null', async () => {
+      expect(await repositorio.trampoDaCandidatura('nao-uuid')).toBeNull();
+      expect(await repositorio.trampoDaCandidatura(randomUUID())).toBeNull();
+    });
+  });
+
+  describe('CA31 — listarDoAutor na visão do autor', () => {
+    it('traz a versão e a contagem de candidaturas em qualquer estado, inclusive dos encerrados', async () => {
+      const antigo = await publicar();
+      relogio.avancar(1000);
+      const meio = await publicar();
+      relogio.avancar(1000);
+      const recente = await publicar();
+      await publicar({}, ANA);
+      const ana = await casos.candidatar(ANA, antigo, proposta);
+      await casos.candidatar(BRUNO, antigo, proposta);
+      await casos.aceitarCandidatura(EMPREGADOR, antigo, ana.id);
+      await casos.candidatar(CARLA, meio, proposta);
+      await casos.encerrarTrampo(EMPREGADOR, meio);
+
+      expect(
+        (await repositorio.listarDoAutor(EMPREGADOR)).map((t) => [
+          t.id,
+          t.status,
+          t.versao,
+          t.candidaturasRecebidas,
+        ]),
+      ).toEqual([
+        [recente, 'aberto', 1, 0],
+        [meio, 'encerrado', 3, 1],
+        [antigo, 'em_andamento', 4, 2],
+      ]);
+      const [primeiro] = await repositorio.listarDoAutor(EMPREGADOR);
+      expect(primeiro).toEqual((await carregar(recente)).resumoDoAutor());
     });
   });
 });

@@ -1,6 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import type { HasherDeSenha } from './portas.js';
-import { Semaforo } from './semaforo.js';
+import { type OpcoesDeExecucao, Semaforo } from './semaforo.js';
 
 /** Parâmetros de custo do scrypt (RFC 7914). */
 export interface ParametrosScrypt {
@@ -112,7 +112,8 @@ function lerHash(hashArmazenado: unknown): HashLido | null {
 
 /**
  * Derivações scrypt simultâneas por processo. Cada uma usa cerca de 128 MiB
- * com o padrão; as demais esperam numa fila FIFO sem teto (CA23, S2).
+ * com o padrão; as demais esperam numa fila FIFO (CA23, S2). Quem chama
+ * limita a espera e cancela pela `fila` de `gerarHash` e `verificar` (D42).
  */
 export const DERIVACOES_SIMULTANEAS = 2;
 
@@ -121,16 +122,19 @@ const semaforoDoScrypt = new Semaforo(DERIVACOES_SIMULTANEAS);
 
 /**
  * `scrypt` assíncrono (pool do libuv): não bloqueia o event loop. Passa pelo
- * semáforo do processo, que libera a vaga também quando a derivação falha.
+ * semáforo, que libera a vaga também quando a derivação falha. Quem sai da
+ * fila (espera esgotada ou sinal abortado) não chega ao scrypt.
  */
 function derivar(
+  semaforo: Semaforo,
+  fila: OpcoesDeExecucao | undefined,
   senha: string,
   salt: Buffer,
   tamanho: number,
   parametros: ParametrosScrypt,
 ): Promise<Buffer> {
   const { N, r, p } = parametros;
-  return semaforoDoScrypt.executar(
+  return semaforo.executar(
     () =>
       new Promise<Buffer>((resolver, rejeitar) => {
         scrypt(
@@ -141,7 +145,16 @@ function derivar(
           (erro, chave) => (erro ? rejeitar(erro) : resolver(chave)),
         );
       }),
+    fila,
   );
+}
+
+export interface OpcoesDoHasherScrypt {
+  /**
+   * Fila das derivações. Padrão: o semáforo do processo, com
+   * `DERIVACOES_SIMULTANEAS` vagas. Injetável em teste.
+   */
+  readonly semaforo?: Semaforo;
 }
 
 /**
@@ -151,20 +164,35 @@ function derivar(
  * Os parâmetros ficam no próprio hash: `verificar` usa os do hash armazenado,
  * então dá para mudar o padrão sem invalidar as senhas existentes. Os testes
  * usam um custo baixo (ex.: `{ N: 2 ** 4, r: 8, p: 1 }`) para rodar rápido.
+ *
+ * O texto da senha é usado como chega: a normalização (NFC, S8) é de quem
+ * chama.
  */
 export class HasherScrypt implements HasherDeSenha {
   readonly #parametros: ParametrosScrypt;
+  readonly #semaforo: Semaforo;
 
-  constructor(parametros: ParametrosScrypt = PARAMETROS_SCRYPT_PADRAO) {
+  constructor(
+    parametros: ParametrosScrypt = PARAMETROS_SCRYPT_PADRAO,
+    opcoes: OpcoesDoHasherScrypt = {},
+  ) {
     if (!parametrosAceitaveis(parametros)) {
       throw new TypeError('HasherScrypt: parâmetros fora dos limites');
     }
     this.#parametros = Object.freeze({ ...parametros });
+    this.#semaforo = opcoes.semaforo ?? semaforoDoScrypt;
   }
 
-  async gerarHash(senha: string): Promise<string> {
+  async gerarHash(senha: string, fila?: OpcoesDeExecucao): Promise<string> {
     const salt = randomBytes(BYTES_DO_SALT);
-    const hash = await derivar(senha, salt, BYTES_DO_HASH, this.#parametros);
+    const hash = await derivar(
+      this.#semaforo,
+      fila,
+      senha,
+      salt,
+      BYTES_DO_HASH,
+      this.#parametros,
+    );
     const { N, r, p } = this.#parametros;
     return [
       PREFIXO,
@@ -180,12 +208,18 @@ export class HasherScrypt implements HasherDeSenha {
    * Confere a senha em tempo constante (`timingSafeEqual`). Hash malformado
    * devolve `false` sem lançar e sem rodar o scrypt.
    */
-  async verificar(senha: string, hashArmazenado: string): Promise<boolean> {
+  async verificar(
+    senha: string,
+    hashArmazenado: string,
+    fila?: OpcoesDeExecucao,
+  ): Promise<boolean> {
     const lido = lerHash(hashArmazenado);
     if (lido === null || typeof senha !== 'string') {
       return false;
     }
     const calculado = await derivar(
+      this.#semaforo,
+      fila,
       senha,
       lido.salt,
       lido.hash.length,

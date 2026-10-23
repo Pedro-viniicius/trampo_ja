@@ -75,7 +75,9 @@ export function CandidaturasRecebidas({
                 texto={
                   dados.status === 'aberto'
                     ? textos.selos.aberto
-                    : textos.selos.emAndamento
+                    : dados.status === 'encerrado'
+                      ? textos.selos.encerrado
+                      : textos.selos.emAndamento
                 }
               />
               <Text
@@ -92,7 +94,11 @@ export function CandidaturasRecebidas({
               {dados.status !== 'aberto' ? (
                 <Aviso
                   variante="info"
-                  texto={textos.candidaturasRecebidas.trampoEmAndamento}
+                  texto={
+                    dados.status === 'encerrado'
+                      ? textos.candidaturasRecebidas.trampoEncerrado
+                      : textos.candidaturasRecebidas.trampoEmAndamento
+                  }
                 />
               ) : null}
             </View>

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ErroDeDominio, ErroDeRegra, ErroDeValidacao } from './erros.js';
+import {
+  ErroDeDominio,
+  ErroDeRegra,
+  ErroDeValidacao,
+  ErroIndisponivel,
+  ErroLimiteExcedido,
+} from './erros.js';
 
 describe('ErroDeValidacao', () => {
   it('CA5 — carrega os campos recusados com o motivo de cada um', () => {
@@ -126,4 +132,79 @@ describe('ErroDeRegra', () => {
       expect(String(erro)).not.toContain('maria');
     }
   });
+});
+
+describe('ErroIndisponivel (CA45)', () => {
+  it('carrega o código e o tempo para tentar de novo; o código também é a mensagem', () => {
+    const erro = new ErroIndisponivel('servico_ocupado', 10);
+
+    expect(erro).toBeInstanceOf(ErroDeDominio);
+    expect(erro).toBeInstanceOf(Error);
+    expect(erro.name).toBe('ErroIndisponivel');
+    expect(erro.codigo).toBe('servico_ocupado');
+    expect(erro.tentarDeNovoEmS).toBe(10);
+    expect(erro.message).toBe('servico_ocupado');
+  });
+
+  it('aceita de 1 s a um dia', () => {
+    expect(new ErroIndisponivel('servico_ocupado', 1).tentarDeNovoEmS).toBe(1);
+    expect(
+      new ErroIndisponivel('servico_ocupado', 86_400).tentarDeNovoEmS,
+    ).toBe(86_400);
+  });
+
+  it.each([0, -1, 1.5, 86_401, Number.NaN, Number.POSITIVE_INFINITY])(
+    'recusa tempo para tentar de novo fora de 1 a 86400: %s',
+    (segundos) => {
+      expect(() => new ErroIndisponivel('servico_ocupado', segundos)).toThrow(
+        TypeError,
+      );
+    },
+  );
+
+  it('CA15 — recusa código que não é snake_case, sem ecoar o texto', () => {
+    for (const codigo of [
+      'servico_ocupado: maria.silva@exemplo.com',
+      'ServicoOcupado',
+      '',
+      'a'.repeat(65),
+    ]) {
+      try {
+        new ErroIndisponivel(codigo, 10);
+        expect.unreachable();
+      } catch (erro) {
+        expect(erro).toBeInstanceOf(TypeError);
+        expect(String(erro)).not.toContain('maria');
+      }
+    }
+  });
+});
+
+describe('ErroLimiteExcedido (CA42, D31)', () => {
+  it('tem o código fixo muitas_requisicoes e só o tempo para tentar de novo', () => {
+    const erro = new ErroLimiteExcedido(3600);
+
+    expect(erro).toBeInstanceOf(ErroDeDominio);
+    expect(erro.name).toBe('ErroLimiteExcedido');
+    expect(erro.codigo).toBe('muitas_requisicoes');
+    expect(erro.message).toBe('muitas_requisicoes');
+    expect(erro.tentarDeNovoEmS).toBe(3600);
+    expect(Object.keys(erro).sort()).toEqual([
+      'codigo',
+      'name',
+      'tentarDeNovoEmS',
+    ]);
+  });
+
+  it('aceita de 1 s a um dia', () => {
+    expect(new ErroLimiteExcedido(1).tentarDeNovoEmS).toBe(1);
+    expect(new ErroLimiteExcedido(86_400).tentarDeNovoEmS).toBe(86_400);
+  });
+
+  it.each([0, -1, 1.5, 86_401, Number.NaN, Number.POSITIVE_INFINITY])(
+    'recusa tempo para tentar de novo fora de 1 a 86400: %s',
+    (segundos) => {
+      expect(() => new ErroLimiteExcedido(segundos)).toThrow(TypeError);
+    },
+  );
 });

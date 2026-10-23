@@ -130,7 +130,7 @@ describe('contas (CA1, CA2)', () => {
     const { cliente, falso } = montar();
     falso.responder('DELETE /sessoes', { status: 204 });
 
-    await expect(sair(cliente)).resolves.toBeUndefined();
+    await expect(sair(cliente, TOKEN)).resolves.toBeUndefined();
     expect(falso.ultima().metodo).toBe('DELETE');
     expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
   });

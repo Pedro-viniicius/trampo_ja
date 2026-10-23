@@ -48,6 +48,7 @@ const TRAMPO = {
 };
 
 const EM_ANDAMENTO = { ...TRAMPO, status: 'em_andamento' };
+const ENCERRADO = { ...TRAMPO, status: 'encerrado' };
 
 const AUTOR = {
   contaId: 'c-autor',
@@ -778,6 +779,68 @@ describe('candidaturas recebidas', () => {
       semTextoCruDeErro();
     },
   );
+
+  it('R3: 409 trampo_nao_aberto com o trampo relido como encerrado não diz "aceite perdido"', async () => {
+    const { fetch, estado } = criarFakeDoAutor();
+    fetch
+      .responder('GET /trampos/t1', () => ({
+        corpo: estado.vencedora === 'encerrado' ? ENCERRADO : TRAMPO,
+      }))
+      .responder('POST /trampos/t1/candidaturas/k1/aceitar', () => {
+        // O autor encerrou o trampo (em outro aparelho) antes do aceite.
+        estado.vencedora = 'encerrado';
+        return { status: 409, corpo: { erro: 'trampo_nao_aberto' } };
+      });
+    await abrir('/candidaturas/t1', fetch);
+    await aceitarAPrimeira();
+
+    // O aviso informativo da tela diz que o trampo está encerrado.
+    expect(
+      await screen.findByText(textos.candidaturasRecebidas.trampoEncerrado),
+    ).toBeOnTheScreen();
+    await avancar();
+    expect(screen.queryByText(textos.erros.aceite_perdido)).toBeNull();
+    expect(screen.queryByText(textos.erros.trampo_nao_aberto)).toBeNull();
+    expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(2);
+    expect(botoesAceitar()).toHaveLength(0);
+    semTextoCruDeErro();
+  });
+
+  it('R3: o texto de um aceite que espera a releitura do trampo não cobre o de outro aceite', async () => {
+    const { fetch } = criarFakeDoAutor();
+    fetch
+      .responder('GET /trampos/t1', [
+        { corpo: TRAMPO },
+        { corpo: TRAMPO, demoraMs: 1000 },
+      ])
+      .responder('POST /trampos/t1/candidaturas/k1/aceitar', {
+        status: 409,
+        corpo: { erro: 'trampo_nao_aberto' },
+      })
+      .responder('POST /trampos/t1/candidaturas/k2/aceitar', {
+        status: 500,
+        corpo: { erro: 'interno' },
+      });
+    await abrir('/candidaturas/t1', fetch);
+    await aceitarAPrimeira();
+    // A releitura do trampo ainda está no ar; começa o aceite da outra.
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.candidaturasRecebidas.aceitarDe('João Pereira'),
+      }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: textos.candidaturasRecebidas.confirmar,
+      }),
+    );
+    expect(
+      await screen.findByText(textos.erros.erro_servidor),
+    ).toBeOnTheScreen();
+    await avancar(1100);
+    expect(screen.queryByText(textos.erros.aceite_perdido)).toBeNull();
+    expect(screen.getByText(textos.erros.erro_servidor)).toBeOnTheScreen();
+  });
 
   it('erro sem conflito (500) mostra o texto e não recarrega', async () => {
     const { fetch } = criarFakeDoAutor();

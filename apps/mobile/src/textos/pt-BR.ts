@@ -115,6 +115,7 @@ export const textos = {
     fechado: 'Este trampo não recebe mais candidaturas.',
     seloAberto: 'Aberto',
     seloEmAndamento: 'Em andamento',
+    seloEncerrado: 'Encerrado',
   },
   detalheServico: {
     titulo: 'Serviço',
@@ -249,7 +250,7 @@ export const textos = {
     ajudaPrazo:
       'Digite dia, mês e ano; as barras entram sozinhas. Exemplo: 31/12/2026.',
     avisoVisibilidade:
-      'Título, descrição e cidade aparecem para quem usa o Trampo Já e não podem ser editados depois. Não coloque telefone, endereço ou documentos.',
+      'Título, descrição e cidade aparecem para quem usa o Trampo Já. Não coloque telefone, endereço ou documentos.',
     contador: (n: number, max: number): string => `${n} de ${max} caracteres`,
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
@@ -288,6 +289,7 @@ export const textos = {
     aberto: 'Aberto',
     emAndamento: 'Em andamento',
     ativo: 'Ativo',
+    encerrado: 'Encerrado',
   },
   candidaturasRecebidas: {
     titulo: 'Candidaturas recebidas',
@@ -311,6 +313,7 @@ export const textos = {
     verPerfil: (nome: string | null): string =>
       `Ver perfil de ${nome ?? 'candidato'}`,
     trampoEmAndamento: 'Este trampo está em andamento.',
+    trampoEncerrado: 'Este trampo está encerrado.',
     semConexaoMotivo: 'Sem conexão. Conecte-se para aceitar.',
     aceitaToast:
       'Candidatura aceita. Que tal combinar os detalhes na conversa?',
@@ -334,6 +337,79 @@ export const textos = {
     vazioServicoTexto: 'Ofereça o que você sabe fazer para ser encontrado.',
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
+  },
+  anuncio: {
+    maisOpcoes: (titulo: string): string => `Mais opções de ${titulo}`,
+    folhaTitulo: (titulo: string): string => `Opções de ${titulo}`,
+    editar: 'Editar',
+    encerrarTrampo: 'Encerrar trampo',
+    excluirTrampo: 'Excluir trampo',
+    excluirServico: 'Excluir serviço',
+    // Motivos das ações desabilitadas.
+    motivoEditarComCandidaturas:
+      'Não dá para editar um trampo que já recebeu candidaturas.',
+    motivoEditarEmAndamento: 'Não dá para editar um trampo que já começou.',
+    motivoEditarEncerrado: 'Não dá para editar um trampo encerrado.',
+    motivoExcluirNaoAberto: 'Só trampo aberto pode ser excluído.',
+    motivoSemConexao: 'Sem conexão. Conecte-se para continuar.',
+    // Encerrar (uma mensagem por status; encerrado não volta a abrir).
+    encerrarTitulo: 'Encerrar este trampo?',
+    encerrarTextoAberto:
+      'Ele sai da busca e deixa de receber candidaturas. As candidaturas pendentes são recusadas e as conversas continuam. Isso não pode ser desfeito.',
+    encerrarTextoEmAndamento:
+      'Ele é dado como encerrado. As conversas continuam. Isso não pode ser desfeito.',
+    encerrarConfirmar: 'Encerrar trampo',
+    encerrando: 'Encerrando…',
+    // Excluir.
+    excluirTrampoTitulo: 'Excluir este trampo?',
+    excluirTrampoTexto: (candidaturas: number): string =>
+      candidaturas > 0
+        ? `Ele some da busca e ${plural(candidaturas, 'a candidatura recebida também', `as ${candidaturas} candidaturas recebidas também`)}. As conversas continuam. Isso não pode ser desfeito.`
+        : 'Ele some da busca. Isso não pode ser desfeito.',
+    excluirServicoTitulo: 'Excluir este serviço?',
+    excluirServicoTexto:
+      'Este serviço some da busca. Isso não pode ser desfeito.',
+    excluindo: 'Excluindo…',
+    cancelar: 'Cancelar',
+    // Resultados.
+    trampoEncerrado: 'Trampo encerrado.',
+    trampoExcluido: 'Trampo excluído.',
+    servicoExcluido: 'Serviço excluído.',
+    jaNaoExiste: 'Este anúncio já não existe.',
+    erroAoEncerrar: 'Não foi possível encerrar. Tente de novo.',
+    erroAoExcluir: 'Não foi possível excluir. Tente de novo.',
+    // Edição.
+    tituloEditarTrampo: 'Editar trampo',
+    tituloEditarServico: 'Editar serviço',
+    salvarAlteracoes: 'Salvar alterações',
+    salvando: 'Salvando…',
+    alteracoesSalvas: 'Alterações salvas.',
+    semConexaoParaSalvar: 'Sem conexão. Conecte-se para salvar.',
+    conflito:
+      'Este anúncio foi alterado em outro lugar. Veja a versão atual; o que você mudou fica mantido. Salvar sem ver a versão atual não vai funcionar.',
+    verVersaoAtual: 'Ver versão atual',
+    dispensarConflito: 'Fechar aviso',
+    naoEditavel: 'Este trampo não pode mais ser editado.',
+    erroAoCarregar: 'Não foi possível carregar o anúncio.',
+    descartarTitulo: 'Descartar alterações?',
+    descartarTexto: 'O que você mudou nesta tela será perdido.',
+    descartar: 'Descartar',
+    continuarEditando: 'Continuar editando',
+  },
+  candidatura: {
+    retirar: 'Retirar candidatura',
+    retirando: 'Retirando…',
+    retirarDe: (titulo: string | null): string =>
+      titulo ? `Retirar candidatura de ${titulo}` : 'Retirar esta candidatura',
+    retirarTitulo: 'Retirar sua candidatura?',
+    retirarTexto:
+      'O empregador deixa de ver sua proposta. Você pode se candidatar de novo enquanto o trampo estiver aberto.',
+    manter: 'Manter candidatura',
+    fecharAviso: 'Fechar aviso',
+    retirada: 'Candidatura retirada.',
+    erroAoRetirar: 'Não foi possível retirar. Tente de novo.',
+    respondida: 'Esta candidatura já foi respondida e não pode ser retirada.',
+    semConexaoMotivo: 'Sem conexão. Conecte-se para retirar.',
   },
   contaEPrivacidade: {
     titulo: 'Conta e privacidade',
@@ -429,6 +505,8 @@ export const textos = {
       'Você fez muitas ações em pouco tempo. Aguarde um pouco e tente de novo mais tarde.',
     senha_incorreta: 'Senha incorreta. Confira e tente de novo.',
     conta_excluida: 'Sua conta foi excluída.',
+    exportacao_grande:
+      'Seus dados são grandes demais para o app gerar o arquivo. Para receber uma cópia, peça pelo e-mail de contato, na seção "Seus direitos" da Política de privacidade (Perfil, Conta e privacidade).',
     compartilhamento_indisponivel:
       'Não foi possível abrir as opções de compartilhamento neste aparelho. Tente de novo.',
     sessao_expirada: 'Sua sessão expirou. Entre de novo para continuar.',
@@ -471,6 +549,7 @@ export const textos = {
       'Você não pode se candidatar ao seu próprio trampo.',
     candidatura_duplicada: 'Você já se candidatou a este trampo.',
     trampo_nao_aberto: 'Este trampo não recebe mais candidaturas.',
+    trampo_nao_editavel: 'Este trampo não pode mais ser editado.',
     candidatura_nao_pendente:
       'Esta candidatura já foi respondida. Atualizamos a lista para você.',
     conflito_de_versao:

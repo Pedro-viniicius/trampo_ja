@@ -120,8 +120,11 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
     /**
      * CA13. Abre (ou reabre) a conversa de `quem` com `outroUsuarioId`:
      * - consigo mesmo → `ErroDeRegra('conversa_consigo_mesmo')` (409);
-     * - sem vínculo entre os dois → `ErroProibido('sem_vinculo')` (403);
-     * - par que já tem conversa → a existente, com `nova: false`.
+     * - par que já tem conversa → a existente, com `nova: false`, mesmo sem
+     *   vínculo restante: a conversa sobrevive à candidatura retirada e ao
+     *   trampo excluído (D35), então o vínculo não é conferido de novo;
+     * - sem conversa e sem vínculo entre os dois → `ErroProibido('sem_vinculo')`
+     *   (403).
      * Corrida: se outra requisição criar a conversa do par entre a busca e a
      * inserção, o repositório avisa (`par_ja_existe`) e a existente é
      * devolvida. Se ela sumir antes da releitura (a exclusão de conta de um
@@ -139,13 +142,14 @@ export function criarCasosDeUsoDeConversas(deps: DependenciasDeConversas) {
         id: gerarId(),
         agora: relogio.agora(),
       });
-      if (!(await verificadorDeVinculo.existeVinculoEntre(quem, outro))) {
-        throw new ErroProibido('sem_vinculo');
-      }
-
+      // A existente vem antes do vínculo (D35). A validação do id e a recusa
+      // de "consigo mesmo" ficam antes dela.
       const existente = await repositorio.buscarConversaDoPar(quem, outro);
       if (existente) {
         return { conversaId: existente.id, nova: false };
+      }
+      if (!(await verificadorDeVinculo.existeVinculoEntre(quem, outro))) {
+        throw new ErroProibido('sem_vinculo');
       }
       const resultado = await repositorio.inserirConversa(
         candidata,

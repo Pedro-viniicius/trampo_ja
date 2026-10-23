@@ -69,3 +69,23 @@ Aprovado pelo dono o plano `docs/produto/planos/pre-lancamento-lojas.md` (entreg
 32. **Corte:** L1 (conta, privacidade e limites), L2 (anúncios e candidaturas), L3 (endurecimento de segurança), L4 (qualidade).
 
 Pendências fora do código: hospedar na web a política de privacidade e a página de pedido de exclusão (exigências da Apple e do Google Play), revisão jurídica dos textos e prazo de guarda dos registros de acesso (Marco Civil, 6 meses).
+
+## 2026-10-23 — Pré-lançamento L2 (anúncios e candidaturas)
+
+Aprovado pelo dono o plano `docs/produto/planos/pre-lancamento-l2.md` (ADR-006: concorrência nas escritas de anúncio), com as divergências da spec resolvidas pelo plano: encerrar vale para trampo aberto ou em andamento; o motivo de não poder excluir é "Só trampo aberto pode ser excluído."; o trampo é editável por inteiro ou não é; sem "Pausar serviço".
+
+33. **Trava de versão:** só a edição (`PUT`) leva a `versao` lida pelo app e recebe 409 `conflito_de_versao`. Encerrar, excluir e retirar reaplicam a regra no servidor. `versao` e a contagem de candidaturas aparecem só para o autor. O serviço ganha `versao` na migração `0006`.
+34. **Encerrado é estado final:** o trampo encerrado não reabre, não é editado nem excluído e continua em Meus anúncios. Encerrar de novo responde 204 sem mudança. O trampo em andamento cuja contratada excluiu a conta (D25) se resolve encerrando.
+35. **Retirar candidatura** apaga a candidatura, que some de Minhas candidaturas. Retirar ou excluir trampo não mexe na conversa já aberta; uma conversa nova depende de outro vínculo (D4). Quem tinha candidatura num trampo excluído só a vê sumir, sem aviso.
+36. **Limites:** os `PUT` de anúncio contam em `publicacao` (30/h); excluir, encerrar e retirar contam em `escrita` (60/min).
+37. **Conflito na edição:** "Ver versão atual" recarrega o anúncio e mantém os campos que a pessoa já mexeu, sem área "Suas alterações".
+
+## 2026-10-23 — Pré-lançamento L3 (endurecimento de segurança)
+
+Aprovado pelo dono o plano `docs/produto/planos/pre-lancamento-l3.md` (ADR-007: limpeza periódica no processo da API, com lápide de conta excluída), a implementar depois da L2. Premissas aceitas: na atualização com a correção do iOS (S2) todos os aparelhos saem da conta uma vez; o 503 aparece no app como o erro genérico de servidor; órfãos anteriores à L3 não são varridos.
+
+40. **Limpeza periódica** dentro do processo da API, a cada 1 h: apaga as sessões expiradas e, pela lápide `contas_excluidas` (migração `0007`, só id e data), refaz a exclusão de cada conta excluída há mais de 10 min.
+41. **Teto da exportação:** 10 MiB, medido no banco. Acima disso, a API responde 409 `exportacao_grande` e o app orienta pedir os dados pelo e-mail de contato, com resposta manual em até 15 dias (LGPD, art. 19, II).
+42. **Tempos fixos:** espera máxima de 10 s na fila do scrypt e na da exportação, com 503 `servico_ocupado` e `retry-after` de 10 s. No banco, `statement_timeout` de 10 s, conexão em 5 s e transação ociosa em 30 s.
+43. **Retorno depois de "sessão expirada"** só vale para a mesma conta, comparada por uma impressão do e-mail guardada no secure-store junto com o token.
+44. **Banco fora da máquina** só com `sslmode=verify-full`. O `semear` só roda em banco local, a não ser com `--permitir-banco-remoto`.

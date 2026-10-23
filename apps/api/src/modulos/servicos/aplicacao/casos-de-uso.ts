@@ -19,10 +19,12 @@ import type {
 } from '../dominio/portas.js';
 import {
   criarServico,
+  type EntradaDeEdicaoDeServico,
   type EntradaDeServico,
   LIMITES_DO_SERVICO,
   type Servico,
   type StatusDeServico,
+  editarServico as substituirCampos,
 } from '../dominio/servico.js';
 
 export const LIMITE_PADRAO_DE_BUSCA = 20;
@@ -50,6 +52,28 @@ export interface PedidoDeBusca {
 export interface ServicoOfertado {
   readonly id: string;
   readonly status: StatusDeServico;
+}
+
+/**
+ * Serviço como quem pede o vê (D33): a `versao` só fica para o autor; para
+ * os demais, a propriedade não existe.
+ */
+export type VisaoDoServico = Omit<Servico, 'versao'> & {
+  readonly versao?: number;
+};
+
+/**
+ * `versao` do corpo da edição. Vem antes de qualquer leitura (passo do
+ * schema na ordem do plano), para o 400 não revelar se o serviço existe.
+ */
+function lerVersaoDaEdicao(bruta: unknown): number {
+  if (bruta === undefined || bruta === null) {
+    throw ErroDeValidacao.doCampo('versao', 'obrigatorio');
+  }
+  if (typeof bruta !== 'number' || !Number.isSafeInteger(bruta) || bruta < 1) {
+    throw ErroDeValidacao.doCampo('versao', 'invalido');
+  }
+  return bruta;
 }
 
 /**
@@ -178,12 +202,59 @@ export function criarCasosDeUsoDeServicos(deps: DependenciasDeServicos) {
       return { id: servico.id, status: servico.status };
     },
 
-    async obterServico(id: string): Promise<Servico> {
+    /**
+     * Detalhe do serviço para qualquer conta autenticada (D8). A `versao` só
+     * vai para o autor (D33).
+     */
+    async obterServico(id: string, quem: string): Promise<VisaoDoServico> {
       const servico = await repositorio.buscarPorId(id);
       if (!servico) {
         throw new ErroNaoEncontrado();
       }
-      return servico;
+      if (servico.autorId === quem) {
+        return servico;
+      }
+      const { versao: _versao, ...semVersao } = servico;
+      return semVersao;
+    },
+
+    /**
+     * CA26: o autor substitui os campos do serviço, mandando a `versao` lida.
+     * Ordem das checagens (plano, "Decisão"): `versao` ausente ou inválida
+     * (400), serviço inexistente ou de outra conta (404), versão velha (409
+     * `conflito_de_versao`) e só então os campos (400). Se a gravação não
+     * afetar linha, relê: o serviço sumiu (ou não é mais do autor) dá 404;
+     * senão, outra edição venceu e é conflito.
+     */
+    async editarServico(
+      autorId: string,
+      id: string,
+      dados: EntradaDeEdicaoDeServico | null | undefined,
+    ): Promise<void> {
+      const versaoLida = lerVersaoDaEdicao(dados?.versao);
+      const atual = await repositorio.buscarPorId(id);
+      if (!atual || atual.autorId !== autorId) {
+        throw new ErroNaoEncontrado();
+      }
+      if (atual.versao !== versaoLida) {
+        throw new ErroDeRegra('conflito_de_versao');
+      }
+      const editado = substituirCampos(atual, dados);
+      if (await repositorio.atualizar(editado)) {
+        return;
+      }
+      const relido = await repositorio.buscarPorId(id);
+      if (!relido || relido.autorId !== autorId) {
+        throw new ErroNaoEncontrado();
+      }
+      throw new ErroDeRegra('conflito_de_versao');
+    },
+
+    /** CA26: o autor apaga o serviço; de outra conta ou inexistente, 404. */
+    async excluirServico(autorId: string, id: string): Promise<void> {
+      if (!(await repositorio.excluir(id, autorId))) {
+        throw new ErroNaoEncontrado();
+      }
     },
 
     async listarMeusServicos(autorId: string): Promise<readonly Servico[]> {

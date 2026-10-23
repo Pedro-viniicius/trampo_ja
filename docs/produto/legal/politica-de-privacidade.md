@@ -1,8 +1,8 @@
 # Política de Privacidade — Trampo Já
 
-> **RASCUNHO — sujeito a revisão jurídica, não publicar.** Este texto é um rascunho de trabalho. Não é aconselhamento jurídico, não foi revisado por advogado e não vale como documento definitivo. Os trechos entre colchetes, como [NOME DO CONTROLADOR], [CPF/CNPJ], [E-MAIL DE CONTATO], [ENDEREÇO DE HOSPEDAGEM], [PRAZO E FORMA DE GUARDA DOS REGISTROS DE ACESSO] e [PRAZO DE CÓPIAS DE SEGURANÇA], ainda precisam ser preenchidos pelo responsável pelo app. A revisão jurídica deve confirmar, em especial, as bases legais, o prazo e a forma de guarda dos registros de acesso e o prazo das cópias de segurança. Versão 2026-10-22, redigida em 22 de outubro de 2026.
+> **RASCUNHO — sujeito a revisão jurídica, não publicar.** Este texto é um rascunho de trabalho. Não é aconselhamento jurídico, não foi revisado por advogado e não vale como documento definitivo. Os trechos entre colchetes, como [NOME DO CONTROLADOR], [CPF/CNPJ], [E-MAIL DE CONTATO], [ENDEREÇO DE HOSPEDAGEM], [PRAZO E FORMA DE GUARDA DOS REGISTROS DE ACESSO] e [PRAZO DE CÓPIAS DE SEGURANÇA], ainda precisam ser preenchidos pelo responsável pelo app. A revisão jurídica deve confirmar, em especial, as bases legais, o prazo e a forma de guarda dos registros de acesso e o prazo das cópias de segurança. Versão 2026-10-23, redigida em 23 de outubro de 2026.
 
-**Versão:** 2026-10-22
+**Versão:** 2026-10-23
 
 ## Quem somos e a quem este texto se aplica
 
@@ -56,21 +56,25 @@ Guardamos os dados da sua conta, do seu perfil, dos seus anúncios, das suas can
 
 Os registros de acesso ficam fora do banco de dados da conta e não são apagados quando você exclui a conta. Eles são guardados por pelo menos seis meses, pelo motivo legal explicado acima. O prazo máximo de guarda e a forma de eliminação dependem da hospedagem do serviço e serão estes: [PRAZO E FORMA DE GUARDA DOS REGISTROS DE ACESSO].
 
+Uma candidatura some se o autor excluir o trampo ou se você a retirar. Depois de respondida, ou com o trampo encerrado, ela fica guardada enquanto as duas contas existirem.
+
+As sessões que já expiraram são apagadas do servidor em cerca de 1 hora depois do vencimento, mesmo que você não saia da conta.
+
 Cópias de segurança do servidor, se existirem, são mantidas por [PRAZO DE CÓPIAS DE SEGURANÇA] e seguem para eliminação depois disso.
 
 ## Mensagens ficam guardadas
 
 As mensagens enviadas não podem ser apagadas uma a uma, nem por você nem pela outra pessoa da conversa. Pense antes de enviar: o que você escreve fica guardado no servidor e continua visível para a outra pessoa enquanto a conversa existir.
 
-Uma conversa só desaparece quando uma das duas contas é excluída: nesse caso, a conversa inteira, com as mensagens dos dois lados, é apagada para as duas pessoas.
+Retirar uma candidatura ou excluir um trampo não apaga a conversa. Uma conversa só desaparece quando uma das duas contas é excluída: nesse caso, a conversa inteira, com as mensagens dos dois lados, é apagada para as duas pessoas.
 
 ## Seus direitos
 
 A LGPD (art. 18) garante a você, entre outros direitos: confirmar que tratamos dados seus, acessá-los, corrigi-los, pedir a eliminação, pedir a portabilidade, saber com quem os compartilhamos e reclamar à Autoridade Nacional de Proteção de Dados (ANPD).
 
-Corrigir: edite o seu perfil no próprio aplicativo. Para corrigir outros dados, escreva para [E-MAIL DE CONTATO].
+Corrigir: edite o seu perfil no próprio aplicativo. Você também pode editar e excluir os seus anúncios no aplicativo, e retirar uma candidatura que ainda não foi respondida. Para corrigir outros dados, escreva para [E-MAIL DE CONTATO].
 
-Exportar: em Perfil, Conta e privacidade, você pode gerar um arquivo com os seus dados. É preciso informar a senha. O arquivo está em JSON e traz só os dados da sua conta: e-mail, datas das sessões, perfil, trampos, serviços, candidaturas e as mensagens que você enviou, além do identificador da outra pessoa em cada conversa. Ele não traz a senha, o token nem textos escritos por outras pessoas. O aplicativo grava um arquivo temporário no aparelho, abre a folha de compartilhamento do sistema para você escolher o destino e apaga o arquivo temporário depois.
+Exportar: em Perfil, Conta e privacidade, você pode gerar um arquivo com os seus dados. É preciso informar a senha. O arquivo está em JSON e traz só os dados da sua conta: e-mail, datas das sessões, perfil, trampos, serviços, candidaturas e as mensagens que você enviou, além do identificador da outra pessoa em cada conversa. Ele não traz a senha, o token nem textos escritos por outras pessoas. O aplicativo grava um arquivo temporário no aparelho, abre a folha de compartilhamento do sistema para você escolher o destino e apaga o arquivo temporário depois. Se os seus dados somarem mais de 10 MB, o aplicativo não consegue gerar o arquivo e avisa você. Nesse caso, peça a cópia dos dados escrevendo para [E-MAIL DE CONTATO]: respondemos em até 15 dias, como prevê a LGPD (art. 19, II).
 
 Excluir: em Perfil, Conta e privacidade, você pode excluir a conta. É preciso informar a senha, e a exclusão é imediata e definitiva, sem prazo de carência e sem como desfazer. Na mesma operação apagamos a conta, as sessões de todos os aparelhos, o perfil, os trampos que você publicou (com as candidaturas que eles receberam), os serviços, as candidaturas que você fez e as conversas de que você participa, com as mensagens dos dois lados.
 

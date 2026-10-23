@@ -12,8 +12,13 @@
  * Também exporta e exclui uma conta com a senha (CA24): senha errada,
  * exportação com o JSON cheio de sentinelas e exclusão.
  *
+ * CA35 (L2): edita trampo e serviço com sentinelas no corpo do `PUT`, nas
+ * respostas 204, 400, 404, 409 (`conflito_de_versao` e `trampo_nao_editavel`)
+ * e 500 (falha de banco forjada com os textos do `PUT` no `detail`).
+ *
  * No fim, o log inteiro é varrido: nenhuma sentinela (e-mail, senha, nome,
- * cidade, descrição, habilidade, título, texto de mensagem), nenhum texto do
+ * cidade, descrição, habilidade, título, texto de mensagem, textos dos `PUT`
+ * de anúncio), nenhum texto do
  * JSON exportado nem o token de sessão ou o SHA-256 dele podem aparecer, e
  * toda linha precisa ser JSON.
  *
@@ -39,6 +44,7 @@ const TABELAS = [
   'trampos',
   'servicos',
   'perfis',
+  'tentativas_de_entrada',
   'sessoes',
   'contas',
 ];
@@ -62,6 +68,12 @@ const TOKEN_FALSO = 'TokenFalsoSentinela0123456789abcdefABCDEF_-';
 const EMAIL_DO_OUTRO = 'outra.sentinela@exemplo.test';
 const NOME_DO_OUTRO = 'Outra Sentinela';
 const MENSAGEM_EXPORTADA = 'EXPORTADA-SENTINELA-852';
+// CA35: textos enviados no corpo dos `PUT` de trampo e de serviço.
+const TITULO_EDITADO = 'TITULO-EDITADO-SENTINELA-147 reparo';
+const DESCRICAO_EDITADA = 'DESCRICAO-EDITADA-SENTINELA-258';
+const TITULO_DO_SERVICO = 'SERVICO-TITULO-SENTINELA-369 pintura';
+const DESCRICAO_DO_SERVICO = 'SERVICO-DESCRICAO-SENTINELA-741';
+const CIDADE_EDITADA = 'Vila Editada Sentinela';
 
 /** Coletor do stream do pino: guarda cada `write` do logger. */
 const escritas: string[] = [];
@@ -78,6 +90,8 @@ const destino = {
  * Postgres faz numa violação de restrição (`Failing row contains (...)`).
  */
 let tabelaQueFalha: string | null = null;
+/** Textos a mais no `detail` do erro forjado (ex.: os do corpo do `PUT`). */
+let textosNoErroForjado: readonly string[] = [];
 
 function erroDoBancoForjado(): DatabaseError {
   const erro = new DatabaseError(
@@ -87,7 +101,7 @@ function erroDoBancoForjado(): DatabaseError {
   );
   erro.severity = 'ERROR';
   erro.code = '23514';
-  erro.detail = `Failing row contains (${TEXTO_DA_MENSAGEM}, ${EMAIL}, ${NOME}).`;
+  erro.detail = `Failing row contains (${[TEXTO_DA_MENSAGEM, EMAIL, NOME, ...textosNoErroForjado].join(', ')}).`;
   erro.where = `SQL statement with ${CIDADE}`;
   erro.hint = `Confira ${SENHA}`;
   erro.table = 'mensagens';
@@ -545,6 +559,166 @@ describe('CA15 — varredura dos logs da API com erros forçados', () => {
     }
   });
 
+  it('CA35 — PUT de trampo e de serviço com sentinelas: 204, 400, 404, 409 e 500', async () => {
+    const trampoEditado = {
+      titulo: TITULO_EDITADO,
+      descricao: DESCRICAO_EDITADA,
+      categoria: 'reformas',
+      cidade: CIDADE_EDITADA,
+      valorCentavos: 12_000,
+    };
+    const servicoEditado = {
+      titulo: TITULO_DO_SERVICO,
+      descricao: DESCRICAO_DO_SERVICO,
+      categoria: 'reformas',
+      cidade: CIDADE_EDITADA,
+      precoBaseCentavos: 8_000,
+    };
+    /** Nenhuma resposta (nem a de erro) devolve o texto enviado. */
+    const semEco = (resposta: Resposta): void => {
+      for (const texto of [
+        TITULO_EDITADO,
+        DESCRICAO_EDITADA,
+        TITULO_DO_SERVICO,
+        DESCRICAO_DO_SERVICO,
+        CIDADE_EDITADA,
+      ]) {
+        expect(resposta.texto, texto.slice(0, 6)).not.toContain(texto);
+      }
+    };
+    const editar = async (
+      url: string,
+      token: string,
+      corpo: Record<string, unknown>,
+      status: number,
+    ): Promise<Resposta> => {
+      const resposta = await pedir('PUT', url, { token, corpo });
+      expect(resposta.status, resposta.texto).toBe(status);
+      semEco(resposta);
+      return resposta;
+    };
+
+    // Trampo sem candidatura (o do começo já tem uma: não é editável).
+    const publicado = await pedir('POST', '/trampos', {
+      token: tokenSentinela,
+      corpo: { ...trampoEditado, titulo: 'Trampo para editar' },
+    });
+    expect(publicado.status).toBe(201);
+    const editavel = (publicado.corpo as { id: string }).id;
+    const urlDoTrampo = `/trampos/${editavel}`;
+
+    await editar(
+      urlDoTrampo,
+      tokenSentinela,
+      { ...trampoEditado, versao: 1 },
+      204,
+    );
+    const conflito = await editar(
+      urlDoTrampo,
+      tokenSentinela,
+      { ...trampoEditado, versao: 1 },
+      409,
+    );
+    expect(conflito.texto).toBe('{"erro":"conflito_de_versao"}');
+    await editar(
+      urlDoTrampo,
+      tokenSentinela,
+      { ...trampoEditado, titulo: `${TITULO_EDITADO} `.repeat(8), versao: 2 },
+      400,
+    );
+    await editar(
+      urlDoTrampo,
+      tokenSentinela,
+      { ...trampoEditado, versao: 2, autorId: contaOutro },
+      400,
+    );
+    await editar(
+      urlDoTrampo,
+      tokenSentinela,
+      { ...trampoEditado, versao: `${TITULO_EDITADO}` },
+      400,
+    );
+    await editar(urlDoTrampo, tokenOutro, { ...trampoEditado, versao: 2 }, 404);
+    const naoEditavel = await editar(
+      `/trampos/${trampoId}`,
+      tokenSentinela,
+      { ...trampoEditado, versao: 2 },
+      409,
+    );
+    expect(naoEditavel.texto).toBe('{"erro":"trampo_nao_editavel"}');
+
+    // Serviço: os mesmos caminhos.
+    const ofertado = await pedir('POST', '/servicos', {
+      token: tokenSentinela,
+      corpo: { ...servicoEditado, titulo: 'Servico para editar' },
+    });
+    expect(ofertado.status).toBe(201);
+    const urlDoServico = `/servicos/${(ofertado.corpo as { id: string }).id}`;
+    await editar(
+      urlDoServico,
+      tokenSentinela,
+      { ...servicoEditado, versao: 1 },
+      204,
+    );
+    await editar(
+      urlDoServico,
+      tokenSentinela,
+      { ...servicoEditado, versao: 1 },
+      409,
+    );
+    await editar(
+      urlDoServico,
+      tokenSentinela,
+      { ...servicoEditado, descricao: '', versao: 2 },
+      400,
+    );
+    await editar(
+      urlDoServico,
+      tokenSentinela,
+      { ...servicoEditado, versao: 2, status: 'pausado' },
+      400,
+    );
+    await editar(
+      urlDoServico,
+      tokenOutro,
+      { ...servicoEditado, versao: 2 },
+      404,
+    );
+
+    // Falha de banco na gravação, com os textos do `PUT` no `detail`.
+    textosNoErroForjado = [
+      TITULO_EDITADO,
+      DESCRICAO_EDITADA,
+      TITULO_DO_SERVICO,
+      DESCRICAO_DO_SERVICO,
+    ];
+    try {
+      tabelaQueFalha = 'servicos';
+      const falha = await editar(
+        urlDoServico,
+        tokenSentinela,
+        { ...servicoEditado, versao: 2 },
+        500,
+      );
+      expect(falha.texto).toBe('{"erro":"interno"}');
+      tabelaQueFalha = 'trampos';
+      const outra = await editar(
+        urlDoTrampo,
+        tokenSentinela,
+        { ...trampoEditado, versao: 2 },
+        500,
+      );
+      expect(outra.texto).toBe('{"erro":"interno"}');
+    } finally {
+      tabelaQueFalha = null;
+      textosNoErroForjado = [];
+    }
+
+    // O texto editado chegou ao banco: é ele que a varredura procura.
+    const lido = await pedir('GET', urlDoTrampo, { token: tokenSentinela });
+    expect(lido.corpo).toMatchObject({ titulo: TITULO_EDITADO, versao: 2 });
+  });
+
   it(
     'CA24 — exportação e exclusão com a senha: senha errada (403), exportação (200) e exclusão (204)',
     async () => {
@@ -671,6 +845,11 @@ describe('CA15 — varredura dos logs da API com erros forçados', () => {
       TOKEN_FALSO,
       MENSAGEM_EXPORTADA,
       'categoria-sentinela',
+      TITULO_EDITADO,
+      DESCRICAO_EDITADA,
+      TITULO_DO_SERVICO,
+      DESCRICAO_DO_SERVICO,
+      CIDADE_EDITADA,
     ];
     for (const sentinela of sentinelas) {
       for (const forma of [

@@ -4,11 +4,21 @@ import {
   Aviso,
   Botao,
   CampoDeTexto,
+  DialogoDeConfirmacao,
   EstadoVazio,
   Seletor,
 } from '../componentes';
 import { textos } from '../textos/pt-BR';
-import { Formulario, Paragrafo, Rolavel, useFocarPrimeiroErro } from './base';
+import {
+  Carregando,
+  ErroDoBloco,
+  Formulario,
+  NaoEncontrado,
+  Paragrafo,
+  RolarAoTopo,
+  Rolavel,
+  useFocarPrimeiroErro,
+} from './base';
 import type { PropsDoFormularioDeAnuncio } from './tipos';
 
 const LIMITE_DO_TITULO = 80;
@@ -30,6 +40,7 @@ export function FormularioDeAnuncio({
   perfilIncompleto,
   publicado,
   tentativa,
+  edicao,
   onMudar,
   onMudarCategoria,
   onSairDoCampo,
@@ -62,9 +73,52 @@ export function FormularioDeAnuncio({
     tentativa,
   );
 
-  const titulo = ehTrampo ? t.tituloTrampo : t.tituloServico;
+  const a = textos.anuncio;
+  const editando = edicao !== undefined;
+  const titulo = editando
+    ? ehTrampo
+      ? a.tituloEditarTrampo
+      : a.tituloEditarServico
+    : ehTrampo
+      ? t.tituloTrampo
+      : t.tituloServico;
 
-  if (publicado) {
+  const dialogoDeDescarte = edicao ? (
+    <DialogoDeConfirmacao
+      visivel={edicao.descartarVisivel}
+      titulo={a.descartarTitulo}
+      mensagem={a.descartarTexto}
+      textoConfirmar={a.descartar}
+      textoCancelar={a.continuarEditando}
+      destrutivo
+      onConfirmar={edicao.onDescartar}
+      onCancelar={edicao.onContinuarEditando}
+    />
+  ) : null;
+
+  if (edicao && edicao.situacao !== 'pronta') {
+    return (
+      <>
+        <Rolavel titulo={titulo} onVoltar={onVoltar} semConexao={semConexao}>
+          {edicao.situacao === 'carregando' ? <Carregando cartoes={1} /> : null}
+          {edicao.situacao === 'erro' ? (
+            <ErroDoBloco
+              mensagem={a.erroAoCarregar}
+              onTentarDeNovo={edicao.onTentarDeNovo}
+            />
+          ) : null}
+          {edicao.situacao === 'nao_encontrado' ? (
+            <NaoEncontrado onVoltar={onVoltar} />
+          ) : null}
+        </Rolavel>
+        {dialogoDeDescarte}
+      </>
+    );
+  }
+  const camposBloqueados = Boolean(edicao?.naoEditavel);
+  const motivoBloqueio = edicao?.motivoNaoEditavel ?? a.naoEditavel;
+
+  if (publicado && !editando) {
     return (
       <Rolavel
         titulo={titulo}
@@ -96,134 +150,181 @@ export function FormularioDeAnuncio({
   const rotuloDaCategoria =
     categorias.find((item) => item.id === valores.categoria)?.rotulo ?? null;
   const enviar = () => {
-    if (!enviando && !semConexao) onEnviar();
+    if (!enviando && !semConexao && !camposBloqueados) onEnviar();
   };
 
-  return (
-    <Formulario
-      titulo={titulo}
-      onVoltar={onVoltar}
-      semConexao={semConexao}
-      rodape={
-        perfilIncompleto ? (
-          <>
-            <Botao
-              texto={textos.avisoPerfil.completar}
-              onPress={onCompletarPerfil}
-            />
-            <Botao
-              texto={textos.avisoPerfil.agoraNao}
-              variante="texto"
-              onPress={onAgoraNao}
-            />
-          </>
-        ) : (
-          <>
-            {semConexao ? (
-              <Paragrafo texto={t.semConexaoMotivo} secundario />
-            ) : null}
-            <Botao
-              texto={ehTrampo ? t.publicarTrampo : t.ofertarServico}
-              accessibilityHint={semConexao ? t.semConexaoMotivo : undefined}
-              textoCarregando={t.enviando}
-              carregando={enviando}
-              desabilitado={Boolean(semConexao)}
-              onPress={enviar}
-            />
-          </>
-        )
-      }
-    >
-      {perfilIncompleto ? (
-        <Aviso
-          variante="info"
-          texto={textos.avisoPerfil.mensagem(perfilIncompleto.falta)}
-        />
+  const rodape = edicao ? (
+    <>
+      {camposBloqueados ? (
+        <Aviso variante="info" texto={motivoBloqueio} />
+      ) : semConexao ? (
+        <Paragrafo texto={a.semConexaoParaSalvar} secundario />
       ) : null}
-      {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
-      <Aviso variante="info" texto={t.avisoVisibilidade} />
-      <CampoDeTexto
-        rotulo={t.titulo}
-        valor={valores.titulo}
-        onChangeText={(texto) => onMudar('titulo', texto)}
-        erro={erros.titulo}
-        onBlur={() => onSairDoCampo('titulo')}
-        inputRef={refTitulo}
-        maxLength={LIMITE_DO_TITULO}
-        contador={t.contador(
-          contarCaracteres(valores.titulo),
-          LIMITE_DO_TITULO,
-        )}
-        returnKeyType="next"
-        onSubmitEditing={() => refDescricao.current?.focus()}
-      />
-      <CampoDeTexto
-        rotulo={t.descricao}
-        valor={valores.descricao}
-        onChangeText={(texto) => onMudar('descricao', texto)}
-        erro={erros.descricao}
-        onBlur={() => onSairDoCampo('descricao')}
-        inputRef={refDescricao}
-        multiline
-        maxLength={LIMITE_DA_DESCRICAO}
-        contador={t.contador(
-          contarCaracteres(valores.descricao),
-          LIMITE_DA_DESCRICAO,
-        )}
-      />
-      <Seletor
-        rotulo={t.categoria}
-        valor={rotuloDaCategoria}
-        textoVazio={t.escolherCategoria}
-        opcoes={categorias.map((item) => item.rotulo)}
-        rotuloDePesquisa={t.pesquisarCategoria}
-        textoSemOpcoes={textos.buscar.semOpcoes}
-        erro={erros.categoria}
-        gatilhoRef={refCategoria}
-        onSelecionar={(rotulo) =>
-          onMudarCategoria(
-            categorias.find((item) => item.rotulo === rotulo)?.id ?? null,
-          )
+      <Botao
+        texto={a.salvarAlteracoes}
+        accessibilityHint={
+          camposBloqueados
+            ? motivoBloqueio
+            : semConexao
+              ? a.semConexaoParaSalvar
+              : undefined
         }
+        textoCarregando={a.salvando}
+        carregando={enviando}
+        desabilitado={Boolean(semConexao) || camposBloqueados}
+        onPress={enviar}
       />
-      <CampoDeTexto
-        rotulo={ehTrampo ? t.cidade : t.cidadeOpcional}
-        ajuda={ehTrampo ? undefined : t.ajudaCidadeServico}
-        valor={valores.cidade}
-        onChangeText={(texto) => onMudar('cidade', texto)}
-        erro={erros.cidade}
-        onBlur={() => onSairDoCampo('cidade')}
-        inputRef={refCidade}
-        maxLength={LIMITE_DA_CIDADE}
-        autoComplete="postal-address-locality"
-        textContentType="addressCity"
-        returnKeyType="next"
-        onSubmitEditing={() => refValor.current?.focus()}
+    </>
+  ) : perfilIncompleto ? (
+    <>
+      <Botao texto={textos.avisoPerfil.completar} onPress={onCompletarPerfil} />
+      <Botao
+        texto={textos.avisoPerfil.agoraNao}
+        variante="texto"
+        onPress={onAgoraNao}
       />
-      <CampoDeTexto
-        rotulo={ehTrampo ? t.valor : t.precoBase}
-        ajuda={textos.gerais.ajudaValor}
-        tipo="decimal"
-        valor={valores.valor}
-        onChangeText={(texto) => onMudar('valor', texto)}
-        onBlur={() => onSairDoCampo('valor')}
-        erro={erros.valor}
-        inputRef={refValor}
-        maxLength={LIMITE_DO_VALOR}
+    </>
+  ) : (
+    <>
+      {semConexao ? <Paragrafo texto={t.semConexaoMotivo} secundario /> : null}
+      <Botao
+        texto={ehTrampo ? t.publicarTrampo : t.ofertarServico}
+        accessibilityHint={semConexao ? t.semConexaoMotivo : undefined}
+        textoCarregando={t.enviando}
+        carregando={enviando}
+        desabilitado={Boolean(semConexao)}
+        onPress={enviar}
       />
-      {ehTrampo ? (
-        <CampoDeTexto
-          rotulo={t.prazo}
-          ajuda={t.ajudaPrazo}
-          tipo="numero"
-          valor={valores.prazo}
-          onChangeText={(texto) => onMudar('prazo', texto)}
-          onBlur={() => onSairDoCampo('prazo')}
-          erro={erros.prazo}
-          inputRef={refPrazo}
-          maxLength={LIMITE_DO_PRAZO}
+    </>
+  );
+
+  return (
+    <>
+      <Formulario
+        titulo={titulo}
+        onVoltar={onVoltar}
+        semConexao={semConexao}
+        rodape={rodape}
+      >
+        <RolarAoTopo
+          quando={Boolean(edicao?.conflito || erros.geral)}
+          tentativa={tentativa}
         />
-      ) : null}
-    </Formulario>
+        {edicao?.conflito ? (
+          <>
+            <Aviso
+              variante="erro"
+              texto={a.conflito}
+              textoAcao={a.verVersaoAtual}
+              onAcao={edicao.onVerVersaoAtual}
+            />
+            <Botao
+              texto={a.dispensarConflito}
+              variante="texto"
+              onPress={edicao.onDispensarConflito}
+            />
+          </>
+        ) : null}
+        {!editando && perfilIncompleto ? (
+          <Aviso
+            variante="info"
+            texto={textos.avisoPerfil.mensagem(perfilIncompleto.falta)}
+          />
+        ) : null}
+        {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
+        {editando ? null : (
+          <Aviso variante="info" texto={t.avisoVisibilidade} />
+        )}
+        <CampoDeTexto
+          rotulo={t.titulo}
+          valor={valores.titulo}
+          onChangeText={(texto) => onMudar('titulo', texto)}
+          erro={erros.titulo}
+          onBlur={() => onSairDoCampo('titulo')}
+          inputRef={refTitulo}
+          editable={!camposBloqueados}
+          maxLength={LIMITE_DO_TITULO}
+          contador={t.contador(
+            contarCaracteres(valores.titulo),
+            LIMITE_DO_TITULO,
+          )}
+          returnKeyType="next"
+          onSubmitEditing={() => refDescricao.current?.focus()}
+        />
+        <CampoDeTexto
+          rotulo={t.descricao}
+          valor={valores.descricao}
+          onChangeText={(texto) => onMudar('descricao', texto)}
+          erro={erros.descricao}
+          onBlur={() => onSairDoCampo('descricao')}
+          inputRef={refDescricao}
+          editable={!camposBloqueados}
+          multiline
+          maxLength={LIMITE_DA_DESCRICAO}
+          contador={t.contador(
+            contarCaracteres(valores.descricao),
+            LIMITE_DA_DESCRICAO,
+          )}
+        />
+        <Seletor
+          rotulo={t.categoria}
+          valor={rotuloDaCategoria}
+          textoVazio={t.escolherCategoria}
+          opcoes={categorias.map((item) => item.rotulo)}
+          rotuloDePesquisa={t.pesquisarCategoria}
+          textoSemOpcoes={textos.buscar.semOpcoes}
+          erro={erros.categoria}
+          gatilhoRef={refCategoria}
+          desabilitado={camposBloqueados}
+          onSelecionar={(rotulo) =>
+            onMudarCategoria(
+              categorias.find((item) => item.rotulo === rotulo)?.id ?? null,
+            )
+          }
+        />
+        <CampoDeTexto
+          rotulo={ehTrampo ? t.cidade : t.cidadeOpcional}
+          ajuda={ehTrampo ? undefined : t.ajudaCidadeServico}
+          valor={valores.cidade}
+          onChangeText={(texto) => onMudar('cidade', texto)}
+          erro={erros.cidade}
+          onBlur={() => onSairDoCampo('cidade')}
+          inputRef={refCidade}
+          editable={!camposBloqueados}
+          maxLength={LIMITE_DA_CIDADE}
+          autoComplete="postal-address-locality"
+          textContentType="addressCity"
+          returnKeyType="next"
+          onSubmitEditing={() => refValor.current?.focus()}
+        />
+        <CampoDeTexto
+          rotulo={ehTrampo ? t.valor : t.precoBase}
+          ajuda={textos.gerais.ajudaValor}
+          tipo="decimal"
+          valor={valores.valor}
+          onChangeText={(texto) => onMudar('valor', texto)}
+          onBlur={() => onSairDoCampo('valor')}
+          erro={erros.valor}
+          inputRef={refValor}
+          editable={!camposBloqueados}
+          maxLength={LIMITE_DO_VALOR}
+        />
+        {ehTrampo ? (
+          <CampoDeTexto
+            rotulo={t.prazo}
+            ajuda={t.ajudaPrazo}
+            tipo="numero"
+            valor={valores.prazo}
+            onChangeText={(texto) => onMudar('prazo', texto)}
+            onBlur={() => onSairDoCampo('prazo')}
+            erro={erros.prazo}
+            inputRef={refPrazo}
+            editable={!camposBloqueados}
+            maxLength={LIMITE_DO_PRAZO}
+          />
+        ) : null}
+      </Formulario>
+      {dialogoDeDescarte}
+    </>
   );
 }

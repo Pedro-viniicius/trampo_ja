@@ -1,4 +1,5 @@
 import {
+  notifyManager,
   onlineManager,
   QueryClient,
   type QueryKey,
@@ -30,10 +31,15 @@ import { useSessao } from '../sessao';
 import {
   type ContextoDaMutacao,
   TETO_DA_RECARGA_MS,
+  useEditarServico,
+  useEditarTrampo,
+  useEncerrarTrampo,
+  useExcluirAnuncio,
   useMeusServicos,
   useMeusTrampos,
   useOfertarServico,
   usePublicarTrampo,
+  useServico,
   useTrampo,
   useTramposPorIds,
 } from './anuncios';
@@ -43,6 +49,7 @@ import {
   useCandidatar,
   useCandidaturasRecebidas,
   useMinhasCandidaturas,
+  useRetirarCandidatura,
 } from './candidaturas';
 import { chaves } from './chaves';
 import { usePerfilPublico, usePerfisPublicos } from './perfil';
@@ -67,7 +74,7 @@ function trampo(id: string, extras: Partial<Trampo> = {}): Trampo {
   };
 }
 
-function servico(id: string): Servico {
+function servico(id: string, extras: Partial<Servico> = {}): Servico {
   return {
     id,
     autorId: 'conta-autora',
@@ -78,6 +85,7 @@ function servico(id: string): Servico {
     precoBaseCentavos: 8_000,
     status: 'ativo',
     criadoEm: '2026-10-01T10:00:00.000Z',
+    ...extras,
   };
 }
 
@@ -436,6 +444,120 @@ const CASOS: readonly CasoDeMutacao[] = [
       depois: trampo('t1', { status: 'em_andamento' }),
     },
   },
+  {
+    nome: 'useEditarTrampo (CA32)',
+    usar: () =>
+      adaptar(useEditarTrampo('t1'), { ...ENTRADA_TRAMPO, versao: 3 }),
+    rota: 'PUT /trampos/t1',
+    resposta: { status: 204 },
+    caminho: '/trampos/t1',
+    corpo: { ...ENTRADA_TRAMPO, versao: 3 },
+    devolve: undefined,
+    essenciais: [['trampo', 't1'], ['meusTrampos']],
+    demais: [['recentes', 'trampos'], ['busca']],
+    lista: {
+      usar: () => useTrampo('t1'),
+      rota: 'GET /trampos/t1',
+      chave: chaves.trampo('t1'),
+      antes: trampo('t1', { versao: 3 }),
+      depois: trampo('t1', { titulo: 'Pintar o quarto', versao: 4 }),
+    },
+  },
+  {
+    nome: 'useEditarServico (CA32)',
+    usar: () =>
+      adaptar(useEditarServico('s1'), { ...ENTRADA_SERVICO, versao: 2 }),
+    rota: 'PUT /servicos/s1',
+    resposta: { status: 204 },
+    caminho: '/servicos/s1',
+    corpo: { ...ENTRADA_SERVICO, versao: 2 },
+    devolve: undefined,
+    essenciais: [['servico', 's1'], ['meusServicos']],
+    demais: [['recentes', 'servicos'], ['busca']],
+    lista: {
+      usar: () => useServico('s1'),
+      rota: 'GET /servicos/s1',
+      chave: chaves.servico('s1'),
+      antes: servico('s1', { versao: 2 }),
+      depois: servico('s1', { titulo: 'Novo título', versao: 3 }),
+    },
+  },
+  {
+    nome: 'useEncerrarTrampo (CA33)',
+    usar: () => adaptar(useEncerrarTrampo(), 't1'),
+    rota: 'POST /trampos/t1/encerrar',
+    resposta: { status: 204 },
+    caminho: '/trampos/t1/encerrar',
+    corpo: undefined,
+    devolve: undefined,
+    essenciais: [['trampo', 't1'], ['meusTrampos']],
+    demais: [
+      ['candidaturasRecebidas', 't1'],
+      ['recentes', 'trampos'],
+      ['busca'],
+    ],
+    lista: {
+      usar: () => useTrampo('t1'),
+      rota: 'GET /trampos/t1',
+      chave: chaves.trampo('t1'),
+      antes: trampo('t1'),
+      depois: trampo('t1', { status: 'encerrado' }),
+    },
+  },
+  {
+    nome: "useExcluirAnuncio('trampo') (CA33)",
+    usar: () => adaptar(useExcluirAnuncio('trampo'), 't1'),
+    rota: 'DELETE /trampos/t1',
+    resposta: { status: 204 },
+    caminho: '/trampos/t1',
+    corpo: undefined,
+    devolve: undefined,
+    essenciais: [['meusTrampos']],
+    demais: [['recentes', 'trampos'], ['busca']],
+    lista: {
+      usar: useMeusTrampos,
+      rota: 'GET /trampos/meus',
+      chave: chaves.meusTrampos(),
+      antes: [trampo('t1')],
+      depois: [],
+    },
+  },
+  {
+    nome: "useExcluirAnuncio('servico') (CA33)",
+    usar: () => adaptar(useExcluirAnuncio('servico'), 's1'),
+    rota: 'DELETE /servicos/s1',
+    resposta: { status: 204 },
+    caminho: '/servicos/s1',
+    corpo: undefined,
+    devolve: undefined,
+    essenciais: [['meusServicos']],
+    demais: [['recentes', 'servicos'], ['busca']],
+    lista: {
+      usar: useMeusServicos,
+      rota: 'GET /servicos/meus',
+      chave: chaves.meusServicos(),
+      antes: [servico('s1')],
+      depois: [],
+    },
+  },
+  {
+    nome: 'useRetirarCandidatura (CA34)',
+    usar: () => adaptar(useRetirarCandidatura(), 'c1'),
+    rota: 'DELETE /candidaturas/c1',
+    resposta: { status: 204 },
+    caminho: '/candidaturas/c1',
+    corpo: undefined,
+    devolve: undefined,
+    essenciais: [['minhasCandidaturas']],
+    demais: [],
+    lista: {
+      usar: useMinhasCandidaturas,
+      rota: 'GET /candidaturas/minhas',
+      chave: chaves.minhasCandidaturas(),
+      antes: [minha('c1', 't1')],
+      depois: [],
+    },
+  },
 ];
 
 describe.each(CASOS)('$nome', (caso) => {
@@ -778,6 +900,346 @@ describe('erros das mutações', () => {
       'sessao_expirada',
     );
     expect(provedores.armazenamento.atual()).toBeNull();
+  });
+});
+
+describe('exclusão tira o anúncio do cache em vez de recarregá-lo (CA33)', () => {
+  // O aviso do TanStack aos componentes sai numa microtarefa (e não num
+  // `setTimeout(0)`), dentro do `await` do teste.
+  beforeEach(() => {
+    notifyManager.setScheduler((f) => {
+      void Promise.resolve().then(f);
+    });
+  });
+  afterEach(() => {
+    notifyManager.setScheduler((f) => setTimeout(f, 0));
+  });
+
+  it('o detalhe do trampo e as candidaturas recebidas saem do cache, sem GET que daria 404', async () => {
+    const provedores = autenticado({
+      queryClient: criarQueryClient(TEMPO_FRESCO_MS),
+    });
+    provedores.fetch
+      .responder('GET /trampos/meus', [
+        { corpo: [trampo('t1'), trampo('t2')] },
+        { corpo: [trampo('t2')] },
+      ])
+      .responder('GET /trampos/t1', {
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      })
+      .responder('DELETE /trampos/t1', { status: 204 });
+    const { queryClient } = provedores;
+    queryClient.setQueryData(chaves.trampo('t1'), trampo('t1'));
+    queryClient.setQueryData(chaves.trampo('t2'), trampo('t2'));
+    queryClient.setQueryData(chaves.candidaturasRecebidas('t1'), []);
+    queryClient.setQueryData(chaves.candidaturasRecebidas('t2'), []);
+    const { result } = await montar(
+      () => ({
+        meus: useMeusTrampos(),
+        mutacao: adaptar(useExcluirAnuncio('trampo'), 't1'),
+      }),
+      provedores,
+    );
+    await waitFor(() =>
+      expect(result.current.dados.meus.trampos).toHaveLength(2),
+    );
+
+    await act(async () => {
+      await result.current.dados.mutacao.enviar();
+    });
+
+    expect(queryClient.getQueryState(chaves.trampo('t1'))).toBeUndefined();
+    expect(
+      queryClient.getQueryState(chaves.candidaturasRecebidas('t1')),
+    ).toBeUndefined();
+    // O de outro trampo fica como estava.
+    expect(queryClient.getQueryData(chaves.trampo('t2'))).toEqual(trampo('t2'));
+    expect(
+      queryClient.getQueryData(chaves.candidaturasRecebidas('t2')),
+    ).toEqual([]);
+    expect(requisicoesPara(provedores, 'GET', '/trampos/t1')).toHaveLength(0);
+    expect(
+      requisicoesPara(provedores, 'GET', '/trampos/t1/candidaturas'),
+    ).toHaveLength(0);
+    // A lista "meus" é recarregada.
+    await waitFor(() =>
+      expect(result.current.dados.meus.trampos).toEqual([trampo('t2')]),
+    );
+    await waitFor(() =>
+      expect(result.current.dados.mutacao.status).toBe('success'),
+    );
+  });
+
+  it('o detalhe que uma tela ainda observa não é recarregado (daria 404): fica velho e a próxima abertura o pede', async () => {
+    const provedores = autenticado({
+      queryClient: criarQueryClient(TEMPO_FRESCO_MS),
+    });
+    provedores.fetch
+      .responder('GET /trampos/t1', [
+        { corpo: trampo('t1') },
+        { status: 404, corpo: { erro: 'nao_encontrado' } },
+      ])
+      .responder('GET /trampos/meus', { corpo: [] })
+      .responder('DELETE /trampos/t1', { status: 204 });
+    const { queryClient } = provedores;
+    const { result, unmount } = await montar(
+      () => ({
+        detalhe: useTrampo('t1'),
+        mutacao: adaptar(useExcluirAnuncio('trampo'), 't1'),
+      }),
+      provedores,
+    );
+    await waitFor(() =>
+      expect(result.current.dados.detalhe.trampo).not.toBeNull(),
+    );
+
+    await act(async () => {
+      await result.current.dados.mutacao.enviar();
+    });
+    await waitFor(() =>
+      expect(result.current.dados.mutacao.status).toBe('success'),
+    );
+    // Várias renderizações depois, a tela segue com o dado e sem nova requisição.
+    await act(async () => {
+      await new Promise((resolver) => setTimeout(resolver, 20));
+    });
+
+    expect(requisicoesPara(provedores, 'GET', '/trampos/t1')).toHaveLength(1);
+    expect(result.current.dados.detalhe.trampo).toEqual(trampo('t1'));
+    expect(queryClient.getQueryState(chaves.trampo('t1'))?.isInvalidated).toBe(
+      true,
+    );
+
+    await unmount();
+    const depois = await montar(() => useTrampo('t1'), provedores);
+
+    await waitFor(() =>
+      expect(requisicoesPara(provedores, 'GET', '/trampos/t1')).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(depois.result.current.dados.erro).toBeInstanceOf(ErroDaApi),
+    );
+  });
+
+  it('as chaves seguem a entrada: outro id invalida as chaves do outro id', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder('POST /trampos/t9/encerrar', { status: 204 });
+    const { result } = await montar(() => useEncerrarTrampo(), provedores);
+    const invalidar = jest.spyOn(provedores.queryClient, 'invalidateQueries');
+
+    await act(async () => {
+      await result.current.dados.mutateAsync('t9');
+    });
+
+    expect(invalidar.mock.calls.map(([f]) => f?.queryKey)).toEqual([
+      ['trampo', 't9'],
+      ['meusTrampos'],
+      ['candidaturasRecebidas', 't9'],
+      ['recentes', 'trampos'],
+      ['busca'],
+    ]);
+    await waitFor(() => expect(result.current.dados.status).toBe('success'));
+  });
+
+  it('a exclusão do serviço tira só o serviço do cache, não o trampo de mesmo id', async () => {
+    const provedores = autenticado();
+    provedores.fetch
+      .responder('GET /servicos/meus', { corpo: [] })
+      .responder('DELETE /servicos/x1', { status: 204 });
+    const { queryClient } = provedores;
+    queryClient.setQueryData(chaves.servico('x1'), servico('x1'));
+    queryClient.setQueryData(chaves.trampo('x1'), trampo('x1'));
+    const { result } = await montar(
+      () => adaptar(useExcluirAnuncio('servico'), 'x1'),
+      provedores,
+    );
+
+    await act(async () => {
+      await result.current.dados.enviar();
+    });
+
+    expect(queryClient.getQueryState(chaves.servico('x1'))).toBeUndefined();
+    expect(queryClient.getQueryData(chaves.trampo('x1'))).toEqual(trampo('x1'));
+    await waitFor(() => expect(result.current.dados.status).toBe('success'));
+  });
+
+  it('o 409 (trampo que deixou de estar aberto) e o 404 não tiram nada do cache nem invalidam', async () => {
+    const provedores = autenticado();
+    provedores.fetch
+      .responder('DELETE /trampos/t1', {
+        status: 409,
+        corpo: { erro: 'trampo_nao_aberto' },
+      })
+      .responder('DELETE /trampos/t2', {
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      });
+    const { queryClient } = provedores;
+    queryClient.setQueryData(chaves.trampo('t1'), trampo('t1'));
+    queryClient.setQueryData(chaves.trampo('t2'), trampo('t2'));
+    const { result } = await montar(
+      () => useExcluirAnuncio('trampo'),
+      provedores,
+    );
+    const remover = jest.spyOn(queryClient, 'removeQueries');
+    const invalidar = jest.spyOn(queryClient, 'invalidateQueries');
+
+    const erros: unknown[] = [];
+    for (const id of ['t1', 't2']) {
+      await act(async () => {
+        await result.current.dados.mutateAsync(id).catch((e) => erros.push(e));
+      });
+    }
+
+    await waitFor(() => expect(result.current.dados.status).toBe('error'));
+    expect(erros.map((e) => (e as ErroDaApi).status)).toEqual([409, 404]);
+    expect((erros[0] as ErroDaApi).codigo).toBe('trampo_nao_aberto');
+    expect(remover).not.toHaveBeenCalled();
+    expect(invalidar).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(chaves.trampo('t1'))).toEqual(trampo('t1'));
+    expect(queryClient.getQueryData(chaves.trampo('t2'))).toEqual(trampo('t2'));
+  });
+
+  it('se a sessão mudou durante a exclusão, nada sai do cache', async () => {
+    const provedores = autenticado();
+    provedores.fetch
+      .responder('DELETE /trampos/t1', { status: 204, demoraMs: 30 })
+      .responder('DELETE /sessoes', { status: 204 });
+    const { result } = await montar(
+      () => adaptar(useExcluirAnuncio('trampo'), 't1'),
+      provedores,
+    );
+    const remover = jest.spyOn(provedores.queryClient, 'removeQueries');
+
+    let enviada: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      enviada = result.current.dados.enviar();
+      await Promise.resolve();
+    });
+    await act(() => result.current.sessao.sair());
+    await act(() => result.current.sessao.entrar(TOKEN_NOVO));
+    await act(async () => {
+      await enviada;
+    });
+
+    expect(remover).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.dados.status).toBe('success'));
+  });
+});
+
+describe('erros das mutações da L2', () => {
+  // O aviso do TanStack aos componentes sai numa microtarefa (e não num
+  // `setTimeout(0)`), dentro do `await` do teste.
+  beforeEach(() => {
+    notifyManager.setScheduler((f) => {
+      void Promise.resolve().then(f);
+    });
+  });
+  afterEach(() => {
+    notifyManager.setScheduler((f) => setTimeout(f, 0));
+  });
+
+  it.each([
+    [
+      'useEditarTrampo',
+      409,
+      'trampo_nao_editavel',
+      'PUT /trampos/t1',
+      () => adaptar(useEditarTrampo('t1'), { ...ENTRADA_TRAMPO, versao: 1 }),
+    ],
+    [
+      'useEditarTrampo',
+      409,
+      'conflito_de_versao',
+      'PUT /trampos/t1',
+      () => adaptar(useEditarTrampo('t1'), { ...ENTRADA_TRAMPO, versao: 1 }),
+    ],
+    [
+      'useEditarServico',
+      409,
+      'conflito_de_versao',
+      'PUT /servicos/s1',
+      () => adaptar(useEditarServico('s1'), { ...ENTRADA_SERVICO, versao: 1 }),
+    ],
+    [
+      'useEncerrarTrampo',
+      404,
+      'nao_encontrado',
+      'POST /trampos/t1/encerrar',
+      () => adaptar(useEncerrarTrampo(), 't1'),
+    ],
+    [
+      'useExcluirAnuncio',
+      409,
+      'trampo_nao_aberto',
+      'DELETE /trampos/t1',
+      () => adaptar(useExcluirAnuncio('trampo'), 't1'),
+    ],
+    [
+      'useRetirarCandidatura',
+      409,
+      'candidatura_nao_pendente',
+      'DELETE /candidaturas/c1',
+      () => adaptar(useRetirarCandidatura(), 'c1'),
+    ],
+    [
+      'useRetirarCandidatura',
+      404,
+      'nao_encontrado',
+      'DELETE /candidaturas/c1',
+      () => adaptar(useRetirarCandidatura(), 'c1'),
+    ],
+  ] as const)(
+    '%s: %s %s sobe como ErroDaApi e nada é invalidado',
+    async (_nome, status, codigo, rota, usar) => {
+      const provedores = autenticado();
+      provedores.fetch.responder(rota, { status, corpo: { erro: codigo } });
+      const { result } = await montar(usar, provedores);
+      const invalidar = jest.spyOn(provedores.queryClient, 'invalidateQueries');
+
+      await act(async () => {
+        await result.current.dados.enviar().catch(() => {});
+      });
+
+      await waitFor(() =>
+        expect(result.current.dados.error).toBeInstanceOf(ErroDaApi),
+      );
+      const erro = result.current.dados.error as ErroDaApi;
+      expect([erro.status, erro.codigo]).toEqual([status, codigo]);
+      expect(invalidar).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a edição não guarda o texto no cache de mutações depois que a tela sai, e a mutação não tem chave', async () => {
+    const provedores = autenticado();
+    provedores.fetch
+      .responder('GET /trampos/meus', { corpo: [] })
+      .responder('PUT /trampos/t1', { status: 204 });
+    const montado = await montar(
+      () =>
+        adaptar(useEditarTrampo('t1'), {
+          ...ENTRADA_TRAMPO,
+          titulo: 'TEXTO-SENTINELA',
+          versao: 1,
+        }),
+      provedores,
+    );
+    await act(async () => {
+      await montado.result.current.dados.enviar();
+    });
+    await waitFor(() =>
+      expect(montado.result.current.dados.status).toBe('success'),
+    );
+    const [mutacao] = provedores.queryClient.getMutationCache().getAll();
+    expect(mutacao?.options.mutationKey).toBeUndefined();
+
+    await montado.unmount();
+    await act(async () => {
+      await new Promise((resolver) => setTimeout(resolver, 10));
+    });
+
+    expect(provedores.queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 });
 

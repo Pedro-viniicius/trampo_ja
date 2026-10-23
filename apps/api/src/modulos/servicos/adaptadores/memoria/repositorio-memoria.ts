@@ -34,6 +34,27 @@ export class RepositorioDeServicosEmMemoria implements RepositorioDeServicos {
     this.#servicos.set(servico.id, copiar(servico));
   }
 
+  async atualizar(servico: Servico): Promise<boolean> {
+    const guardado = this.#servicos.get(servico.id);
+    if (
+      !guardado ||
+      guardado.autorId !== servico.autorId ||
+      guardado.versao !== servico.versao - 1
+    ) {
+      return false;
+    }
+    this.#servicos.set(servico.id, copiar(servico));
+    return true;
+  }
+
+  async excluir(id: string, autorId: string): Promise<boolean> {
+    const guardado = this.#servicos.get(id);
+    if (!guardado || guardado.autorId !== autorId) {
+      return false;
+    }
+    return this.#servicos.delete(id);
+  }
+
   async buscarPorId(id: string): Promise<Servico | null> {
     const servico = this.#servicos.get(id);
     return servico ? copiar(servico) : null;

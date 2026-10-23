@@ -7,7 +7,7 @@ import {
 import { RelogioFixo } from '../../../compartilhado/dominio/relogio.js';
 import { RepositorioDeServicosEmMemoria } from '../adaptadores/memoria/repositorio-memoria.js';
 import { VerificadorDePerfilEmMemoria } from '../adaptadores/memoria/verificador-perfil-memoria.js';
-import type { EntradaDeServico } from '../dominio/servico.js';
+import type { EntradaDeServico, Servico } from '../dominio/servico.js';
 import {
   type CasosDeUsoDeServicos,
   criarCasosDeUsoDeServicos,
@@ -74,7 +74,7 @@ describe('CA6 — ofertar serviço', () => {
     const resultado = await casos.ofertarServico(FREELANCER, SERVICO_VALIDO);
 
     expect(resultado).toEqual({ id: 'id-001', status: 'ativo' });
-    const servico = await casos.obterServico(resultado.id);
+    const servico = await casos.obterServico(resultado.id, FREELANCER);
     expect(servico).toMatchObject({
       autorId: FREELANCER,
       titulo: 'Eletricista residencial',
@@ -96,9 +96,9 @@ describe('CA6 — ofertar serviço', () => {
   });
 
   it('CA6 — obter um serviço inexistente falha com não encontrado', async () => {
-    expect(await erroDe(casos.obterServico('nao-existe'))).toBeInstanceOf(
-      ErroNaoEncontrado,
-    );
+    expect(
+      await erroDe(casos.obterServico('nao-existe', FREELANCER)),
+    ).toBeInstanceOf(ErroNaoEncontrado);
   });
 });
 
@@ -162,7 +162,7 @@ describe('D9 — perfil completo para ofertar', () => {
 describe('D7 — cidade opcional', () => {
   it('D7 — Dado um serviço sem cidade, quando ofertado, então é aceito e aparece na busca sem filtro de cidade', async () => {
     const id = await ofertar({ cidade: undefined });
-    const servico = await casos.obterServico(id);
+    const servico = await casos.obterServico(id, FREELANCER);
     expect(servico.cidade).toBeUndefined();
     expect(servico.cidadeNormalizada).toBeUndefined();
     expect((await casos.buscarServicos()).map((s) => s.id)).toEqual([id]);
@@ -333,5 +333,371 @@ describe('CA7 — busca de serviços', () => {
       cidade: ' ',
     });
     expect(achados.map((s) => s.id)).toEqual([id]);
+  });
+});
+
+/** Edição válida de um serviço lido na `versao` dada. */
+function edicao(
+  versao: unknown,
+  dados: Partial<Record<keyof EntradaDeServico, unknown>> = {},
+) {
+  return {
+    titulo: 'Encanador de plantão',
+    descricao: 'Vazamentos e desentupimento.',
+    categoria: 'limpeza',
+    cidade: 'Recife',
+    precoBaseCentavos: 9900,
+    ...dados,
+    versao,
+  };
+}
+
+async function codigoDe(promessa: Promise<unknown>): Promise<string> {
+  const erro = await erroDe(promessa);
+  expect(erro).toHaveProperty('codigo');
+  return (erro as { codigo: string }).codigo;
+}
+
+describe('CA26 — editar serviço', () => {
+  it('CA26 — Dado o autor com a versão lida, quando edita, então os campos mudam, a versão sobe, a busca acha o texto novo e criadoEm e a posição ficam', async () => {
+    const id = await ofertar();
+    const outro = await ofertar({ titulo: 'Aulas de violão' });
+
+    await casos.editarServico(FREELANCER, id, edicao(1));
+
+    const editado = await casos.obterServico(id, FREELANCER);
+    expect(editado).toMatchObject({
+      id,
+      autorId: FREELANCER,
+      titulo: 'Encanador de plantão',
+      descricao: 'Vazamentos e desentupimento.',
+      categoria: 'limpeza',
+      cidade: 'Recife',
+      cidadeNormalizada: 'recife',
+      precoBaseCentavos: 9900,
+      status: 'ativo',
+      criadoEm: new Date('2026-10-20T12:00:00.000Z'),
+      versao: 2,
+    });
+    expect(
+      (await casos.buscarServicos({ texto: 'desentupimento' })).map(
+        (s) => s.id,
+      ),
+    ).toEqual([id]);
+    expect(await casos.buscarServicos({ texto: 'eletricista' })).toEqual([]);
+    expect(
+      (await casos.buscarServicos({ cidade: 'recife' })).map((s) => s.id),
+    ).toEqual([id]);
+    expect((await casos.buscarServicos()).map((s) => s.id)).toEqual([
+      outro,
+      id,
+    ]);
+  });
+
+  it('CA26 — Dado duas edições seguidas, quando cada uma manda a versão que leu, então as duas passam', async () => {
+    const id = await ofertar();
+    await casos.editarServico(FREELANCER, id, edicao(1));
+    await casos.editarServico(
+      FREELANCER,
+      id,
+      edicao(2, { titulo: 'Terceira' }),
+    );
+
+    expect(await casos.obterServico(id, FREELANCER)).toMatchObject({
+      titulo: 'Terceira',
+      versao: 3,
+    });
+  });
+
+  it.each([
+    ['sem a chave', {}],
+    ['nula', { cidade: null }],
+    ['em branco', { cidade: '  ' }],
+  ])(
+    'D7 — Dado a cidade %s na edição, então o serviço fica sem cidade e sai do filtro de cidade',
+    async (_nome, dados) => {
+      const id = await ofertar();
+      const { cidade: _cidade, ...semCidade } = edicao(1);
+
+      await casos.editarServico(FREELANCER, id, { ...semCidade, ...dados });
+
+      const servico = await casos.obterServico(id, FREELANCER);
+      expect(servico).not.toHaveProperty('cidade');
+      expect(servico).not.toHaveProperty('cidadeNormalizada');
+      expect(await casos.buscarServicos({ cidade: 'sao paulo' })).toEqual([]);
+      expect((await casos.buscarServicos()).map((s) => s.id)).toEqual([id]);
+    },
+  );
+
+  it('CA26 — Dado outra conta, quando edita o serviço, então 404 e nada muda', async () => {
+    const id = await ofertar();
+
+    expect(
+      await erroDe(casos.editarServico(OUTRO, id, edicao(1))),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await casos.obterServico(id, FREELANCER)).toMatchObject({
+      titulo: 'Eletricista residencial',
+      versao: 1,
+    });
+  });
+
+  it('CA26 — Dado um id inexistente ou fora do formato, quando edita, então 404', async () => {
+    await ofertar();
+    for (const id of ['id-999', 'nao-e-uuid', '']) {
+      expect(
+        await erroDe(casos.editarServico(FREELANCER, id, edicao(1))),
+        id,
+      ).toBeInstanceOf(ErroNaoEncontrado);
+    }
+  });
+
+  it('D33 — Dado a versão velha, quando edita, então 409 conflito_de_versao e nada muda', async () => {
+    const id = await ofertar();
+    await casos.editarServico(
+      FREELANCER,
+      id,
+      edicao(1, { titulo: 'Primeira' }),
+    );
+
+    expect(
+      await codigoDe(
+        casos.editarServico(FREELANCER, id, edicao(1, { titulo: 'Velha' })),
+      ),
+    ).toBe('conflito_de_versao');
+    expect(await casos.obterServico(id, FREELANCER)).toMatchObject({
+      titulo: 'Primeira',
+      versao: 2,
+    });
+  });
+
+  it('D33 — Dado uma versão à frente da guardada, quando edita, então também é conflito', async () => {
+    const id = await ofertar();
+    expect(await codigoDe(casos.editarServico(FREELANCER, id, edicao(7)))).toBe(
+      'conflito_de_versao',
+    );
+  });
+
+  it.each([
+    ['ausente', undefined, 'obrigatorio'],
+    ['nula', null, 'obrigatorio'],
+    ['zero', 0, 'invalido'],
+    ['negativa', -1, 'invalido'],
+    ['fracionada', 1.5, 'invalido'],
+    ['em texto', '1', 'invalido'],
+  ] as const)(
+    'Dado a versão %s, quando edita, então 400 em versao, antes de olhar o serviço (mesmo de outra conta ou inexistente)',
+    async (_nome, versao, motivo) => {
+      const id = await ofertar();
+      for (const [quem, alvo] of [
+        [FREELANCER, id],
+        [OUTRO, id],
+        [FREELANCER, 'id-999'],
+      ] as const) {
+        const erro = await erroDe(
+          casos.editarServico(quem, alvo, edicao(versao)),
+        );
+        expect(erro).toBeInstanceOf(ErroDeValidacao);
+        expect((erro as ErroDeValidacao).campos).toEqual([
+          { campo: 'versao', motivo },
+        ]);
+      }
+    },
+  );
+
+  it('Ordem das checagens — outra conta com versão velha e campos inválidos dá 404; o autor com versão velha e campos inválidos dá 409', async () => {
+    const id = await ofertar();
+    await casos.editarServico(FREELANCER, id, edicao(1));
+    const invalida = edicao(1, { titulo: 'ab', precoBaseCentavos: 0 });
+
+    expect(
+      await erroDe(casos.editarServico(OUTRO, id, invalida)),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await codigoDe(casos.editarServico(FREELANCER, id, invalida))).toBe(
+      'conflito_de_versao',
+    );
+  });
+
+  it('CA6 — Dado a versão certa e campos inválidos, quando edita, então todos os campos são apontados e nada muda', async () => {
+    const id = await ofertar();
+
+    const erro = await erroDe(
+      casos.editarServico(
+        FREELANCER,
+        id,
+        edicao(1, { titulo: 'ab', descricao: null, categoria: 'x' }),
+      ),
+    );
+
+    expect(erro).toBeInstanceOf(ErroDeValidacao);
+    expect((erro as ErroDeValidacao).campos).toEqual([
+      { campo: 'titulo', motivo: 'tamanho' },
+      { campo: 'descricao', motivo: 'obrigatorio' },
+      { campo: 'categoria', motivo: 'invalido' },
+    ]);
+    expect(await casos.obterServico(id, FREELANCER)).toMatchObject({
+      titulo: 'Eletricista residencial',
+      versao: 1,
+    });
+  });
+
+  it('D33 — Dado duas edições simultâneas com a mesma versão, então uma vence e a outra leva conflito_de_versao', async () => {
+    const id = await ofertar();
+
+    const resultados = await Promise.allSettled([
+      casos.editarServico(FREELANCER, id, edicao(1, { titulo: 'Edição A' })),
+      casos.editarServico(FREELANCER, id, edicao(1, { titulo: 'Edição B' })),
+    ]);
+
+    const vencedoras = resultados.filter((r) => r.status === 'fulfilled');
+    const perdedoras = resultados.filter((r) => r.status === 'rejected');
+    expect(vencedoras).toHaveLength(1);
+    expect(perdedoras).toHaveLength(1);
+    expect((perdedoras[0] as PromiseRejectedResult).reason).toMatchObject({
+      codigo: 'conflito_de_versao',
+    });
+    const final = await casos.obterServico(id, FREELANCER);
+    expect(final.versao).toBe(2);
+    expect(['Edição A', 'Edição B']).toContain(final.titulo);
+  });
+});
+
+describe('CA26 — gravação que perde a trava (releitura)', () => {
+  /** Repositório em memória que roda `antes` entre a leitura e a gravação. */
+  class RepositorioComIntervalo extends RepositorioDeServicosEmMemoria {
+    antes: (() => Promise<void>) | undefined;
+
+    override async atualizar(servico: Servico): Promise<boolean> {
+      const antes = this.antes;
+      this.antes = undefined;
+      await antes?.();
+      return super.atualizar(servico);
+    }
+  }
+
+  let repo: RepositorioComIntervalo;
+  let casosComIntervalo: CasosDeUsoDeServicos;
+
+  beforeEach(() => {
+    repo = new RepositorioComIntervalo();
+    casosComIntervalo = criarCasosDeUsoDeServicos({
+      repositorio: repo,
+      verificadorDePerfil: verificador,
+      relogio,
+      gerarId: () => 'id-500',
+    });
+  });
+
+  it('Dado que o serviço foi excluído entre a leitura e a gravação, então 404', async () => {
+    await casosComIntervalo.ofertarServico(FREELANCER, SERVICO_VALIDO);
+    repo.antes = async () => {
+      await casosComIntervalo.excluirServico(FREELANCER, 'id-500');
+    };
+
+    expect(
+      await erroDe(
+        casosComIntervalo.editarServico(FREELANCER, 'id-500', edicao(1)),
+      ),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await repo.buscarPorId('id-500')).toBeNull();
+  });
+
+  it('Dado que outra edição gravou entre a leitura e a gravação, então conflito_de_versao e fica a outra', async () => {
+    await casosComIntervalo.ofertarServico(FREELANCER, SERVICO_VALIDO);
+    repo.antes = async () => {
+      await casosComIntervalo.editarServico(
+        FREELANCER,
+        'id-500',
+        edicao(1, { titulo: 'A que venceu' }),
+      );
+    };
+
+    expect(
+      await codigoDe(
+        casosComIntervalo.editarServico(
+          FREELANCER,
+          'id-500',
+          edicao(1, { titulo: 'A que perdeu' }),
+        ),
+      ),
+    ).toBe('conflito_de_versao');
+    expect(await repo.buscarPorId('id-500')).toMatchObject({
+      titulo: 'A que venceu',
+      versao: 2,
+    });
+  });
+});
+
+describe('CA26 — excluir serviço', () => {
+  it('CA26 — Dado o autor, quando exclui, então o serviço some da busca, de "meus serviços" e o detalhe dá 404', async () => {
+    const id = await ofertar();
+    const fica = await ofertar({ titulo: 'Aulas de violão' });
+
+    await casos.excluirServico(FREELANCER, id);
+
+    expect(await erroDe(casos.obterServico(id, FREELANCER))).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect(await erroDe(casos.obterServico(id, OUTRO))).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect((await casos.buscarServicos()).map((s) => s.id)).toEqual([fica]);
+    expect(
+      (await casos.listarMeusServicos(FREELANCER)).map((s) => s.id),
+    ).toEqual([fica]);
+  });
+
+  it('CA26 — Dado outra conta, quando exclui, então 404 e o serviço continua', async () => {
+    const id = await ofertar();
+
+    expect(await erroDe(casos.excluirServico(OUTRO, id))).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect((await casos.buscarServicos()).map((s) => s.id)).toEqual([id]);
+  });
+
+  it('CA26 — Dado um id inexistente ou já excluído, quando exclui, então 404', async () => {
+    const id = await ofertar();
+    await casos.excluirServico(FREELANCER, id);
+
+    for (const alvo of [id, 'id-999', 'nao-e-uuid']) {
+      expect(
+        await erroDe(casos.excluirServico(FREELANCER, alvo)),
+        alvo,
+      ).toBeInstanceOf(ErroNaoEncontrado);
+    }
+  });
+
+  it('CA26 — Dado um serviço excluído, quando o autor tenta editá-lo, então 404', async () => {
+    const id = await ofertar();
+    await casos.excluirServico(FREELANCER, id);
+
+    expect(
+      await erroDe(casos.editarServico(FREELANCER, id, edicao(1))),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+  });
+});
+
+describe('D33 — versao só na visão do autor', () => {
+  it('CA31 — Dado um terceiro, quando obtém o serviço, então a resposta não tem versao; o autor a recebe', async () => {
+    const id = await ofertar();
+    await casos.editarServico(FREELANCER, id, edicao(1));
+
+    const deTerceiro = await casos.obterServico(id, OUTRO);
+    expect(deTerceiro).not.toHaveProperty('versao');
+    expect(deTerceiro).toMatchObject({ id, titulo: 'Encanador de plantão' });
+    expect(await casos.obterServico(id, FREELANCER)).toHaveProperty(
+      'versao',
+      2,
+    );
+  });
+
+  it('CA31 — "meus serviços" traz a versao de cada um', async () => {
+    const id = await ofertar();
+    await casos.editarServico(FREELANCER, id, edicao(1));
+    await ofertar({ titulo: 'Aulas de violão' });
+
+    expect(
+      (await casos.listarMeusServicos(FREELANCER)).map((s) => s.versao),
+    ).toEqual([1, 2]);
   });
 });

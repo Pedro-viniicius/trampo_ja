@@ -1,7 +1,7 @@
 import type { IdCategoria } from '../../../../compartilhado/dominio/categorias.js';
 import type { StatusDeServico } from '../../dominio/servico.js';
 
-/** Linha da tabela `servicos` (migração `0003_servicos.ts`). */
+/** Linha da tabela `servicos` (migrações `0003_servicos.ts` e `0006_anuncios.ts`). */
 export interface TabelaServicos {
   id: string;
   autor_id: string;
@@ -15,6 +15,8 @@ export interface TabelaServicos {
   preco_base_centavos: number;
   status: StatusDeServico;
   criado_em: Date;
+  /** Trava otimista da edição (`0006`): 1 na criação, mais 1 a cada edição. */
+  versao: number;
 }
 
 /** Visão do banco que o módulo `servicos` enxerga: só as próprias tabelas. */

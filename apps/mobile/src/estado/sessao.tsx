@@ -25,6 +25,11 @@ export type StatusDaSessao = 'carregando' | 'anonimo' | 'autenticado';
 export interface RetornoDaSessao {
   readonly rota?: string;
   readonly aviso?: ChaveDeErro;
+  /**
+   * Impressão da conta que expirou (D43). A `rota` só vale para um login da
+   * mesma conta (`rotaParaAConta`). Ausente: sessão sem impressão.
+   */
+  readonly conta?: string;
 }
 
 /**
@@ -33,16 +38,22 @@ export interface RetornoDaSessao {
  */
 export interface Sessao {
   readonly status: StatusDaSessao;
-  /** Grava o token e passa a `autenticado` (CA1). */
-  entrar(token: string): Promise<void>;
   /**
-   * `DELETE /sessoes` e, mesmo se falhar, apaga o token e limpa o cache.
-   * Nunca rejeita.
+   * Grava o token e a impressão do `email` (D43) e passa a `autenticado`
+   * (CA1). Sem `email`, a sessão fica sem impressão.
+   */
+  entrar(token: string, email?: string): Promise<void>;
+  /**
+   * Passa a anônimo, apaga o token, a impressão e o cache sem esperar a rede
+   * (S6) e só então dispara o `DELETE /sessoes` em segundo plano, com o token
+   * capturado antes de apagar. A falha desse pedido é engolida. Nunca
+   * rejeita.
    */
   sair(): Promise<void>;
   /**
    * Sessão recusada pela API (CA14): apaga o token, limpa o cache e guarda
-   * em memória a rota de retorno e o aviso. Idempotente; nunca rejeita.
+   * em memória a rota de retorno, o aviso e a impressão da conta.
+   * Idempotente; nunca rejeita.
    */
   expirar(rotaAtual?: string): Promise<void>;
   /**
@@ -106,6 +117,54 @@ export function rotaDeRetornoSegura(
   return caminho;
 }
 
+/**
+ * Impressão da conta (D43): hash não criptográfico (cyrb53, 53 bits, em
+ * hexadecimal) do e-mail aparado e em minúsculas. Só serve para saber se o
+ * novo login é da mesma conta; não protege o e-mail e nunca vai para log, URL
+ * ou parâmetro de rota.
+ */
+export function impressaoDaConta(email: string): string {
+  const texto = email.trim().toLowerCase();
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < texto.length; i += 1) {
+    const codigo = texto.charCodeAt(i);
+    h1 = Math.imul(h1 ^ codigo, 2654435761);
+    h2 = Math.imul(h2 ^ codigo, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const valor = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return valor.toString(16).padStart(14, '0');
+}
+
+/**
+ * A rota de retorno, se o login com `email` é da mesma conta que expirou
+ * (CA50). Sem `conta` no retorno, devolve a rota: isso só acontece quando a
+ * sessão que expirou veio de `entrar` sem e-mail ou de uma porta sem
+ * `lerConta`, e nenhum dos dois ocorre em produção (o login, em
+ * `consultas/conta.ts`, sempre passa o e-mail, e a porta real tem `lerConta`;
+ * token sem impressão vira conta ilegível). Com outra conta, `undefined`: o
+ * guarda da raiz leva ao Início.
+ */
+export function rotaParaAConta(
+  retorno: RetornoDaSessao,
+  email: string,
+): string | undefined {
+  if (retorno.conta === undefined) {
+    return retorno.rota;
+  }
+  return retorno.conta === impressaoDaConta(email) ? retorno.rota : undefined;
+}
+
+/**
+ * Impressão de uma conta que não se conseguiu ler da porta. Nunca é igual a
+ * uma impressão de verdade (hexadecimal): o retorno cai no Início.
+ */
+const CONTA_ILEGIVEL = 'ilegivel';
+
 const ContextoDaSessao = createContext<{
   readonly sessao: Sessao;
   readonly cliente: ClienteHttp;
@@ -138,6 +197,8 @@ export function SessaoProvider({
   const retorno = useRef<RetornoDaSessao>({});
   const fila = useRef<Promise<unknown>>(Promise.resolve());
   const geracaoAtual = useRef(0);
+  /** Impressão da conta da sessão autenticada, para guardar no retorno. */
+  const contaAtual = useRef<string | undefined>(undefined);
   const rotaAtual = useRef(obterRotaAtual);
   rotaAtual.current = obterRotaAtual;
 
@@ -173,11 +234,14 @@ export function SessaoProvider({
     (rota: string | undefined) => {
       if (statusAtual.current === 'autenticado') {
         const segura = rotaDeRetornoSegura(rota);
+        const conta = contaAtual.current;
         retorno.current = {
           ...(segura !== undefined && { rota: segura }),
           aviso: 'sessao_expirada',
+          ...(conta !== undefined && { conta }),
         };
       }
+      contaAtual.current = undefined;
       geracaoAtual.current += 1;
       if (statusAtual.current !== 'anonimo') {
         definirStatus('anonimo');
@@ -245,9 +309,33 @@ export function SessaoProvider({
 
   useEffect(() => {
     let montado = true;
-    enfileirar(() => armazenamento.ler()).then(
-      (token) => {
+    enfileirar(async () => {
+      const token = await armazenamento.ler();
+      if (!token) {
+        return { token, conta: undefined };
+      }
+      if (armazenamento.lerConta === undefined) {
+        // Porta sem impressão (só em testes): a sessão fica sem conta.
+        return { token, conta: undefined };
+      }
+      let conta: string;
+      try {
+        // Todo login grava a impressão junto do token, e a sessão sem ela
+        // (anterior à L3) cai pelo marcador de instalação. Token sem
+        // impressão é estado inesperado: a conta é tratada como ilegível.
+        conta = (await armazenamento.lerConta()) ?? CONTA_ILEGIVEL;
+      } catch {
+        // Sem como saber a conta: o retorno de uma expiração cai no Início
+        // (falha fechada), e a sessão continua.
+        conta = CONTA_ILEGIVEL;
+      }
+      return { token, conta };
+    }).then(
+      ({ token, conta }) => {
         if (montado && statusAtual.current === 'carregando') {
+          if (token) {
+            contaAtual.current = conta;
+          }
           definirStatus(token ? 'autenticado' : 'anonimo');
         }
       },
@@ -264,46 +352,77 @@ export function SessaoProvider({
   }, [armazenamento, definirStatus, enfileirar]);
 
   const entrar = useCallback(
-    async (token: string) => {
+    async (token: string, email?: string) => {
       if (typeof token !== 'string' || token === '') {
         throw new Error('token ausente');
       }
-      await enfileirar(() => armazenamento.gravar(token));
+      const conta =
+        typeof email === 'string' && email.trim() !== ''
+          ? impressaoDaConta(email)
+          : undefined;
+      await enfileirar(() => armazenamento.gravar(token, conta));
+      contaAtual.current = conta;
       geracaoAtual.current += 1;
-      // O aviso de sessão expirada perde o sentido; a rota fica para o login
-      // que ainda não a consumiu.
-      const { rota } = retorno.current;
-      retorno.current = rota === undefined ? {} : { rota };
+      // O aviso de sessão expirada perde o sentido; a rota (com a conta a que
+      // ela pertence) fica para o login que ainda não a consumiu.
+      const { rota, conta: contaDaRota } = retorno.current;
+      retorno.current =
+        rota === undefined
+          ? {}
+          : { rota, ...(contaDaRota !== undefined && { conta: contaDaRota }) };
       definirStatus('autenticado');
     },
     [armazenamento, definirStatus, enfileirar],
   );
 
   const sair = useCallback(async () => {
-    try {
-      await sairDaApi(cliente);
-    } catch {
-      // Falha de rede ou sessão já revogada: a saída local acontece igual.
-    }
     retorno.current = {};
+    contaAtual.current = undefined;
     geracaoAtual.current += 1;
     definirStatus('anonimo');
-    await limparLocal();
-  }, [cliente, definirStatus, limparLocal]);
+    queryClient.clear();
+    // Captura e apaga na mesma operação da fila: um login que entre na fila
+    // depois nunca tem o token novo capturado nem apagado.
+    const token = await enfileirar(async () => {
+      let capturado: string | null = null;
+      try {
+        capturado = await armazenamento.ler();
+      } catch {
+        // Porta ilegível: sem token para revogar; apaga mesmo assim.
+      }
+      try {
+        await armazenamento.apagar();
+      } catch {
+        // Sem log (CA15); ver `limparLocal`.
+      }
+      return capturado;
+    });
+    // Algo pode ter entrado no cache enquanto o token era apagado.
+    queryClient.clear();
+    if (token) {
+      // Em segundo plano (S6): a saída local já aconteceu, e a falha (rede,
+      // 401 de sessão já revogada) não aparece em lugar nenhum. O 401 deste
+      // pedido não expira a sessão: `DELETE /sessoes` é rota de entrada no
+      // cliente, e a porta já não guarda este token.
+      void sairDaApi(cliente, token).catch(() => undefined);
+    }
+  }, [armazenamento, cliente, definirStatus, enfileirar, queryClient]);
 
   const encerrarPorExclusao = useCallback(async () => {
     retorno.current = { aviso: 'conta_excluida' };
+    contaAtual.current = undefined;
     geracaoAtual.current += 1;
     definirStatus('anonimo');
     await limparLocal();
   }, [definirStatus, limparLocal]);
 
   const consumirRetorno = useCallback((): RetornoDaSessao => {
-    const { rota, aviso } = retorno.current;
+    const { rota, aviso, conta } = retorno.current;
     retorno.current = {};
     return {
       ...(rota !== undefined && { rota }),
       ...(aviso !== undefined && { aviso }),
+      ...(conta !== undefined && { conta }),
     };
   }, []);
 

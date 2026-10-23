@@ -32,6 +32,13 @@ function ehUuid(valor: string): boolean {
   return FORMATO_UUID.test(valor);
 }
 
+/**
+ * Folga por linha em `medirExportacao`: cobre os ids, as datas, os números,
+ * os nomes das chaves e a pontuação do JSON, que não entram na soma dos
+ * textos (contrato da L3, CA48).
+ */
+const BYTES_POR_LINHA_NA_MEDIDA = 256;
+
 function paraConversa(linha: Selectable<TabelaConversas>): Conversa {
   return Conversa.reconstituir({
     id: linha.id,
@@ -433,4 +440,57 @@ export async function exportarDadosDaConta(
         })),
       };
     });
+}
+
+/**
+ * Tamanho estimado, em bytes, da parte de `conversas` na exportação (CA48),
+ * calculado no banco sem carregar os textos, numa consulta só: soma de
+ * `octet_length` do `texto` das mensagens escritas pela conta, nas conversas
+ * de que ela participa (o mesmo filtro de `exportarDadosDaConta`), mais
+ * `BYTES_POR_LINHA_NA_MEDIDA` por mensagem e por conversa (cada conversa sai
+ * na exportação com id, outro participante e data, mesmo sem mensagem da
+ * conta). As mensagens do outro participante não entram, como na exportação.
+ * Id fora do formato: 0, sem consultar.
+ */
+export async function medirExportacao(
+  db: Kysely<TabelasDeConversas>,
+  contaId: string,
+): Promise<number> {
+  if (!ehUuid(contaId)) {
+    return 0;
+  }
+  const daConta = db
+    .selectFrom('conversas')
+    .select('conversas.id')
+    .where((eb) =>
+      eb.or([
+        eb('conversas.usuario_a_id', '=', contaId),
+        eb('conversas.usuario_b_id', '=', contaId),
+      ]),
+    );
+  const { mensagens, conversas } = await db
+    .selectNoFrom((eb) => [
+      eb
+        .selectFrom('mensagens')
+        .select(
+          // `sum` de inteiros é `bigint`, que o `pg` devolve como texto.
+          sql<string>`coalesce(sum(
+            octet_length(texto) + ${sql.lit(BYTES_POR_LINHA_NA_MEDIDA)}
+          ), 0)`.as('bytes'),
+        )
+        .where('autor_id', '=', contaId)
+        .where('conversa_id', 'in', daConta)
+        .as('mensagens'),
+      eb
+        .selectFrom(daConta.as('conversas_da_conta'))
+        .select(
+          // `count` também é `bigint`.
+          sql<string>`count(*) * ${sql.lit(BYTES_POR_LINHA_NA_MEDIDA)}`.as(
+            'bytes',
+          ),
+        )
+        .as('conversas'),
+    ])
+    .executeTakeFirstOrThrow();
+  return Number(mensagens) + Number(conversas);
 }

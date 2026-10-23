@@ -3,6 +3,11 @@
  *
  *   pnpm --filter api semear              # banco de desenvolvimento (`DATABASE_URL`)
  *   pnpm --filter api semear -- --teste   # banco de teste (`DATABASE_URL_TESTE`)
+ *   pnpm --filter api semear -- --permitir-banco-remoto   # aceita banco fora da máquina
+ *
+ * Só roda em banco local (`ehBancoLocal`: localhost, 127.0.0.0/8, ::1 ou
+ * socket Unix): sem `--permitir-banco-remoto`, recusa outro host com código 2
+ * antes de abrir qualquer conexão (D44). A senha da semente é pública.
  *
  * Aplica as migrações pendentes antes. Tudo é criado pela própria API montada
  * (`montarAplicacao` + `app.inject`), nunca por SQL direto: passa pelas mesmas
@@ -30,13 +35,14 @@ import { type Aplicacao, montarAplicacao } from '../src/composicao.js';
 import {
   carregarArquivoEnv,
   ErroDeConfiguracao,
+  ehBancoLocal,
   lerUrlDoBanco,
   lerUrlDoBancoDeTeste,
 } from '../src/config.js';
 
 const DICA_BANCO =
   'O banco está no ar e a URL está certa? Rode na raiz: docker compose up -d banco';
-const OPCOES_VALIDAS = new Set(['--teste']);
+const OPCOES_VALIDAS = new Set(['--teste', '--permitir-banco-remoto']);
 
 /** Senha de todas as contas da semente. Só para desenvolvimento local. */
 const SENHA_DA_SEMENTE = 'Semente#2026';
@@ -407,15 +413,31 @@ async function principal(argumentos: readonly string[]): Promise<number> {
   // O pnpm repassa o `--` separador; ele não é opção.
   const opcoes = argumentos.filter((a) => a !== '--');
   if (opcoes.some((a) => !OPCOES_VALIDAS.has(a))) {
-    console.error('Opção desconhecida. Use: semear [--teste]');
+    console.error(
+      'Opção desconhecida. Use: semear [--teste] [--permitir-banco-remoto]',
+    );
     return 2;
   }
   const teste = opcoes.includes('--teste');
+  const permitirBancoRemoto = opcoes.includes('--permitir-banco-remoto');
 
   carregarArquivoEnv();
+  const variavel = teste ? 'DATABASE_URL_TESTE' : 'DATABASE_URL';
+  // D44 (S4): confere o host antes de validar o resto e de conectar. URL
+  // ausente ou ilegível segue para `lerUrlDoBanco`, que explica o problema.
+  // Com a flag, `lerUrlDoBanco` ainda exige `sslmode=verify-full` e recusa
+  // `NODE_TLS_REJECT_UNAUTHORIZED=0` (CA41), antes de conectar.
+  // A mensagem cita a variável, nunca o valor (traz a senha).
+  const bruta = process.env[variavel]?.trim() ?? '';
+  if (!permitirBancoRemoto && URL.canParse(bruta) && !ehBancoLocal(bruta)) {
+    console.error(
+      `Recusado: ${variavel} aponta para um banco fora desta máquina. A semente cria contas com senha pública e só roda em banco local; se é mesmo isso que você quer, use --permitir-banco-remoto.`,
+    );
+    return 2;
+  }
   const url = teste
     ? lerUrlDoBancoDeTeste()
-    : lerUrlDoBanco(process.env, 'DATABASE_URL');
+    : lerUrlDoBanco(process.env, variavel);
   const db: Kysely<BancoBase> = criarConexao(url, { maximoDeConexoes: 2 });
   let aplicacao: Aplicacao | undefined;
   try {

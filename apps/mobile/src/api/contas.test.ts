@@ -1,6 +1,6 @@
 import { criarFetchFalso, type FetchFalso } from '../testes/fetch-falso';
 import { type ClienteHttp, criarCliente } from './cliente';
-import { excluirConta, exportarDados } from './contas';
+import { excluirConta, exportarDados, sair } from './contas';
 import { ErroDaApi, ErroDeRede } from './erros';
 import type { DadosExportados } from './tipos';
 
@@ -113,6 +113,77 @@ const EXPORTACAO: DadosExportados = {
     },
   ],
 };
+
+describe('sair (S6)', () => {
+  const TOKEN_CAPTURADO = 'token-capturado-antes-de-limpar';
+
+  /** Cliente cuja porta já não tem token (o local foi limpo antes). */
+  function montarComPortaVazia() {
+    const falso = criarFetchFalso();
+    const aoExpirar = jest.fn();
+    const obterToken = jest.fn(async () => null);
+    const cliente = criarCliente({
+      fetch: falso.fetch,
+      urlBase: URL_BASE,
+      obterToken,
+      aoExpirar,
+    });
+    return { cliente, falso, aoExpirar, obterToken };
+  }
+
+  it('faz DELETE /sessoes com o token dado, sem corpo, mesmo com a porta vazia', async () => {
+    const { cliente, falso, obterToken } = montarComPortaVazia();
+    falso.responder('DELETE /sessoes', { status: 204 });
+
+    await expect(sair(cliente, TOKEN_CAPTURADO)).resolves.toBeUndefined();
+
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('DELETE');
+    expect(requisicao.url).toBe(`${URL_BASE}/sessoes`);
+    expect(requisicao.corpo).toBeUndefined();
+    expect(requisicao.cabecalhos.authorization).toBe(
+      `Bearer ${TOKEN_CAPTURADO}`,
+    );
+    expect(falso.requisicoes).toHaveLength(1);
+    expect(obterToken).not.toHaveBeenCalled();
+  });
+
+  it('leva o token dado, não o que a porta guarda agora (login feito depois)', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /sessoes', { status: 204 });
+
+    await sair(cliente, TOKEN_CAPTURADO);
+
+    expect(falso.ultima().cabecalhos.authorization).toBe(
+      `Bearer ${TOKEN_CAPTURADO}`,
+    );
+    expect(JSON.stringify(falso.ultima())).not.toContain(TOKEN);
+  });
+
+  it('401 (sessão já revogada) não chama aoExpirar e o erro não leva o token', async () => {
+    const { cliente, falso, aoExpirar } = montarComPortaVazia();
+    falso.responder('DELETE /sessoes', {
+      status: 401,
+      corpo: { erro: 'nao_autenticado' },
+    });
+
+    const erro = await capturar(sair(cliente, TOKEN_CAPTURADO));
+
+    expect(erro).toBeInstanceOf(ErroDaApi);
+    expect(aoExpirar).not.toHaveBeenCalled();
+    esperarSemSentinela(erro, [TOKEN_CAPTURADO]);
+  });
+
+  it('falha de rede sobe como ErroDeRede, sem o token', async () => {
+    const { cliente, falso } = montarComPortaVazia();
+    falso.responder('DELETE /sessoes', { falhaDeRede: true });
+
+    const erro = await capturar(sair(cliente, TOKEN_CAPTURADO));
+
+    expect(erro).toBeInstanceOf(ErroDeRede);
+    esperarSemSentinela(erro, [TOKEN_CAPTURADO]);
+  });
+});
 
 describe('excluirConta (CA17)', () => {
   it('faz POST /contas/eu/exclusao com token, só com {senha}, e resolve com o 204', async () => {

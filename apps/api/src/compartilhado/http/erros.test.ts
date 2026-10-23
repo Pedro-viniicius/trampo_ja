@@ -4,10 +4,13 @@ import {
   ErroDeDominio,
   ErroDeRegra,
   ErroDeValidacao,
+  ErroIndisponivel,
+  ErroLimiteExcedido,
   ErroNaoEncontrado,
   ErroProibido,
 } from '../dominio/erros.js';
 import { respostaDeValidacaoDoSchema, respostaParaErro } from './erros.js';
+import { criarLogger } from './logger.js';
 import { criarServidor } from './servidor.js';
 
 const EMAIL = 'maria.silva@exemplo.com';
@@ -38,6 +41,7 @@ async function respostaDe(erro: unknown) {
     corpo: resposta.json(),
     texto: resposta.body,
     tipo: resposta.headers['content-type'],
+    tentarDeNovo: resposta.headers['retry-after'],
   };
 }
 
@@ -151,6 +155,7 @@ describe('CA15 — erro desconhecido responde 500 sem detalhes', () => {
 
     expect(r.status).toBe(500);
     expect(r.corpo).toEqual({ erro: 'interno' });
+    expect(r.tentarDeNovo).toBeUndefined();
   });
 
   it('valor lançado que não é Error vira 500 interno', async () => {
@@ -405,5 +410,118 @@ describe('ErroNaoEncontrado e ErroProibido', () => {
         expect(String(erro)).not.toContain('maria');
       }
     }
+  });
+});
+
+describe('CA45 — ErroIndisponivel vira 503 com retry-after', () => {
+  it('responde 503 só com o código e o cabeçalho retry-after', async () => {
+    const r = await respostaDe(new ErroIndisponivel('servico_ocupado', 10));
+
+    expect(r.status).toBe(503);
+    expect(r.texto).toBe('{"erro":"servico_ocupado"}');
+    expect(r.tentarDeNovo).toBe('10');
+    expect(r.tipo).toMatch(/^application\/json/);
+  });
+
+  it('o retry-after é o tempo que o erro traz', async () => {
+    const r = await respostaDe(new ErroIndisponivel('servico_ocupado', 30));
+
+    expect(r.tentarDeNovo).toBe('30');
+  });
+
+  it('respostaParaErro devolve o tempo junto do 503', () => {
+    expect(
+      respostaParaErro(new ErroIndisponivel('servico_ocupado', 10)),
+    ).toStrictEqual({
+      status: 503,
+      corpo: { erro: 'servico_ocupado' },
+      tentarDeNovoEmS: 10,
+    });
+  });
+
+  it('os demais erros não levam retry-after', async () => {
+    for (const erro of [
+      new ErroDeRegra('perfil_incompleto'),
+      new ErroNaoEncontrado(),
+      new Error('falhou'),
+    ]) {
+      const r = await respostaDe(erro);
+      await app?.close();
+      app = undefined;
+
+      expect(r.tentarDeNovo).toBeUndefined();
+      expect(respostaParaErro(erro)).not.toHaveProperty('tentarDeNovoEmS');
+    }
+  });
+
+  it('o 503 vai para o log como warn, sem cair no "erro interno"', async () => {
+    const linhas: string[] = [];
+    app = criarServidor({
+      logger: criarLogger({
+        nivel: 'trace',
+        destino: { write: (linha) => void linhas.push(linha) },
+      }),
+    });
+    app.get('/ocupado', async () => {
+      throw new ErroIndisponivel('servico_ocupado', 10);
+    });
+
+    const resposta = await app.inject({ method: 'GET', url: '/ocupado' });
+
+    expect(resposta.statusCode).toBe(503);
+    const registros = linhas.map(
+      (linha) => JSON.parse(linha) as Record<string, unknown>,
+    );
+    const ocupado = registros.filter((r) => r.msg === 'serviço ocupado');
+    expect(ocupado).toHaveLength(1);
+    expect(ocupado[0]).toMatchObject({ level: 40, erro: 'servico_ocupado' });
+    expect(registros.some((r) => (r.level as number) >= 50)).toBe(false);
+    expect(linhas.join('')).not.toContain('erro interno');
+  });
+});
+
+describe('CA42 (D31) — ErroLimiteExcedido vira 429 com retry-after', () => {
+  it('responde 429 com o corpo genérico do rate limit e o retry-after do erro', async () => {
+    const r = await respostaDe(new ErroLimiteExcedido(1800));
+
+    expect(r.status).toBe(429);
+    expect(r.texto).toBe('{"erro":"muitas_requisicoes"}');
+    expect(r.tentarDeNovo).toBe('1800');
+    expect(r.tipo).toMatch(/^application\/json/);
+  });
+
+  it('respostaParaErro devolve o tempo junto do 429', () => {
+    expect(respostaParaErro(new ErroLimiteExcedido(60))).toStrictEqual({
+      status: 429,
+      corpo: { erro: 'muitas_requisicoes' },
+      tentarDeNovoEmS: 60,
+    });
+  });
+
+  it('vai para o log como recusa (info), sem cair no "erro interno"', async () => {
+    const linhas: string[] = [];
+    app = criarServidor({
+      logger: criarLogger({
+        nivel: 'trace',
+        destino: { write: (linha) => void linhas.push(linha) },
+      }),
+    });
+    app.get('/teto', async () => {
+      throw new ErroLimiteExcedido(60);
+    });
+
+    const resposta = await app.inject({ method: 'GET', url: '/teto' });
+
+    expect(resposta.statusCode).toBe(429);
+    const registros = linhas.map(
+      (linha) => JSON.parse(linha) as Record<string, unknown>,
+    );
+    const recusas = registros.filter((r) => r.msg === 'requisição recusada');
+    expect(recusas).toHaveLength(1);
+    expect(recusas[0]).toMatchObject({
+      level: 30,
+      erro: 'muitas_requisicoes',
+    });
+    expect(registros.some((r) => (r.level as number) >= 50)).toBe(false);
   });
 });

@@ -1,8 +1,8 @@
 // CA15 no cliente: varredura do `console` durante os fluxos reais do app (2a:
 // conta, perfil e busca; 2b: publicação, candidaturas e aceite; 2c:
 // conversas, também fora do `console`; L1: exportação e exclusão da conta com
-// a senha, CA24) e barreira contra dependências de telemetria ou de
-// armazenamento inseguro.
+// a senha, CA24; L2: o rascunho da edição de trampo e de serviço, CA35) e
+// barreira contra dependências de telemetria ou de armazenamento inseguro.
 import type { QueryClient } from '@tanstack/react-query';
 import { render } from '@testing-library/react-native';
 import { router } from 'expo-router';
@@ -19,6 +19,10 @@ import RotaDePublicar from '../app/(app)/(abas)/publicar';
 import RotaDeEditarPerfil from '../app/(app)/perfil/editar';
 import RotaDoTrampo from '../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../estado/armazenamento-token';
+import {
+  avisarAoVoltar,
+  esquecerAvisoDeRetorno,
+} from '../estado/aviso-de-retorno';
 import { INTERVALO_DO_POLLING_MS } from '../estado/consultas/conversas';
 import { compartilharExportacao } from '../estado/exportacao';
 import { formatarHoraDaMensagem } from '../estado/formatacao';
@@ -50,6 +54,17 @@ jest.mock('../estado/exportacao', () => ({
 }));
 
 const compartilhar = jest.mocked(compartilharExportacao);
+
+// L2: o aviso de retorno é o real; o espião só guarda o que cada tela deixou
+// nele (CA35: só a chave do texto).
+jest.mock('../estado/aviso-de-retorno', () => {
+  const real = jest.requireActual<typeof import('../estado/aviso-de-retorno')>(
+    '../estado/aviso-de-retorno',
+  );
+  return { ...real, avisarAoVoltar: jest.fn(real.avisarAoVoltar) };
+});
+
+const avisar = jest.mocked(avisarAoVoltar);
 
 // --- Sentinelas: valores únicos que não podem aparecer em `console` ---
 
@@ -108,6 +123,35 @@ const NOME_EXPORTADO = 'Exportada Sentinela Moura';
 const TITULO_EXPORTADO = 'Anuncio Sentinela Exportado';
 const DESCRICAO_EXPORTADA = 'Descricao sentinela do anuncio exportado';
 const TEXTO_EXPORTADO = 'Mensagem sentinela que so existe na exportacao';
+
+// Pré-lançamento L2 (CA35): o que a autora digita ao editar o trampo e o
+// serviço. Título e descrição vão no `PUT` que salva; o rascunho da
+// descrição vai num `PUT` recusado e é trocado antes de salvar, então nunca
+// chega à API como texto salvo.
+const TITULO_EDITADO = 'Titulo Sentinela Editado no Trampo';
+const DESCRICAO_EDITADA = 'Descricao sentinela editada do trampo';
+const RASCUNHO_DO_TRAMPO = 'Rascunho sentinela do trampo que nao foi salvo';
+const TITULO_DO_SERVICO_EDITADO = 'Titulo Sentinela Editado no Servico';
+const DESCRICAO_DO_SERVICO_EDITADA = 'Descricao sentinela editada do servico';
+const RASCUNHO_DO_SERVICO = 'Rascunho sentinela do servico que nao foi salvo';
+
+/** O rascunho que nunca foi salvo: não pode ficar em lugar nenhum. */
+const SENTINELAS_NAO_SALVAS_DA_L2: Readonly<Record<string, string>> = {
+  'rascunho do trampo': RASCUNHO_DO_TRAMPO,
+  'rascunho do serviço': RASCUNHO_DO_SERVICO,
+};
+
+/**
+ * Tudo o que passa pelo rascunho da edição. O que foi salvo volta na leitura
+ * do anúncio (cache de consultas e tela) de propósito; o resto não.
+ */
+const SENTINELAS_DA_EDICAO: Readonly<Record<string, string>> = {
+  'título editado do trampo': TITULO_EDITADO,
+  'descrição editada do trampo': DESCRICAO_EDITADA,
+  'título editado do serviço': TITULO_DO_SERVICO_EDITADO,
+  'descrição editada do serviço': DESCRICAO_DO_SERVICO_EDITADA,
+  ...SENTINELAS_NAO_SALVAS_DA_L2,
+};
 
 /** As senhas digitadas na jornada do L1. */
 const SENHAS_DO_L1: Readonly<Record<string, string>> = {
@@ -171,6 +215,7 @@ const SENTINELAS: Readonly<Record<string, string>> = {
   'nome do terceiro': NOME_DO_TERCEIRO,
   'texto da conversa sumida': TEXTO_DA_CONVERSA_SUMIDA,
   ...SENTINELAS_RESTRITAS_DO_L1,
+  ...SENTINELAS_DA_EDICAO,
 };
 
 // --- Varredura ---
@@ -1148,25 +1193,154 @@ function criarApiDoL1() {
 }
 
 /**
- * Sentinelas restritas do L1 no estado guardado pelos caches do TanStack
- * (chave e estado de cada consulta; `variables`, `data`, `error` e o
- * contexto de cada mutação).
+ * `sentinelas` no estado guardado pelos caches do TanStack: chave e estado
+ * de cada consulta (`consultas`) e `variables`, `data`, `error` e o contexto
+ * de cada mutação (`mutacoes`).
  */
+function sentinelasNosCaches(
+  queryClient: QueryClient,
+  sentinelas: Readonly<Record<string, string>>,
+): { consultas: string[]; mutacoes: string[] } {
+  return {
+    consultas: sentinelasNoTexto(
+      emJson(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .map((q) => [q.queryKey, q.state]),
+      ),
+      sentinelas,
+    ),
+    mutacoes: sentinelasNoTexto(
+      emJson(
+        queryClient
+          .getMutationCache()
+          .getAll()
+          .map((m) => m.state),
+      ),
+      sentinelas,
+    ),
+  };
+}
+
+/** Sentinelas restritas do L1 em qualquer um dos caches do TanStack. */
 function restritasNosCaches(queryClient: QueryClient): string[] {
-  return sentinelasNoTexto(
-    emJson([
-      queryClient
-        .getQueryCache()
-        .getAll()
-        .map((q) => [q.queryKey, q.state]),
-      queryClient
-        .getMutationCache()
-        .getAll()
-        .map((m) => m.state),
-    ]),
+  const { consultas, mutacoes } = sentinelasNosCaches(
+    queryClient,
     SENTINELAS_RESTRITAS_DO_L1,
   );
+  return [...new Set([...consultas, ...mutacoes])];
 }
+
+// --- Jornada da L2: editar trampo e serviço (CA35) ---
+
+const TRAMPO_DA_EDICAO = 't-edicao';
+const SERVICO_DA_EDICAO = 's-edicao';
+const TITULO_BASE_DO_TRAMPO = 'Consertar o portao da garagem';
+const TITULO_BASE_DO_SERVICO = 'Aulas de violao em casa';
+
+/** O que o `PUT` faz em cada tentativa, na ordem. */
+type PassoDoPut = 'limite' | 'conflito' | 'salva';
+
+interface AnuncioDoServidor {
+  titulo: string;
+  descricao: string;
+  versao: number;
+}
+
+/**
+ * `PUT` do anúncio guardado no servidor falso, seguindo o `roteiro`. O
+ * conflito simula a edição feita em outro aparelho (a versão sobe); o
+ * "salva" confere a versão, grava o corpo e sobe a versão, como a API.
+ */
+function responderAoPut(
+  anuncio: AnuncioDoServidor,
+  roteiro: PassoDoPut[],
+): (requisicao: RequisicaoFeita) => RespostaFalsa {
+  return (requisicao) => {
+    const passo = roteiro.shift() ?? 'salva';
+    const corpo = requisicao.corpo as AnuncioDoServidor;
+    if (passo === 'limite') {
+      return { status: 429, corpo: { erro: 'muitas_tentativas' } };
+    }
+    if (passo === 'conflito') {
+      // Outra edição, salva em outro aparelho.
+      anuncio.versao += 1;
+    }
+    if (passo === 'conflito' || corpo.versao !== anuncio.versao) {
+      return { status: 409, corpo: { erro: 'conflito_de_versao' } };
+    }
+    anuncio.titulo = corpo.titulo;
+    anuncio.descricao = corpo.descricao;
+    anuncio.versao += 1;
+    return { status: 204 };
+  };
+}
+
+/**
+ * API falsa da edição: um trampo e um serviço da autora, lidos na visão do
+ * autor (com `versao` e a contagem). O trampo leva 429, 409 e salva; o
+ * serviço, 409, 429 e salva.
+ */
+function criarApiDaEdicao() {
+  const trampo = {
+    id: TRAMPO_DA_EDICAO,
+    autorId: AUTORA,
+    titulo: TITULO_BASE_DO_TRAMPO,
+    descricao: 'Trocar a dobradica e pintar o portao.',
+    categoria: 'reformas',
+    cidade: 'Lavras',
+    valorCentavos: 20000,
+    prazo: null,
+    status: 'aberto',
+    criadoEm: '2026-10-22T12:00:00.000Z',
+    versao: 5,
+    candidaturasRecebidas: 0,
+  };
+  const servico = {
+    id: SERVICO_DA_EDICAO,
+    autorId: AUTORA,
+    titulo: TITULO_BASE_DO_SERVICO,
+    descricao: 'Aulas para iniciantes, com o violao da casa.',
+    categoria: 'reformas',
+    cidade: null,
+    precoBaseCentavos: 9000,
+    status: 'ativo',
+    criadoEm: '2026-10-22T12:00:00.000Z',
+    versao: 2,
+  };
+  const api = criarFetchFalso()
+    .responder('GET /categorias', { corpo: CATEGORIAS })
+    .responder('GET /perfis/eu', { corpo: PERFIL_SALVO })
+    .responder('GET /trampos/meus', () => ({ corpo: [{ ...trampo }] }))
+    .responder('GET /servicos/meus', () => ({ corpo: [{ ...servico }] }))
+    .responder('GET /candidaturas/minhas', { corpo: [] })
+    .responder(`GET /perfis/${AUTORA}`, {
+      corpo: perfilPublico(AUTORA, NOME),
+    })
+    .responder(`GET /trampos/${TRAMPO_DA_EDICAO}`, () => ({
+      corpo: { ...trampo },
+    }))
+    .responder(`GET /trampos/${TRAMPO_DA_EDICAO}/candidaturas`, { corpo: [] })
+    .responder(`GET /servicos/${SERVICO_DA_EDICAO}`, () => ({
+      corpo: { ...servico },
+    }))
+    .responder(
+      `PUT /trampos/${TRAMPO_DA_EDICAO}`,
+      responderAoPut(trampo, ['limite', 'conflito', 'salva']),
+    )
+    .responder(
+      `PUT /servicos/${SERVICO_DA_EDICAO}`,
+      responderAoPut(servico, ['conflito', 'limite', 'salva']),
+    );
+  return { api, trampo, servico };
+}
+
+/** Únicos pedidos que podem levar o rascunho da edição, e só no corpo. */
+const PEDIDOS_COM_RASCUNHO: ReadonlySet<string> = new Set([
+  `PUT /trampos/${TRAMPO_DA_EDICAO}`,
+  `PUT /servicos/${SERVICO_DA_EDICAO}`,
+]);
 
 // --- Testes ---
 
@@ -1560,13 +1734,12 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: textos.entrar.entrar }),
     );
-    // O retorno guarda só o caminho de onde a sessão expirou, sem a query.
-    await waitFor(() => expect(getPathname()).toBe('/meus-anuncios'));
+    // A sessão que expirou era do freelancer: a rota de retorno não vale
+    // para outra conta, e a autora cai no Início (CA50).
+    await waitFor(() => expect(getPathname()).toBe('/'));
     expect(armazenamento.atual()).toBe(TOKEN_DA_AUTORA);
 
     // C2. Meus trampos -> detalhe -> Candidaturas recebidas com os nomes.
-    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
-    await waitFor(() => expect(getPathname()).toBe('/'));
     await fireEvent.press(ultimoBotao(textos.abas.perfil));
     await fireEvent.press(
       await screen.findByRole('button', { name: textos.perfil.meusTrampos }),
@@ -1831,14 +2004,23 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     estado.falhaDoPolling = null;
     nadaForaDaTela(screen.getByText(textos.erros.sessao_expirada));
 
-    // B1. O freelancer entra no mesmo aparelho e volta à conversa: do lado
-    // dele, as mensagens da autora com o nome dela.
+    // B1. O freelancer entra no mesmo aparelho. A rota de antes era da
+    // autora, então ele cai no Início (CA50) e abre a conversa pela aba: do
+    // lado dele, as mensagens da autora com o nome dela.
     await preencherAcesso(EMAIL_DO_FREELANCER, SENHA_DO_FREELANCER);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.entrar.entrar }),
     );
-    await waitFor(() => expect(getPathname()).toBe('/conversas/c1'));
+    await waitFor(() => expect(getPathname()).toBe('/'));
     expect(armazenamento.atual()).toBe(TOKEN_DO_FREELANCER);
+    await fireEvent.press(ultimoBotao(textos.abas.conversas));
+    await waitFor(() => expect(getPathname()).toBe('/conversas'));
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: linhaDaListaDa2c(NOME, TEXTO_QUE_CAIU),
+      }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/conversas/c1'));
     const daAutora = await screen.findByLabelText(
       rotuloDaBolha(NOME, TEXTO_ENVIADO),
     );
@@ -2117,6 +2299,251 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       ]);
     });
   }, 60_000);
+  it('L2: editar trampo e serviço (429, 409 com "Ver versão atual" e 204) com o rascunho sentinela, e o aviso de retorno só com a chave (CA35)', async () => {
+    const { api, trampo, servico } = criarApiDaEdicao();
+    const queryClient = criarQueryClientDeTeste();
+    const vigia = vigiarErros(queryClient);
+    esquecerAvisoDeRetorno();
+    avisar.mockClear();
+    const rotas = await renderizarRotas(ROTAS_REAIS, {
+      initialUrl: `/trampos/${TRAMPO_DA_EDICAO}`,
+      fetch: api,
+      queryClient,
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN_DA_AUTORA),
+    });
+    const { getPathname } = rotas;
+    const a = textos.anuncio;
+    /** A URL, os parâmetros e o estado inteiro do navegador. */
+    const naRota = () =>
+      sentinelasNoTexto(
+        emJson([
+          rotas.getPathnameWithParams(),
+          rotas.getSearchParams(),
+          rotas.getRouterState(),
+        ]),
+        SENTINELAS_DA_EDICAO,
+      );
+    /** Sentinelas que já foram salvas: o anúncio lido as traz de volta. */
+    const salvas = new Set<string>();
+    /**
+     * Na edição, a cada resposta: o rascunho só no `value` dos campos (texto
+     * da tela), nada na rota nem no cache de consultas (só o que já foi
+     * salvo, que é o anúncio lido).
+     */
+    const conferirNaEdicao = (elemento: object) =>
+      expect({
+        foraDaTela: sentinelasForaDaTela(
+          rotas.getPathnameWithParams(),
+          elemento,
+          SENTINELAS_DA_EDICAO,
+        ),
+        rota: naRota(),
+        consultas: sentinelasNosCaches(
+          queryClient,
+          SENTINELAS_DA_EDICAO,
+        ).consultas.filter((nome) => !salvas.has(nome)),
+      }).toEqual({ foraDaTela: NADA_FORA_DA_TELA, rota: [], consultas: [] });
+    /**
+     * Fora da edição (CA35): nada do que passou pelo rascunho no cache de
+     * mutações, na rota ou fora do texto da tela. O que foi salvo é o
+     * anúncio, que o detalhe lê e mostra; o rascunho que não foi salvo não
+     * fica em lugar nenhum, nem na árvore, nem nas consultas.
+     */
+    const conferirForaDaEdicao = (elemento: object) => {
+      const caches = sentinelasNosCaches(queryClient, SENTINELAS_DA_EDICAO);
+      expect({
+        foraDaTela: sentinelasForaDaTela(
+          rotas.getPathnameWithParams(),
+          elemento,
+          SENTINELAS_DA_EDICAO,
+        ),
+        rota: naRota(),
+        mutacoes: caches.mutacoes,
+        rascunhoNasConsultas: caches.consultas.filter(
+          (nome) => nome in SENTINELAS_NAO_SALVAS_DA_L2,
+        ),
+        rascunhoNaArvore: sentinelasNoTexto(
+          emJson(screen.toJSON()),
+          SENTINELAS_NAO_SALVAS_DA_L2,
+        ),
+      }).toEqual({
+        foraDaTela: NADA_FORA_DA_TELA,
+        rota: [],
+        mutacoes: [],
+        rascunhoNasConsultas: [],
+        rascunhoNaArvore: [],
+      });
+    };
+    const editarPeloDetalhe = async (titulo: string, caminho: string) => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: a.maisOpcoes(titulo) }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: a.editar }),
+      );
+      await waitFor(() => expect(getPathname()).toBe(caminho));
+      await screen.findByDisplayValue(titulo);
+    };
+    const salvarAlteracoes = async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: a.salvarAlteracoes }),
+      );
+      await avancar(50);
+    };
+    /** Volta ao detalhe com "Alterações salvas." e deixa a edição sair. */
+    const voltarSalvo = async (caminho: string) => {
+      await waitFor(() => expect(getPathname()).toBe(caminho));
+      expect(await screen.findByText(a.alteracoesSalvas)).toBeOnTheScreen();
+      await fireEvent.press(
+        screen.getByRole('button', { name: textos.gerais.toastFechar }),
+      );
+      await avancar(50);
+    };
+
+    // A1. Detalhe do trampo da autora -> "Mais opções" -> Editar.
+    await editarPeloDetalhe(
+      TITULO_BASE_DO_TRAMPO,
+      `/trampos/editar/${TRAMPO_DA_EDICAO}`,
+    );
+
+    // A2. Título e o rascunho da descrição; 429: o aviso de limite, e o
+    // rascunho fica nos campos.
+    await digitar(T.titulo, TITULO_EDITADO);
+    await digitar(T.descricao, RASCUNHO_DO_TRAMPO);
+    await salvarAlteracoes();
+    conferirNaEdicao(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    );
+    expect(screen.getByLabelText(T.descricao)).toHaveDisplayValue(
+      RASCUNHO_DO_TRAMPO,
+    );
+
+    // A3. Outra descrição; 409 (salvo em outro aparelho): o aviso de
+    // conflito.
+    await digitar(T.descricao, DESCRICAO_EDITADA);
+    await salvarAlteracoes();
+    conferirNaEdicao(await screen.findByText(a.conflito));
+
+    // A4. "Ver versão atual": a base nova, e o que a autora mexeu fica.
+    await fireEvent.press(
+      screen.getByRole('button', { name: a.verVersaoAtual }),
+    );
+    await waitFor(() => expect(screen.queryByText(a.conflito)).toBeNull());
+    expect(screen.getByLabelText(T.titulo)).toHaveDisplayValue(TITULO_EDITADO);
+    conferirNaEdicao(screen.getByLabelText(T.descricao));
+
+    // A5. Salva (204): o detalhe mostra o trampo novo e "Alterações salvas.".
+    await salvarAlteracoes();
+    await voltarSalvo(`/trampos/${TRAMPO_DA_EDICAO}`);
+    conferirForaDaEdicao(await screen.findByText(TITULO_EDITADO));
+    salvas.add('título editado do trampo').add('descrição editada do trampo');
+
+    // B1. Serviço da autora: detalhe -> "Mais opções" -> Editar.
+    await act(async () => {
+      router.push(`/servicos/${SERVICO_DA_EDICAO}`);
+    });
+    await editarPeloDetalhe(
+      TITULO_BASE_DO_SERVICO,
+      `/servicos/editar/${SERVICO_DA_EDICAO}`,
+    );
+
+    // B2. Título e o rascunho da descrição; 409 e "Ver versão atual".
+    await digitar(T.titulo, TITULO_DO_SERVICO_EDITADO);
+    await digitar(T.descricao, RASCUNHO_DO_SERVICO);
+    await salvarAlteracoes();
+    conferirNaEdicao(await screen.findByText(a.conflito));
+    await fireEvent.press(
+      screen.getByRole('button', { name: a.verVersaoAtual }),
+    );
+    await waitFor(() => expect(screen.queryByText(a.conflito)).toBeNull());
+    conferirNaEdicao(screen.getByLabelText(T.descricao));
+
+    // B3. Outra descrição; 429.
+    await digitar(T.descricao, DESCRICAO_DO_SERVICO_EDITADA);
+    await salvarAlteracoes();
+    conferirNaEdicao(
+      await screen.findByText(textos.erros.muitas_tentativas_acao),
+    );
+
+    // B4. Salva (204): o detalhe do serviço com "Alterações salvas.".
+    await salvarAlteracoes();
+    await voltarSalvo(`/servicos/${SERVICO_DA_EDICAO}`);
+    conferirForaDaEdicao(await screen.findByText(TITULO_DO_SERVICO_EDITADO));
+
+    // O servidor guardou o que foi salvo, com a versão de cada tentativa.
+    const textosDoPut = (rota: string) =>
+      corpos(api, rota).map((corpo) => {
+        const { titulo, descricao, versao } = corpo as AnuncioDoServidor;
+        return { titulo, descricao, versao };
+      });
+    expect(textosDoPut(`PUT /trampos/${TRAMPO_DA_EDICAO}`)).toEqual([
+      { titulo: TITULO_EDITADO, descricao: RASCUNHO_DO_TRAMPO, versao: 5 },
+      { titulo: TITULO_EDITADO, descricao: DESCRICAO_EDITADA, versao: 5 },
+      { titulo: TITULO_EDITADO, descricao: DESCRICAO_EDITADA, versao: 6 },
+    ]);
+    expect(textosDoPut(`PUT /servicos/${SERVICO_DA_EDICAO}`)).toEqual([
+      {
+        titulo: TITULO_DO_SERVICO_EDITADO,
+        descricao: RASCUNHO_DO_SERVICO,
+        versao: 2,
+      },
+      {
+        titulo: TITULO_DO_SERVICO_EDITADO,
+        descricao: DESCRICAO_DO_SERVICO_EDITADA,
+        versao: 3,
+      },
+      {
+        titulo: TITULO_DO_SERVICO_EDITADO,
+        descricao: DESCRICAO_DO_SERVICO_EDITADA,
+        versao: 3,
+      },
+    ]);
+    expect([trampo.titulo, trampo.descricao, trampo.versao]).toEqual([
+      TITULO_EDITADO,
+      DESCRICAO_EDITADA,
+      7,
+    ]);
+    expect([servico.titulo, servico.descricao, servico.versao]).toEqual([
+      TITULO_DO_SERVICO_EDITADO,
+      DESCRICAO_DO_SERVICO_EDITADA,
+      4,
+    ]);
+
+    // O rascunho vai só no corpo dos `PUT`: nunca na URL nem nos
+    // cabeçalhos, nem no corpo de outro pedido.
+    api.requisicoes.forEach((requisicao, indice) => {
+      const rota = `${requisicao.metodo} ${requisicao.caminho}`;
+      expect({
+        indice,
+        rota,
+        noCorpo: PEDIDOS_COM_RASCUNHO.has(rota)
+          ? []
+          : sentinelasNoTexto(emJson(requisicao.corpo), SENTINELAS_DA_EDICAO),
+        naUrl: sentinelasNoTexto(requisicao.url, SENTINELAS_DA_EDICAO),
+        nosCabecalhos: sentinelasNoTexto(
+          emJson(requisicao.cabecalhos),
+          SENTINELAS_DA_EDICAO,
+        ),
+      }).toEqual({ indice, rota, noCorpo: [], naUrl: [], nosCabecalhos: [] });
+    });
+
+    // Nenhum erro guardado (os dois 429 e os dois 409) traz sentinela.
+    vigia.parar();
+    const erros = [...vigia.erros];
+    expect(erros.length).toBeGreaterThanOrEqual(4);
+    expect(
+      sentinelasNoTexto(
+        erros.flatMap((erro) => [emTexto(erro), emJson(erro)]).join('\n'),
+      ),
+    ).toEqual([]);
+
+    // O aviso de retorno guardou só a chave (e a geração da sessão).
+    expect(avisar.mock.calls).toEqual([
+      ['alteracoes_salvas', expect.any(Number)],
+      ['alteracoes_salvas', expect.any(Number)],
+    ]);
+    expect(sentinelasNoTexto(emJson(avisar.mock.calls))).toEqual([]);
+  }, 60_000);
 });
 
 describe('controle da varredura', () => {
@@ -2215,6 +2642,26 @@ describe('controle da varredura', () => {
         'senha errada da conta excluída',
       ].sort(),
     );
+    queryClient.clear();
+  });
+
+  it('L2: separa o que está no cache de consultas do que está no de mutações', async () => {
+    const queryClient = criarQueryClientDeTeste();
+    queryClient.setQueryData(['trampo', 't-edicao'], {
+      titulo: TITULO_EDITADO,
+    });
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, {
+        mutationFn: () => Promise.reject(new Error('recusada')),
+      })
+      .execute({ descricao: RASCUNHO_DO_TRAMPO })
+      .catch(() => undefined);
+
+    expect(sentinelasNosCaches(queryClient, SENTINELAS_DA_EDICAO)).toEqual({
+      consultas: ['título editado do trampo'],
+      mutacoes: ['rascunho do trampo'],
+    });
     queryClient.clear();
   });
 

@@ -45,6 +45,60 @@ export async function publicarTrampo(
   });
 }
 
+/**
+ * `PUT /trampos/:id` (CA32, D33). Só manda as chaves aceitas e a `versao`
+ * lida: a API recusa chave extra com 400. `prazo` vazio não vai, e a API o
+ * trata como "sem prazo". Resolve em 204. 400 `dados_invalidos` traz os
+ * `campos`; 404 para quem não é o autor; 409 `trampo_nao_editavel` ou
+ * `conflito_de_versao`.
+ */
+export async function editarTrampo(
+  cliente: ClienteHttp,
+  id: string,
+  {
+    titulo,
+    descricao,
+    categoria,
+    cidade,
+    valorCentavos,
+    prazo,
+    versao,
+  }: EntradaDeTrampo & { readonly versao: number },
+): Promise<void> {
+  await cliente.put<void>(`/trampos/${segmentoDaUrl(id)}`, {
+    titulo,
+    descricao,
+    categoria,
+    cidade,
+    valorCentavos,
+    ...(!estaVazio(prazo) && { prazo }),
+    versao,
+  });
+}
+
+/**
+ * `POST /trampos/:id/encerrar` (CA33). Vai sem corpo e, portanto, sem
+ * `Content-Type`: a API recusa corpo JSON vazio com 400. Resolve em 204,
+ * inclusive se o trampo já estava encerrado; 404 para quem não é o autor.
+ */
+export async function encerrarTrampo(
+  cliente: ClienteHttp,
+  id: string,
+): Promise<void> {
+  await cliente.post<void>(`/trampos/${segmentoDaUrl(id)}/encerrar`);
+}
+
+/**
+ * `DELETE /trampos/:id` (CA33). Resolve em 204; 404 para quem não é o autor;
+ * 409 `trampo_nao_aberto`.
+ */
+export async function excluirTrampo(
+  cliente: ClienteHttp,
+  id: string,
+): Promise<void> {
+  await cliente.delete<void>(`/trampos/${segmentoDaUrl(id)}`);
+}
+
 /** `GET /trampos/meus`: os trampos da conta, com o `status` de cada um. */
 export async function listarMeusTrampos(
   cliente: ClienteHttp,
@@ -102,6 +156,17 @@ export async function listarMinhasCandidaturas(
   cliente: ClienteHttp,
 ): Promise<readonly MinhaCandidatura[]> {
   return cliente.get<readonly MinhaCandidatura[]>('/candidaturas/minhas');
+}
+
+/**
+ * `DELETE /candidaturas/:id` (CA34). Resolve em 204; 404 para quem não é
+ * dono da candidatura; 409 `candidatura_nao_pendente`.
+ */
+export async function retirarCandidatura(
+  cliente: ClienteHttp,
+  candidaturaId: string,
+): Promise<void> {
+  await cliente.delete<void>(`/candidaturas/${segmentoDaUrl(candidaturaId)}`);
 }
 
 function estaVazio(texto: string | null | undefined): boolean {

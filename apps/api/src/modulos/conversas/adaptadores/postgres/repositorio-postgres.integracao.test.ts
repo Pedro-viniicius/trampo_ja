@@ -15,7 +15,10 @@ import { criarCasosDeUsoDeConversas } from '../../aplicacao/casos-de-uso.js';
 import { Conversa } from '../../dominio/conversa.js';
 import { criarMensagem, type Mensagem } from '../../dominio/mensagem.js';
 import type { ConferirVinculo } from '../../dominio/portas.js';
-import { criarModuloDeConversas } from '../../index.js';
+import {
+  criarModuloDeConversas,
+  type ParteDeConversasNaExportacao,
+} from '../../index.js';
 import { VerificadorDeVinculoEmMemoria } from '../memoria/verificador-vinculo-memoria.js';
 import {
   excluirDadosDaConta,
@@ -805,5 +808,94 @@ describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
     expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
       conversas: [],
     });
+  });
+
+  /**
+   * O que a medida deve dar, calculado sobre o que a exportação devolve:
+   * bytes UTF-8 do texto de cada mensagem da conta mais 256 por mensagem e
+   * 256 por conversa.
+   */
+  function bytesEsperados(parte: ParteDeConversasNaExportacao): number {
+    return parte.conversas
+      .flatMap((conversa) => conversa.minhasMensagens)
+      .reduce(
+        (total, m) => total + Buffer.byteLength(m.texto) + 256,
+        parte.conversas.length * 256,
+      );
+  }
+
+  it('CA48 — mede no banco os bytes das mensagens da conta mais 256 por mensagem e por conversa, e cresce com o texto', async () => {
+    expect(await modulo().medirExportacao(B)).toBe(0);
+    const { ab, bc } = await cenario();
+
+    const antes = await modulo().medirExportacao(B);
+    // B está em duas conversas (com A e com C) e escreveu duas mensagens.
+    expect(antes).toBe(
+      Buffer.byteLength('B para A, primeira') +
+        Buffer.byteLength('B para A, segunda') +
+        2 * 256 +
+        2 * 256,
+    );
+    expect(antes).toBe(bytesEsperados(await modulo().exportarDadosDaConta(B)));
+    // O banco guarda o uuid em minúsculas: a mesma conta, a mesma medida.
+    expect(await modulo().medirExportacao(B.toUpperCase())).toBe(antes);
+
+    // Dois mil caracteres de dois bytes: a medida é em bytes, não em
+    // caracteres.
+    await escrever(bc, B, 'ã'.repeat(2000), minutos(9));
+    expect(await modulo().medirExportacao(B)).toBe(antes + 4000 + 256);
+
+    await escrever(ab, B, 'mais uma', minutos(10));
+    expect(await modulo().medirExportacao(B)).toBe(
+      bytesEsperados(await modulo().exportarDadosDaConta(B)),
+    );
+  });
+
+  it('CA48 — ignora o texto de terceiros: as mensagens do outro participante e as conversas entre outros não contam', async () => {
+    const { ab, bc, ac } = await cenario();
+    const antes = await modulo().medirExportacao(B);
+
+    await escrever(ab, A, 'TEXTO-DE-A '.repeat(150), minutos(9));
+    await escrever(bc, C, 'TEXTO-DE-C '.repeat(150), minutos(10));
+    await escrever(ac, A, 'TEXTO-A-PARA-C '.repeat(100), minutos(11));
+
+    expect(await modulo().medirExportacao(B)).toBe(antes);
+    for (const conta of [A, C]) {
+      expect(await modulo().medirExportacao(conta)).toBe(
+        bytesEsperados(await modulo().exportarDadosDaConta(conta)),
+      );
+    }
+  });
+
+  it('R2 — cada conversa da conta entra na medida, mesmo sem mensagem dela, e a medida nunca fica abaixo do JSON exportado', async () => {
+    const { ab } = await cenario();
+    const D = randomUUID();
+
+    // D abre uma conversa com A e não escreve nada: só a linha da conversa.
+    await abrir(D, A, minutos(9));
+    expect(await modulo().medirExportacao(D)).toBe(256);
+    // C só escreveu numa das duas conversas; a outra também conta.
+    expect(await modulo().medirExportacao(C)).toBe(
+      Buffer.byteLength('TEXTO-DE-C') + 256 + 2 * 256,
+    );
+    await escrever(ab, B, 'mais uma de B', minutos(10));
+
+    for (const conta of [A, B, C, D]) {
+      const parte = await modulo().exportarDadosDaConta(conta);
+      const medida = await modulo().medirExportacao(conta);
+      expect(medida, conta).toBe(bytesEsperados(parte));
+      expect(medida, conta).toBeGreaterThanOrEqual(
+        Buffer.byteLength(JSON.stringify(parte.conversas)),
+      );
+    }
+  });
+
+  it('CA48 — conta sem conversas mede 0, e id fora do formato uuid também', async () => {
+    await cenario();
+
+    expect(await modulo().medirExportacao(randomUUID())).toBe(0);
+    for (const id of ['nao-e-uuid', '', `${B}' or true --`]) {
+      expect(await modulo().medirExportacao(id)).toBe(0);
+    }
   });
 });

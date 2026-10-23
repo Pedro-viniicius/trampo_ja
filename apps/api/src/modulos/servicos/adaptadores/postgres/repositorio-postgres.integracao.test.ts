@@ -6,14 +6,23 @@ import {
   truncarTabelas,
 } from '../../../../../test/banco-teste.js';
 import { ErroTabelaNaoVazia } from '../../../../compartilhado/banco/migrador.js';
-import { ErroDeValidacao } from '../../../../compartilhado/dominio/erros.js';
-import type { FiltrosDeBusca } from '../../dominio/portas.js';
+import {
+  ErroDeRegra,
+  ErroDeValidacao,
+} from '../../../../compartilhado/dominio/erros.js';
+import { RelogioFixo } from '../../../../compartilhado/dominio/relogio.js';
+import { criarCasosDeUsoDeServicos } from '../../aplicacao/casos-de-uso.js';
+import type {
+  FiltrosDeBusca,
+  RepositorioDeServicos,
+} from '../../dominio/portas.js';
 import {
   criarServico,
   type EntradaDeServico,
+  editarServico,
   type Servico,
 } from '../../dominio/servico.js';
-import { criarModuloDeServicos } from '../../index.js';
+import { criarModuloDeServicos, type ServicoExportado } from '../../index.js';
 import { VerificadorDePerfilEmMemoria } from '../memoria/verificador-perfil-memoria.js';
 import {
   excluirDadosDaConta,
@@ -277,6 +286,222 @@ describe('RepositorioDeServicosPostgres — busca (CA7)', () => {
   });
 });
 
+describe('RepositorioDeServicosPostgres — edição e exclusão (CA26, ADR-006)', () => {
+  const EDICAO: EntradaDeServico = {
+    titulo: 'Encanador de plantão',
+    descricao: 'Vazamentos e DESENTUPIMENTO.',
+    categoria: 'limpeza',
+    cidade: 'Belo Horizonte',
+    precoBaseCentavos: 9900,
+  };
+
+  async function linhaCrua(id: string) {
+    const { rows } = await sql<{
+      titulo: string;
+      cidade: string | null;
+      cidade_normalizada: string | null;
+      texto_busca: string;
+      status: string;
+      criado_em: Date;
+      versao: number;
+    }>`select titulo, cidade, cidade_normalizada, texto_busca, status,
+         criado_em, versao from servicos where id = ${id}`.execute(db());
+    return rows[0];
+  }
+
+  it('CA26 — atualizar regrava os campos, o texto de busca, a cidade normalizada e a versão; a busca acha o texto novo e não o velho', async () => {
+    const original = servico(1);
+    await salvarTodos(original, servico(2, { titulo: 'Aulas de violão' }));
+
+    const editado = editarServico(original, EDICAO);
+    expect(await repositorio.atualizar(editado)).toBe(true);
+
+    expect(await repositorio.buscarPorId(original.id)).toEqual(editado);
+    expect(await linhaCrua(original.id)).toEqual({
+      titulo: 'Encanador de plantão',
+      cidade: 'Belo Horizonte',
+      cidade_normalizada: 'belo horizonte',
+      texto_busca: 'encanador de plantao vazamentos e desentupimento.',
+      status: 'ativo',
+      criado_em: original.criadoEm,
+      versao: 2,
+    });
+    expect(await idsDaBusca({ texto: 'desentupimento' })).toEqual([idDe(1)]);
+    expect(await idsDaBusca({ texto: 'eletricista' })).toEqual([]);
+    expect(await idsDaBusca({ cidade: 'belo horizonte' })).toEqual([idDe(1)]);
+    expect(await idsDaBusca({ cidade: 'sao paulo' })).toEqual([idDe(2)]);
+    // A posição na busca segue o `criado_em`, que não muda.
+    expect(await idsDaBusca()).toEqual([idDe(2), idDe(1)]);
+  });
+
+  it('D7 — editar sem cidade grava as duas colunas de cidade nulas', async () => {
+    const original = servico(1);
+    await repositorio.salvar(original);
+
+    const { cidade: _cidade, ...semCidade } = EDICAO;
+    expect(
+      await repositorio.atualizar(editarServico(original, semCidade)),
+    ).toBe(true);
+
+    expect(await linhaCrua(original.id)).toMatchObject({
+      cidade: null,
+      cidade_normalizada: null,
+      versao: 2,
+    });
+    expect(await idsDaBusca({ cidade: 'sao paulo' })).toEqual([]);
+  });
+
+  it('D33 — com a versão lida velha, de outro autor ou com id fora do formato, atualizar devolve false e nada muda', async () => {
+    const original = servico(1);
+    await repositorio.salvar(original);
+    expect(await repositorio.atualizar(editarServico(original, EDICAO))).toBe(
+      true,
+    );
+
+    const comVersaoVelha = editarServico(original, {
+      ...EDICAO,
+      titulo: 'Versão velha',
+    });
+    const deOutroAutor = editarServico(
+      { ...original, autorId: OUTRO_AUTOR, versao: 2 },
+      { ...EDICAO, titulo: 'De outro autor' },
+    );
+    const foraDoFormato = editarServico(
+      { ...original, id: 'nao-e-uuid', versao: 2 },
+      EDICAO,
+    );
+    for (const tentativa of [comVersaoVelha, deOutroAutor, foraDoFormato]) {
+      expect(await repositorio.atualizar(tentativa)).toBe(false);
+    }
+
+    expect(await linhaCrua(original.id)).toMatchObject({
+      titulo: 'Encanador de plantão',
+      versao: 2,
+    });
+  });
+
+  it('ADR-006 — dois UPDATE simultâneos com a mesma versão lida: um grava e o outro não afeta nada', async () => {
+    const original = servico(1);
+    await repositorio.salvar(original);
+
+    const resultados = await Promise.all([
+      repositorio.atualizar(
+        editarServico(original, { ...EDICAO, titulo: 'Edição A' }),
+      ),
+      repositorio.atualizar(
+        editarServico(original, { ...EDICAO, titulo: 'Edição B' }),
+      ),
+    ]);
+
+    expect([...resultados].sort()).toEqual([false, true]);
+    const linha = await linhaCrua(original.id);
+    expect(linha?.versao).toBe(2);
+    expect(linha?.titulo).toBe(resultados[0] ? 'Edição A' : 'Edição B');
+  });
+
+  it('D33 — duas edições simultâneas pelo caso de uso, as duas lidas na versão 1: uma vence e a outra leva conflito_de_versao', async () => {
+    await repositorio.salvar(servico(1));
+    // Barreira: as duas edições leem o serviço antes de qualquer gravação,
+    // então só a trava do `UPDATE` separa a vencedora da perdedora.
+    let leituras = 0;
+    let liberar: () => void = () => undefined;
+    const ambasLeram = new Promise<void>((resolver) => {
+      liberar = resolver;
+    });
+    const comBarreira: RepositorioDeServicos = {
+      salvar: (s) => repositorio.salvar(s),
+      atualizar: (s) => repositorio.atualizar(s),
+      excluir: (id, autorId) => repositorio.excluir(id, autorId),
+      listarDoAutor: (autorId) => repositorio.listarDoAutor(autorId),
+      buscar: (filtros) => repositorio.buscar(filtros),
+      buscarPorId: async (id) => {
+        const lido = await repositorio.buscarPorId(id);
+        leituras += 1;
+        if (leituras >= 2) {
+          liberar();
+        }
+        await ambasLeram;
+        return lido;
+      },
+    };
+    const casos = criarCasosDeUsoDeServicos({
+      repositorio: comBarreira,
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria([AUTOR]),
+      relogio: new RelogioFixo(INICIO),
+    });
+
+    const resultados = await Promise.allSettled([
+      casos.editarServico(AUTOR, idDe(1), {
+        ...EDICAO,
+        titulo: 'Edição A',
+        versao: 1,
+      }),
+      casos.editarServico(AUTOR, idDe(1), {
+        ...EDICAO,
+        titulo: 'Edição B',
+        versao: 1,
+      }),
+    ]);
+
+    const perdedoras = resultados.filter((r) => r.status === 'rejected');
+    expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(perdedoras).toHaveLength(1);
+    const motivo = (perdedoras[0] as PromiseRejectedResult).reason;
+    expect(motivo).toBeInstanceOf(ErroDeRegra);
+    expect(motivo).toMatchObject({ codigo: 'conflito_de_versao' });
+    expect((await linhaCrua(idDe(1)))?.versao).toBe(2);
+  });
+
+  it('CA26 — excluir apaga só o serviço do autor e o tira da busca; repetir, outro autor e id fora do formato devolvem false', async () => {
+    await salvarTodos(
+      servico(1),
+      servico(2),
+      servico(3, {}, { autorId: OUTRO_AUTOR }),
+    );
+
+    expect(await repositorio.excluir(idDe(1), AUTOR)).toBe(true);
+
+    expect(await repositorio.buscarPorId(idDe(1))).toBeNull();
+    expect(await idsDaBusca()).toEqual([idDe(3), idDe(2)]);
+    expect(await idsDaBusca({ texto: 'eletricista' })).toEqual([
+      idDe(3),
+      idDe(2),
+    ]);
+    expect(await repositorio.excluir(idDe(1), AUTOR)).toBe(false);
+    expect(await repositorio.excluir(idDe(3), AUTOR)).toBe(false);
+    expect(await repositorio.excluir('nao-e-uuid', AUTOR)).toBe(false);
+    expect(await repositorio.excluir(idDe(2), 'nao-e-uuid')).toBe(false);
+    expect(await idsDaBusca()).toEqual([idDe(3), idDe(2)]);
+  });
+
+  it('CA30 — a exportação traz os textos da última edição e não traz a versao', async () => {
+    const original = servico(1);
+    await repositorio.salvar(original);
+    await repositorio.atualizar(editarServico(original, EDICAO));
+
+    const exportado = await criarModuloDeServicos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    }).exportarDadosDaConta(AUTOR);
+
+    expect(exportado).toEqual({
+      servicos: [
+        {
+          id: idDe(1),
+          titulo: 'Encanador de plantão',
+          descricao: 'Vazamentos e DESENTUPIMENTO.',
+          categoria: 'limpeza',
+          cidade: 'Belo Horizonte',
+          precoBaseCentavos: 9900,
+          status: 'ativo',
+          criadoEm: original.criadoEm.toISOString(),
+        },
+      ],
+    });
+    expect(JSON.stringify(exportado)).not.toContain('Eletricista');
+  });
+});
+
 describe('migração 0003_servicos', () => {
   async function inserirLinha(
     alteracao: Record<string, unknown>,
@@ -505,5 +730,71 @@ describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
     expect(await modulo().exportarDadosDaConta('nao-e-uuid')).toEqual({
       servicos: [],
     });
+  });
+
+  /**
+   * O que a medida deve dar, calculado sobre o que a exportação devolve:
+   * bytes UTF-8 de cada texto exportado mais 256 por serviço.
+   */
+  function bytesEsperados(servicos: readonly ServicoExportado[]): number {
+    return servicos.reduce(
+      (total, s) =>
+        total +
+        Buffer.byteLength(s.titulo) +
+        Buffer.byteLength(s.descricao) +
+        Buffer.byteLength(s.cidade ?? '') +
+        Buffer.byteLength(s.categoria) +
+        Buffer.byteLength(s.status) +
+        256,
+      0,
+    );
+  }
+
+  it('CA48 — mede no banco os bytes dos textos exportados mais 256 por serviço, e cresce com o texto', async () => {
+    expect(await modulo().medirExportacao(AUTOR)).toBe(0);
+
+    await salvarTodos(servico(1), servico(3, { cidade: undefined }));
+    const { servicos } = await modulo().exportarDadosDaConta(AUTOR);
+    const antes = await modulo().medirExportacao(AUTOR);
+    expect(antes).toBe(bytesEsperados(servicos));
+    // O banco guarda o uuid em minúsculas: a mesma conta, a mesma medida.
+    expect(await modulo().medirExportacao(AUTOR.toUpperCase())).toBe(antes);
+
+    // Mil caracteres de dois bytes: a medida é em bytes, não em caracteres.
+    await salvarTodos(servico(4, { descricao: 'é'.repeat(1000) }));
+    const depois = await modulo().medirExportacao(AUTOR);
+    expect(depois - antes).toBe(
+      bytesEsperados((await modulo().exportarDadosDaConta(AUTOR)).servicos) -
+        bytesEsperados(servicos),
+    );
+    expect(depois - antes).toBeGreaterThanOrEqual(2000 + 256);
+  });
+
+  it('CA48 — ignora os serviços de outra conta', async () => {
+    await salvarTodos(servico(1));
+    const sozinho = await modulo().medirExportacao(AUTOR);
+
+    await salvarTodos(
+      servico(
+        2,
+        { titulo: 'TEXTO-DE-TERCEIRO', descricao: 'x'.repeat(2000) },
+        { autorId: OUTRO_AUTOR },
+      ),
+    );
+
+    expect(await modulo().medirExportacao(AUTOR)).toBe(sozinho);
+    expect(await modulo().medirExportacao(OUTRO_AUTOR)).toBe(
+      bytesEsperados(
+        (await modulo().exportarDadosDaConta(OUTRO_AUTOR)).servicos,
+      ),
+    );
+  });
+
+  it('CA48 — id fora do formato uuid mede 0', async () => {
+    await salvarTodos(servico(1));
+
+    for (const id of ['nao-e-uuid', '', `${AUTOR}' or true --`]) {
+      expect(await modulo().medirExportacao(id)).toBe(0);
+    }
   });
 });

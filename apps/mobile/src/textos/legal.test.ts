@@ -197,7 +197,59 @@ describe('CA21 — conteúdo previsto (D25 a D28)', () => {
     expect(texto).toContain('Encerramento da conta');
   });
 
-  it('as duas versões estão na mesma data de redação do rascunho', () => {
-    expect(politicaDePrivacidade.versao).toBe(termosDeUso.versao);
+  it('cada documento tem a sua versão: a política (L3) não é anterior aos termos', () => {
+    expect(politicaDePrivacidade.versao).toBe('2026-10-23');
+    expect(politicaDePrivacidade.versao >= termosDeUso.versao).toBe(true);
+  });
+});
+
+describe('CA48 — exportação grande e limpeza de sessões (D40 e D41)', () => {
+  const secao = (titulo: string) =>
+    politicaDePrivacidade.secoes.find((s) => s.titulo === titulo);
+  const paragrafoDe = (titulo: string, comeco: string): string => {
+    const achado = secao(titulo)?.paragrafos.find((p) => p.startsWith(comeco));
+    if (achado === undefined) throw new Error(`sem "${comeco}" em ${titulo}`);
+    return achado;
+  };
+
+  it('em "Exportar", acima de 10 MB a pessoa pede a cópia pelo e-mail de contato', () => {
+    const exportar = paragrafoDe('Seus direitos', 'Exportar:');
+    expect(exportar).toContain('mais de 10 MB');
+    expect(exportar).toContain('escrevendo para [E-MAIL DE CONTATO]');
+  });
+
+  it('a resposta sai em até 15 dias, com a base legal (LGPD, art. 19, II)', () => {
+    const exportar = paragrafoDe('Seus direitos', 'Exportar:');
+    expect(exportar).toContain('em até 15 dias');
+    expect(exportar).toContain('art. 19, II');
+  });
+
+  it('o caminho por e-mail não substitui a exportação pelo app até o limite', () => {
+    const exportar = paragrafoDe('Seus direitos', 'Exportar:');
+    expect(exportar).toContain('você pode gerar um arquivo com os seus dados');
+    expect(exportar.indexOf('mais de 10 MB')).toBeGreaterThan(
+      exportar.indexOf('apaga o arquivo temporário'),
+    );
+  });
+
+  // R1/S4: a limpeza conta o intervalo do fim da rodada anterior, apaga um
+  // número limitado de sessões por rodada e não roda com a API parada; por
+  // isso o prazo é aproximado, não uma garantia de "até 1 hora".
+  it('as sessões expiradas são apagadas em cerca de 1 hora, sem prometer prazo máximo', () => {
+    const sessoes = paragrafoDe(
+      'Por quanto tempo guardamos os dados',
+      'As sessões que já expiraram',
+    );
+    expect(sessoes).toContain('em cerca de 1 hora depois do vencimento');
+    expect(sessoes).toContain('apagadas do servidor');
+    expect(sessoes).not.toContain('em até 1 hora');
+  });
+
+  it('a política segue como rascunho, com os marcadores do controlador', () => {
+    expect(politicaDePrivacidade.rascunho).toBe(true);
+    const texto = politicaDePrivacidade.secoes
+      .flatMap((s) => s.paragrafos)
+      .join('\n');
+    for (const marcador of MARCADORES) expect(texto).toContain(marcador);
   });
 });

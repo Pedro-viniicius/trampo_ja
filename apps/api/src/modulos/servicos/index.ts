@@ -15,6 +15,7 @@ import { criarRotasDeServicos } from './adaptadores/http/rotas.js';
 import {
   excluirDadosDaConta,
   exportarDadosDaConta,
+  medirExportacao,
   type ParteDeServicosNaExportacao,
   RepositorioDeServicosPostgres,
 } from './adaptadores/postgres/repositorio-postgres.js';
@@ -41,7 +42,11 @@ export interface OpcoesDoModuloDeServicos {
 }
 
 export interface ModuloDeServicos {
-  /** `POST /servicos`, `GET /servicos/meus` e `GET /servicos/:id`, com token. */
+  /**
+   * `POST /servicos`, `GET /servicos/meus`, `GET /servicos/:id`,
+   * `PUT /servicos/:id` e `DELETE /servicos/:id`, com token. A `versao` só
+   * aparece na visão do autor (D33).
+   */
   readonly rotas: (opcoes: {
     readonly validarSessao: ValidarSessao;
   }) => FastifyPluginAsync;
@@ -63,11 +68,18 @@ export interface ModuloDeServicos {
   ) => Promise<void>;
   /**
    * Parte de `servicos` na exportação (D26): os serviços da conta, em qualquer
-   * status, sem as colunas derivadas (`cidade_normalizada`, `texto_busca`).
+   * status e com os textos da última edição, sem as colunas derivadas
+   * (`cidade_normalizada`, `texto_busca`) nem a `versao`.
    */
   readonly exportarDadosDaConta: (
     contaId: string,
   ) => Promise<ParteDeServicosNaExportacao>;
+  /**
+   * Tamanho estimado, em bytes, da parte de `servicos` na exportação (CA48),
+   * medido no banco antes de coletar: os serviços da conta. Id que não seja
+   * uuid: 0.
+   */
+  readonly medirExportacao: (contaId: string) => Promise<number>;
 }
 
 export function criarModuloDeServicos(
@@ -88,5 +100,6 @@ export function criarModuloDeServicos(
     buscarServicos: casos.buscarServicos,
     excluirDadosDaConta,
     exportarDadosDaConta: (contaId) => exportarDadosDaConta(opcoes.db, contaId),
+    medirExportacao: (contaId) => medirExportacao(opcoes.db, contaId),
   };
 }

@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ErroDeRegra,
   ErroDeValidacao,
+  ErroIndisponivel,
+  ErroLimiteExcedido,
   ErroNaoEncontrado,
   ErroProibido,
 } from '../../../compartilhado/dominio/erros.js';
@@ -11,20 +13,35 @@ import {
   DadosDaContaEmMemoria,
   PARTES_VAZIAS,
   RepositorioDeContasEmMemoria,
+  RepositorioDeContasExcluidasEmMemoria,
   RepositorioDeSessoesEmMemoria,
+  RepositorioDeTentativasDeEntradaEmMemoria,
 } from '../adaptadores/memoria/repositorios-memoria.js';
+import { Conta } from '../dominio/conta.js';
 import { Email } from '../dominio/email.js';
 import { HasherScrypt } from '../dominio/hasher.js';
 import {
   type DadosDaConta,
   ErroDeEmailDuplicado,
+  type ExportacaoV1,
   type PartesExportadas,
 } from '../dominio/portas.js';
 import { Semaforo } from '../dominio/semaforo.js';
 import {
+  BYTES_DA_CONTA_NA_MEDIDA,
+  BYTES_POR_SESSAO_NA_MEDIDA,
   type CasosDeUsoDeContas,
   criarCasosDeUsoDeContas,
   DURACAO_DA_SESSAO_MS,
+  ESPERA_DA_LAPIDE_MS,
+  ESPERA_MAXIMA_NA_FILA_MS,
+  LAPIDES_POR_RODADA,
+  LOTES_DE_SESSOES_POR_RODADA,
+  type OpcoesDaExportacao,
+  SESSOES_POR_LOTE,
+  TENTAR_DE_NOVO_EM_S,
+  TETO_DA_EXPORTACAO_BYTES,
+  TETO_PADRAO_POR_EMAIL,
 } from './casos-de-uso.js';
 
 const EMAIL = 'maria.silva@exemplo.com';
@@ -44,11 +61,30 @@ function sha256(texto: string): string {
   return createHash('sha256').update(texto).digest('hex');
 }
 
+/** Serialização simples, para os testes que leem o objeto exportado. */
+const EM_JSON: OpcoesDaExportacao = { serializar: (e) => JSON.stringify(e) };
+
+/** Exporta com `EM_JSON` e devolve o objeto lido de volta. */
+async function exportarObjeto(
+  casosDeUso: CasosDeUsoDeContas,
+  contaId: string,
+  senha: unknown,
+  sinal?: AbortSignal,
+): Promise<ExportacaoV1> {
+  const texto = await casosDeUso.exportarDados(contaId, senha, {
+    ...EM_JSON,
+    ...(sinal ? { sinal } : {}),
+  });
+  return JSON.parse(texto) as ExportacaoV1;
+}
+
 describe('contas: cadastro, entrada e sessão', () => {
   let contas: RepositorioDeContasEmMemoria;
   let sessoes: RepositorioDeSessoesEmMemoria;
   let hasher: HasherScrypt;
   let relogio: RelogioFixo;
+  let lapides: RepositorioDeContasExcluidasEmMemoria;
+  let tentativasDeEntrada: RepositorioDeTentativasDeEntradaEmMemoria;
   let dados: DadosDaContaEmMemoria;
   let casos: CasosDeUsoDeContas;
 
@@ -57,11 +93,15 @@ describe('contas: cadastro, entrada e sessão', () => {
     dados = new DadosDaContaEmMemoria({
       contas,
       sessoes,
+      lapides,
+      relogio,
       ...(partes ? { partes } : {}),
     });
     casos = criarCasosDeUsoDeContas({
       contas,
       sessoes,
+      contasExcluidas: lapides,
+      tentativasDeEntrada,
       hasher,
       relogio,
       dadosDaConta: dados,
@@ -70,8 +110,11 @@ describe('contas: cadastro, entrada e sessão', () => {
 
   beforeEach(() => {
     relogio = new RelogioFixo('2026-10-20T12:00:00.000Z');
-    contas = new RepositorioDeContasEmMemoria();
     sessoes = new RepositorioDeSessoesEmMemoria(relogio);
+    // A sessão do cadastro é gravada junto com a conta (S7).
+    contas = new RepositorioDeContasEmMemoria(sessoes);
+    lapides = new RepositorioDeContasExcluidasEmMemoria();
+    tentativasDeEntrada = new RepositorioDeTentativasDeEntradaEmMemoria(contas);
     // Hasher real com custo baixo, para o BDD rodar rápido.
     hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 });
     montarCasos();
@@ -309,6 +352,228 @@ describe('contas: cadastro, entrada e sessão', () => {
     });
   });
 
+  describe('S1 (D31, CA42) — teto de entrada por conta, contado antes do scrypt', () => {
+    const HORA_MS = 60 * 60 * 1000;
+    const ERRADA = 'senha-errada';
+    let contaId: string;
+
+    beforeEach(async () => {
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+      contaId = (await casos.validarSessao(token)) ?? '';
+    });
+
+    /** Monta os casos de uso com outro teto (o resto igual). */
+    function comTeto(max: number, janelaMs = HORA_MS): CasosDeUsoDeContas {
+      return criarCasosDeUsoDeContas({
+        contas,
+        sessoes,
+        contasExcluidas: lapides,
+        tentativasDeEntrada,
+        tetoDeTentativas: { max, janelaMs },
+        hasher,
+        relogio,
+        dadosDaConta: dados,
+      });
+    }
+
+    /** `vezes` entradas com senha errada; todas devem dar 401. */
+    async function errar(vezes: number, casosDoTeste = casos): Promise<void> {
+      for (let i = 0; i < vezes; i += 1) {
+        const erro = await erroDe(
+          casosDoTeste.entrar({ email: EMAIL, senha: ERRADA }),
+        );
+        expect((erro as ErroDeRegra).codigo, `tentativa ${i + 1}`).toBe(
+          'credenciais_invalidas',
+        );
+      }
+    }
+
+    it('o teto padrão é 100 tentativas por conta a cada hora', () => {
+      expect(TETO_PADRAO_POR_EMAIL).toEqual({ max: 100, janelaMs: HORA_MS });
+    });
+
+    it('Dadas 100 tentativas da conta na hora, então a 101ª dá 429 sem derivar, mesmo com a senha certa, com retry-after até o fim da janela', async () => {
+      await errar(100);
+      expect(tentativasDeEntrada.contagemDe(contaId)).toBe(100);
+      relogio.avancar(20 * 60 * 1000);
+      const verificar = vi.spyOn(hasher, 'verificar');
+
+      const erro = await erroDe(casos.entrar({ email: EMAIL, senha: SENHA }));
+
+      expect(erro).toBeInstanceOf(ErroLimiteExcedido);
+      expect((erro as ErroLimiteExcedido).codigo).toBe('muitas_requisicoes');
+      // A janela começou na 1ª tentativa: faltam 40 min.
+      expect((erro as ErroLimiteExcedido).tentarDeNovoEmS).toBe(40 * 60);
+      expect(verificar).not.toHaveBeenCalled();
+      expect(sessoes.hashesGravados()).toHaveLength(1);
+    });
+
+    it('a janela vencida reinicia o contador: a dona volta a entrar e a contagem recomeça em 1', async () => {
+      await errar(100);
+      relogio.avancar(HORA_MS - 1);
+      const aindaNaJanela = await erroDe(
+        casos.entrar({ email: EMAIL, senha: SENHA }),
+      );
+      expect(aindaNaJanela).toBeInstanceOf(ErroLimiteExcedido);
+      expect((aindaNaJanela as ErroLimiteExcedido).tentarDeNovoEmS).toBe(1);
+
+      relogio.avancar(1);
+      const { token } = await casos.entrar({ email: EMAIL, senha: SENHA });
+
+      expect(await casos.validarSessao(token)).toBe(contaId);
+      expect(tentativasDeEntrada.contagemDe(contaId)).toBe(1);
+    });
+
+    it('a senha certa também conta: o teto é de tentativas, não de erros', async () => {
+      const casosDoTeste = comTeto(3);
+      for (let i = 0; i < 3; i += 1) {
+        await casosDoTeste.entrar({ email: EMAIL, senha: SENHA });
+      }
+
+      const erro = await erroDe(
+        casosDoTeste.entrar({ email: EMAIL, senha: SENHA }),
+      );
+
+      expect(erro).toBeInstanceOf(ErroLimiteExcedido);
+      expect((erro as ErroLimiteExcedido).tentarDeNovoEmS).toBe(3600);
+    });
+
+    it('o teto é da conta: o e-mail com caixa e espaços diferentes conta junto, e outra conta tem o seu', async () => {
+      const casosDoTeste = comTeto(2);
+      await erroDe(casosDoTeste.entrar({ email: EMAIL, senha: ERRADA }));
+      await erroDe(
+        casosDoTeste.entrar({
+          email: ' MARIA.Silva@exemplo.com ',
+          senha: ERRADA,
+        }),
+      );
+      await casos.criarConta({ email: 'joao@exemplo.com', senha: SENHA });
+
+      expect(
+        await erroDe(casosDoTeste.entrar({ email: EMAIL, senha: SENHA })),
+      ).toBeInstanceOf(ErroLimiteExcedido);
+      const doJoao = await casosDoTeste.entrar({
+        email: 'joao@exemplo.com',
+        senha: SENHA,
+      });
+      expect(doJoao.token).toEqual(expect.any(String));
+    });
+
+    it('e-mail inexistente não grava contador e segue no scrypt fictício: a recusa é sempre a genérica', async () => {
+      const casosDoTeste = comTeto(2);
+      const verificar = vi.spyOn(hasher, 'verificar');
+
+      for (let i = 0; i < 5; i += 1) {
+        const erro = await erroDe(
+          casosDoTeste.entrar({ email: 'ninguem@exemplo.com', senha: SENHA }),
+        );
+        expect((erro as ErroDeRegra).codigo).toBe('credenciais_invalidas');
+      }
+
+      expect(verificar).toHaveBeenCalledTimes(5);
+      expect(tentativasDeEntrada.quantidade).toBe(0);
+    });
+
+    it('entrada fora do formato é recusada antes de contar', async () => {
+      await erroDe(casos.entrar({ email: EMAIL, senha: '' }));
+      await erroDe(casos.entrar({ email: EMAIL, senha: 'a'.repeat(129) }));
+      await erroDe(casos.entrar({ email: 'sem-arroba', senha: SENHA }));
+
+      expect(tentativasDeEntrada.quantidade).toBe(0);
+    });
+
+    it('Dada a conta excluída entre a busca e a contagem, então ela é tratada como inexistente: 401 genérico, contra o hash fictício', async () => {
+      vi.spyOn(tentativasDeEntrada, 'registrar').mockResolvedValue(null);
+      const verificar = vi.spyOn(hasher, 'verificar');
+      const conta = await contas.buscarPorEmail(Email.criar(EMAIL));
+
+      const erro = await erroDe(casos.entrar({ email: EMAIL, senha: SENHA }));
+
+      expect((erro as ErroDeRegra).codigo).toBe('credenciais_invalidas');
+      expect(verificar).toHaveBeenCalledTimes(1);
+      expect(verificar.mock.calls[0]?.[1]).not.toBe(conta?.senhaHash);
+      expect(sessoes.hashesGravados()).toHaveLength(1);
+    });
+
+    it('o 429 não traz o e-mail, o id da conta nem a contagem', async () => {
+      const casosDoTeste = comTeto(1);
+      await erroDe(casosDoTeste.entrar({ email: EMAIL, senha: ERRADA }));
+
+      const erro = await erroDe(
+        casosDoTeste.entrar({ email: EMAIL, senha: ERRADA }),
+      );
+
+      expect(erro).toBeInstanceOf(ErroLimiteExcedido);
+      const texto = `${JSON.stringify(erro)} ${erro.message} ${erro.stack}`;
+      for (const proibido of [EMAIL, 'maria', contaId, sha256(EMAIL)]) {
+        expect(texto).not.toContain(proibido);
+      }
+      expect(Object.keys(erro).sort()).toEqual([
+        'codigo',
+        'name',
+        'tentarDeNovoEmS',
+      ]);
+    });
+
+    it.each([
+      [{ max: 0, janelaMs: HORA_MS }, 'max'],
+      [{ max: 1.5, janelaMs: HORA_MS }, 'max'],
+      [{ max: 1, janelaMs: 0 }, 'janelaMs'],
+      [{ max: 1, janelaMs: 1.5 }, 'janelaMs'],
+      [{ max: 1, janelaMs: 24 * HORA_MS + 1 }, 'janelaMs'],
+    ])('teto inválido recusa a criação: %j', (teto, campo) => {
+      expect(() =>
+        criarCasosDeUsoDeContas({
+          contas,
+          sessoes,
+          contasExcluidas: lapides,
+          tentativasDeEntrada,
+          tetoDeTentativas: teto,
+          hasher,
+          relogio,
+          dadosDaConta: dados,
+        }),
+      ).toThrow(`teto de tentativas de entrada inválido: ${campo}`);
+    });
+
+    it('CA46 — a limpeza apaga os contadores com a janela vencida e deixa os vigentes', async () => {
+      await casos.criarConta({ email: 'joao@exemplo.com', senha: SENHA });
+      await errar(1);
+      relogio.avancar(30 * 60 * 1000);
+      await erroDe(casos.entrar({ email: 'joao@exemplo.com', senha: ERRADA }));
+      relogio.avancar(30 * 60 * 1000);
+      const apagar = vi.spyOn(tentativasDeEntrada, 'apagarVencidas');
+
+      // A da Maria fez 1 h agora; a do João, 30 min.
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 0,
+      });
+
+      expect(apagar).toHaveBeenCalledWith(
+        new Date(relogio.agora().getTime() - HORA_MS),
+      );
+      expect(tentativasDeEntrada.contagemDe(contaId)).toBeUndefined();
+      expect(tentativasDeEntrada.quantidade).toBe(1);
+      // Idempotente: a rodada seguinte não tem o que apagar.
+      await casos.limparRegistrosVencidos();
+      expect(tentativasDeEntrada.quantidade).toBe(1);
+    });
+
+    it('CA46 — a falha ao apagar contadores não impede o resto da limpeza e sobe no fim', async () => {
+      lapides.gravar('ok', new Date(relogio.agora().getTime() - HORA_MS));
+      vi.spyOn(tentativasDeEntrada, 'apagarVencidas').mockRejectedValue(
+        new Error('contadores fora'),
+      );
+
+      const erro = await erroDe(casos.limparRegistrosVencidos());
+
+      expect(erro.message).toBe('contadores fora');
+      expect(dados.exclusoes).toEqual(['ok']);
+      expect(lapides.gravadas()).toEqual({});
+    });
+  });
+
   describe('sessão', () => {
     let token: string;
 
@@ -511,7 +776,7 @@ describe('contas: cadastro, entrada e sessão', () => {
       await casos.entrar({ email: EMAIL, senha: SENHA });
       relogio.avancar(60 * 1000);
 
-      const exportacao = await casos.exportarDados(contaId, SENHA);
+      const exportacao = await exportarObjeto(casos, contaId, SENHA);
 
       expect(exportacao).toStrictEqual({
         formato: 'trampo-ja.exportacao.v1',
@@ -550,7 +815,8 @@ describe('contas: cadastro, entrada e sessão', () => {
         senha: SENHA,
       }));
 
-      const exportacao = await casos.exportarDados(
+      const exportacao = await exportarObjeto(
+        casos,
         (await casos.validarSessao(token)) ?? '',
         SENHA,
       );
@@ -569,11 +835,14 @@ describe('contas: cadastro, entrada e sessão', () => {
     });
 
     it('senha errada: 403 senha_incorreta, sem coletar nada', async () => {
-      const erro = await erroDe(casos.exportarDados(contaId, 'senha-errada'));
+      const erro = await erroDe(
+        casos.exportarDados(contaId, 'senha-errada', EM_JSON),
+      );
 
       expect(erro).toBeInstanceOf(ErroProibido);
       expect((erro as ErroProibido).codigo).toBe('senha_incorreta');
       expect(dados.coletas).toEqual([]);
+      expect(dados.medicoes).toEqual([]);
     });
 
     it.each(SENHAS_FORA_DO_FORMATO)(
@@ -581,7 +850,7 @@ describe('contas: cadastro, entrada e sessão', () => {
       async (_, senha) => {
         const verificar = vi.spyOn(hasher, 'verificar');
 
-        const erro = await erroDe(casos.exportarDados(contaId, senha));
+        const erro = await erroDe(casos.exportarDados(contaId, senha, EM_JSON));
 
         expect((erro as ErroProibido).codigo).toBe('senha_incorreta');
         expect(verificar).not.toHaveBeenCalled();
@@ -590,7 +859,9 @@ describe('contas: cadastro, entrada e sessão', () => {
     );
 
     it('conta inexistente: 404, sem coletar', async () => {
-      const erro = await erroDe(casos.exportarDados('nao-e-uuid', SENHA));
+      const erro = await erroDe(
+        casos.exportarDados('nao-e-uuid', SENHA, EM_JSON),
+      );
 
       expect(erro).toBeInstanceOf(ErroNaoEncontrado);
       expect(dados.coletas).toEqual([]);
@@ -608,6 +879,10 @@ describe('contas: cadastro, entrada e sessão', () => {
       falharNaPrimeira = false;
 
       async excluirTudo(): Promise<void> {}
+
+      async medirDosOutrosModulos(): Promise<number> {
+        return 0;
+      }
 
       async coletarDosOutrosModulos(): Promise<PartesExportadas> {
         if (this.falharNaPrimeira) {
@@ -641,6 +916,8 @@ describe('contas: cadastro, entrada e sessão', () => {
         criarCasosDeUsoDeContas({
           contas,
           sessoes,
+          contasExcluidas: lapides,
+          tentativasDeEntrada,
           hasher,
           relogio,
           dadosDaConta: coleta,
@@ -667,8 +944,8 @@ describe('contas: cadastro, entrada e sessão', () => {
       const verificar = vi.spyOn(hasher, 'verificar');
 
       const exportacoes = Promise.all([
-        primeira.exportarDados(contaA, SENHA),
-        segunda.exportarDados(contaB, SENHA),
+        exportarObjeto(primeira, contaA, SENHA),
+        exportarObjeto(segunda, contaB, SENHA),
       ]);
       // As duas senhas conferidas: a segunda já pediu a vaga.
       await vi.waitFor(() => expect(verificar).toHaveBeenCalledTimes(2));
@@ -695,11 +972,11 @@ describe('contas: cadastro, entrada e sessão', () => {
       );
       coleta.falharNaPrimeira = true;
 
-      const erro = await erroDe(primeira.exportarDados(contaA, SENHA));
+      const erro = await erroDe(primeira.exportarDados(contaA, SENHA, EM_JSON));
 
       expect(erro.message).toBe('banco fora');
       expect(semaforo.emUso).toBe(0);
-      const depois = segunda.exportarDados(contaB, SENHA);
+      const depois = exportarObjeto(segunda, contaB, SENHA);
       await vi.waitFor(() => expect(coleta.pendentes).toHaveLength(1));
       coleta.liberarUma();
       expect((await depois).conta.id).toBe(contaB);
@@ -713,9 +990,738 @@ describe('contas: cadastro, entrada e sessão', () => {
       const executar = vi.spyOn(semaforo, 'executar');
       const { primeira, contaA } = await duasMontagens(coleta, semaforo);
 
-      await erroDe(primeira.exportarDados(contaA, 'senha-errada'));
+      await erroDe(primeira.exportarDados(contaA, 'senha-errada', EM_JSON));
 
       expect(executar).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('S1-R — teto da exportação medido antes de coletar (CA48)', () => {
+    let contaId: string;
+    let semaforo: Semaforo;
+
+    /** Medida dos outros módulos que leva o total exatamente a `total`. */
+    function medidaParaTotal(total: number, sessoesDaConta = 1): number {
+      return (
+        total -
+        BYTES_DA_CONTA_NA_MEDIDA -
+        sessoesDaConta * BYTES_POR_SESSAO_NA_MEDIDA
+      );
+    }
+
+    beforeEach(async () => {
+      semaforo = new Semaforo(1);
+      dados = new DadosDaContaEmMemoria({ contas, sessoes });
+      casos = criarCasosDeUsoDeContas({
+        contas,
+        sessoes,
+        contasExcluidas: lapides,
+        tentativasDeEntrada,
+        hasher,
+        relogio,
+        dadosDaConta: dados,
+        semaforoDaExportacao: semaforo,
+      });
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+      contaId = (await casos.validarSessao(token)) ?? '';
+    });
+
+    it('D41 — o teto é 10 MiB', () => {
+      expect(TETO_DA_EXPORTACAO_BYTES).toBe(10 * 1024 * 1024);
+    });
+
+    it('CA48 — Dada uma conta cuja medida passa do teto, quando ela pede a exportação, então recebe 409 exportacao_grande sem coletar, listar sessões nem serializar, e a vaga é liberada', async () => {
+      dados.medida = medidaParaTotal(TETO_DA_EXPORTACAO_BYTES + 1);
+      const listar = vi.spyOn(sessoes, 'listarDaConta');
+      const serializar = vi.fn((e: ExportacaoV1) => JSON.stringify(e));
+
+      const erro = await erroDe(
+        casos.exportarDados(contaId, SENHA, { serializar }),
+      );
+
+      expect(erro).toBeInstanceOf(ErroDeRegra);
+      expect((erro as ErroDeRegra).codigo).toBe('exportacao_grande');
+      // O 409 não revela o tamanho.
+      expect(erro.message).not.toMatch(/\d{4,}/);
+      expect(dados.medicoes).toEqual([contaId]);
+      expect(dados.coletas).toEqual([]);
+      expect(listar).not.toHaveBeenCalled();
+      expect(serializar).not.toHaveBeenCalled();
+      expect(semaforo.emUso).toBe(0);
+    });
+
+    it('CA48 — exatamente no teto (somando a conta e as sessões), a exportação sai; um byte acima, não', async () => {
+      dados.medida = medidaParaTotal(TETO_DA_EXPORTACAO_BYTES);
+      const exportacao = await exportarObjeto(casos, contaId, SENHA);
+      expect(exportacao.conta.id).toBe(contaId);
+      expect(dados.coletas).toEqual([contaId]);
+
+      dados.medida += 1;
+      const erro = await erroDe(casos.exportarDados(contaId, SENHA, EM_JSON));
+      expect((erro as ErroDeRegra).codigo).toBe('exportacao_grande');
+      expect(dados.coletas).toEqual([contaId]);
+    });
+
+    it('CA48 — as sessões gravadas entram na medida: uma sessão a mais passa do teto', async () => {
+      dados.medida = medidaParaTotal(TETO_DA_EXPORTACAO_BYTES, 1);
+      await casos.entrar({ email: EMAIL, senha: SENHA });
+
+      const erro = await erroDe(casos.exportarDados(contaId, SENHA, EM_JSON));
+
+      expect((erro as ErroDeRegra).codigo).toBe('exportacao_grande');
+      expect(dados.coletas).toEqual([]);
+    });
+
+    it('CA48 — uma medida inválida (NaN) também recusa, sem coletar (falha fechada)', async () => {
+      dados.medida = Number.NaN;
+
+      const erro = await erroDe(casos.exportarDados(contaId, SENHA, EM_JSON));
+
+      expect((erro as ErroDeRegra).codigo).toBe('exportacao_grande');
+      expect(dados.coletas).toEqual([]);
+    });
+
+    it('CA48 — medida, coleta e serialização rodam nessa ordem, todas dentro da vaga da exportação', async () => {
+      const passos: string[] = [];
+      const medir = dados.medirDosOutrosModulos.bind(dados);
+      const coletar = dados.coletarDosOutrosModulos.bind(dados);
+      vi.spyOn(dados, 'medirDosOutrosModulos').mockImplementation((id) => {
+        passos.push(`medir:${semaforo.emUso}`);
+        return medir(id);
+      });
+      vi.spyOn(dados, 'coletarDosOutrosModulos').mockImplementation((id) => {
+        passos.push(`coletar:${semaforo.emUso}`);
+        return coletar(id);
+      });
+
+      const texto = await casos.exportarDados(contaId, SENHA, {
+        serializar: (e) => {
+          passos.push(`serializar:${semaforo.emUso}`);
+          return `serializado:${e.conta.id}`;
+        },
+      });
+
+      expect(passos).toEqual(['medir:1', 'coletar:1', 'serializar:1']);
+      // O texto devolvido é o do serializador, sem tocar.
+      expect(texto).toBe(`serializado:${contaId}`);
+      expect(semaforo.emUso).toBe(0);
+    });
+
+    it('CA48 — com a vaga ocupada, nem a medida roda: a exportação espera a vaga para medir', async () => {
+      let liberar = () => {};
+      const ocupacao = semaforo.executar(
+        () =>
+          new Promise<void>((resolver) => {
+            liberar = resolver;
+          }),
+      );
+
+      const pedido = exportarObjeto(casos, contaId, SENHA);
+      await vi.waitFor(() => expect(semaforo.naFila).toBe(1));
+      expect(dados.medicoes).toEqual([]);
+      liberar();
+      await ocupacao;
+
+      expect((await pedido).conta.id).toBe(contaId);
+      expect(dados.medicoes).toEqual([contaId]);
+    });
+
+    it('a serialização que falha sobe como está e libera a vaga', async () => {
+      const erro = await erroDe(
+        casos.exportarDados(contaId, SENHA, {
+          serializar: () => {
+            throw new Error('fora do contrato');
+          },
+        }),
+      );
+
+      expect(erro.message).toBe('fora do contrato');
+      expect(semaforo.emUso).toBe(0);
+      expect(semaforo.naFila).toBe(0);
+    });
+  });
+
+  describe('S5 — limpeza periódica com relógio fixo (CA46, CA47)', () => {
+    const MINUTO_MS = 60 * 1000;
+
+    /** Grava `quantas` sessões de uma conta qualquer expirando em `expiraEm`. */
+    async function gravarSessoes(
+      quantas: number,
+      expiraEm: Date,
+      prefixo: string,
+    ): Promise<void> {
+      for (let i = 0; i < quantas; i += 1) {
+        await sessoes.salvar(sha256(`${prefixo}-${i}`), 'conta-x', expiraEm);
+      }
+    }
+
+    function emMs(ms: number): Date {
+      return new Date(relogio.agora().getTime() + ms);
+    }
+
+    it('CA46 — Dadas sessões expiradas (inclusive a que expira agora) e válidas, quando a limpeza roda, então só as expiradas somem', async () => {
+      await sessoes.salvar(sha256('vencida'), 'conta-x', emMs(-1));
+      await sessoes.salvar(sha256('expira-agora'), 'conta-x', emMs(0));
+      await sessoes.salvar(sha256('valida'), 'conta-x', emMs(1));
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+
+      const resultado = await casos.limparRegistrosVencidos();
+
+      expect(resultado).toEqual({ sessoes: 2, contasRevarridas: 0 });
+      expect(sessoes.hashesGravados().sort()).toEqual(
+        [sha256('valida'), sha256(token)].sort(),
+      );
+      expect(await casos.validarSessao(token)).not.toBeNull();
+    });
+
+    it(`CA46 — apaga em lotes de ${SESSOES_POR_LOTE}: com 2500 expiradas, três lotes e nenhuma sobra`, async () => {
+      await gravarSessoes(2500, emMs(-1), 'v');
+      await gravarSessoes(3, emMs(MINUTO_MS), 'ok');
+      const apagar = vi.spyOn(sessoes, 'apagarExpiradas');
+
+      const resultado = await casos.limparRegistrosVencidos();
+
+      expect(resultado.sessoes).toBe(2500);
+      expect(apagar.mock.calls.map(([, lote]) => lote)).toEqual([
+        SESSOES_POR_LOTE,
+        SESSOES_POR_LOTE,
+        SESSOES_POR_LOTE,
+      ]);
+      expect(sessoes.quantidade).toBe(3);
+    });
+
+    it(`CA46 — no máximo ${LOTES_DE_SESSOES_POR_RODADA} lotes por rodada: o resto fica para a próxima`, async () => {
+      const total = SESSOES_POR_LOTE * LOTES_DE_SESSOES_POR_RODADA + 500;
+      await gravarSessoes(total, emMs(-1), 'v');
+      const apagar = vi.spyOn(sessoes, 'apagarExpiradas');
+
+      const primeira = await casos.limparRegistrosVencidos();
+
+      expect(apagar).toHaveBeenCalledTimes(LOTES_DE_SESSOES_POR_RODADA);
+      expect(primeira.sessoes).toBe(total - 500);
+      expect(sessoes.quantidade).toBe(500);
+      expect((await casos.limparRegistrosVencidos()).sessoes).toBe(500);
+      expect(sessoes.quantidade).toBe(0);
+    });
+
+    it('CA47 — Dada uma conta excluída, então a lápide guarda só o id e a hora da exclusão', async () => {
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+      const contaId = (await casos.validarSessao(token)) ?? '';
+
+      await casos.excluirConta(contaId, SENHA);
+
+      expect(lapides.gravadas()).toEqual({
+        [contaId]: '2026-10-20T12:00:00.000Z',
+      });
+    });
+
+    it('CA47 — Dado um registro gravado por escrita em voo depois da exclusão, quando a limpeza roda 10 min depois, então ele é apagado e a lápide também; antes disso, nada muda', async () => {
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+      const contaId = (await casos.validarSessao(token)) ?? '';
+      await casos.excluirConta(contaId, SENHA);
+      // Escrita em voo que terminou depois da exclusão: uma sessão órfã.
+      await sessoes.salvar(sha256('orfa'), contaId, emMs(DURACAO_DA_SESSAO_MS));
+      expect(ESPERA_DA_LAPIDE_MS).toBe(10 * MINUTO_MS);
+
+      relogio.avancar(ESPERA_DA_LAPIDE_MS - 1);
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 0,
+      });
+      expect(dados.exclusoes).toEqual([contaId]);
+      expect(await sessoes.listarDaConta(contaId)).toHaveLength(1);
+      expect(Object.keys(lapides.gravadas())).toEqual([contaId]);
+
+      relogio.avancar(1);
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 1,
+      });
+      expect(dados.exclusoes).toEqual([contaId, contaId]);
+      expect(await sessoes.listarDaConta(contaId)).toEqual([]);
+      expect(lapides.gravadas()).toEqual({});
+
+      // A rodada seguinte não tem mais nada da conta.
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 0,
+      });
+      expect(dados.exclusoes).toEqual([contaId, contaId]);
+    });
+
+    it(`CA47 — no máximo ${LAPIDES_POR_RODADA} lápides por rodada, das mais antigas para as mais novas`, async () => {
+      const ids = Array.from(
+        { length: LAPIDES_POR_RODADA + 1 },
+        (_, i) => `conta-${String(i).padStart(3, '0')}`,
+      );
+      // A última da lista é a mais antiga.
+      ids.forEach((id, i) => {
+        lapides.gravar(id, emMs(-ESPERA_DA_LAPIDE_MS - (i + 1) * 1000));
+      });
+
+      const resultado = await casos.limparRegistrosVencidos();
+
+      expect(resultado.contasRevarridas).toBe(LAPIDES_POR_RODADA);
+      expect(dados.exclusoes[0]).toBe(ids.at(-1));
+      expect(Object.keys(lapides.gravadas())).toEqual([ids[0]]);
+    });
+
+    it('CA47 — uma lápide cuja exclusão falha fica para a próxima rodada, as outras seguem, e o erro sobe no fim', async () => {
+      lapides.gravar('falha', emMs(-ESPERA_DA_LAPIDE_MS - 2000));
+      lapides.gravar('ok', emMs(-ESPERA_DA_LAPIDE_MS - 1000));
+      await sessoes.salvar(sha256('vencida'), 'conta-x', emMs(-1));
+      const excluir = dados.excluirTudo.bind(dados);
+      vi.spyOn(dados, 'excluirTudo').mockImplementation(async (id) => {
+        if (id === 'falha') {
+          throw new Error('banco fora');
+        }
+        return excluir(id);
+      });
+
+      const erro = await erroDe(casos.limparRegistrosVencidos());
+
+      expect(erro.message).toBe('banco fora');
+      expect(Object.keys(lapides.gravadas())).toEqual(['falha']);
+      expect(dados.exclusoes).toEqual(['ok']);
+      expect(sessoes.quantidade).toBe(0);
+    });
+
+    it('CA47 — a falha ao apagar sessões não impede a varredura das lápides', async () => {
+      lapides.gravar('ok', emMs(-ESPERA_DA_LAPIDE_MS));
+      vi.spyOn(sessoes, 'apagarExpiradas').mockRejectedValue(
+        new Error('sessoes fora'),
+      );
+
+      const erro = await erroDe(casos.limparRegistrosVencidos());
+
+      expect(erro.message).toBe('sessoes fora');
+      expect(dados.exclusoes).toEqual(['ok']);
+      expect(lapides.gravadas()).toEqual({});
+    });
+  });
+
+  describe('S8 — senha normalizada em NFC (CA43)', () => {
+    // "é" composto (NFC) e "e" + acento combinante (NFD): mesma senha digitada
+    // em teclados diferentes.
+    const NFC = 'café-com-pão';
+    const NFD = NFC.normalize('NFD');
+
+    it('a senha de teste está em NFC e a outra forma difere dela', () => {
+      expect(NFC.normalize('NFC')).toBe(NFC);
+      expect(NFD).not.toBe(NFC);
+    });
+
+    it.each([
+      { cadastro: 'NFD', entrada: 'NFC', cadastrada: NFD, digitada: NFC },
+      { cadastro: 'NFC', entrada: 'NFD', cadastrada: NFC, digitada: NFD },
+    ])(
+      'CA43 — Dado o cadastro em $cadastro, quando a pessoa entra digitando $entrada, então a sessão abre',
+      async ({ cadastrada, digitada }) => {
+        await casos.criarConta({ email: EMAIL, senha: cadastrada });
+
+        const { token } = await casos.entrar({ email: EMAIL, senha: digitada });
+
+        const conta = await contas.buscarPorEmail(Email.criar(EMAIL));
+        expect(await casos.validarSessao(token)).toBe(conta?.id);
+        // O hash novo é sempre da forma NFC.
+        expect(await hasher.verificar(NFC, conta?.senhaHash ?? '')).toBe(true);
+      },
+    );
+
+    it.each([
+      { cadastrada: NFD, digitada: NFC },
+      { cadastrada: NFC, digitada: NFD },
+    ])(
+      'CA43 — a exclusão e a exportação conferem a senha na outra forma (%#)',
+      async ({ cadastrada, digitada }) => {
+        const { token } = await casos.criarConta({
+          email: EMAIL,
+          senha: cadastrada,
+        });
+        const contaId = (await casos.validarSessao(token)) ?? '';
+
+        const exportacao = await exportarObjeto(casos, contaId, digitada);
+        expect(exportacao.conta.id).toBe(contaId);
+        await casos.excluirConta(contaId, digitada);
+        expect(dados.exclusoes).toEqual([contaId]);
+      },
+    );
+
+    it('CA43 — Dada uma conta com o hash gravado sobre a forma crua (antes da L3), quando a pessoa digita essa forma, então entra, exclui e exporta', async () => {
+      const antiga = Conta.criar({
+        email: Email.criar(EMAIL),
+        senhaHash: await hasher.gerarHash(NFD),
+        criadaEm: relogio.agora(),
+      });
+      await contas.salvar(antiga);
+
+      const { token } = await casos.entrar({ email: EMAIL, senha: NFD });
+      expect(await casos.validarSessao(token)).toBe(antiga.id);
+      expect((await exportarObjeto(casos, antiga.id, NFD)).conta.id).toBe(
+        antiga.id,
+      );
+      await casos.excluirConta(antiga.id, NFD);
+      expect(dados.exclusoes).toEqual([antiga.id]);
+    });
+
+    it('CA43 — a normalização é a canônica (NFC), não a de compatibilidade: a ligadura "ﬁ" não vira "fi"', async () => {
+      await casos.criarConta({ email: EMAIL, senha: 'senha-ﬁna-1' });
+
+      const erro = await erroDe(
+        casos.entrar({ email: EMAIL, senha: 'senha-fina-1' }),
+      );
+      expect((erro as ErroDeRegra).codigo).toBe('credenciais_invalidas');
+    });
+
+    it.each([
+      { forma: 'NFD (fora de NFC)', digitada: NFD, formas: [NFC, NFD] },
+      { forma: 'NFC', digitada: NFC, formas: [NFC] },
+    ])(
+      'CA43 — senha errada digitada em $forma: o e-mail inexistente roda as mesmas derivações que a conta existente',
+      async ({ digitada, formas }) => {
+        await casos.criarConta({ email: EMAIL, senha: SENHA });
+        const verificar = vi.spyOn(hasher, 'verificar');
+
+        await erroDe(casos.entrar({ email: EMAIL, senha: digitada }));
+        const naConta = verificar.mock.calls.map(([senha]) => senha);
+        verificar.mockClear();
+        await erroDe(
+          casos.entrar({ email: 'joao@exemplo.com', senha: digitada }),
+        );
+        const semConta = verificar.mock.calls.map(([senha]) => senha);
+
+        expect(naConta).toEqual(formas);
+        expect(semConta).toEqual(formas);
+        // Contra o hash fictício, que deriva de verdade (formato válido).
+        for (const [, hash] of verificar.mock.calls) {
+          expect(hash).toMatch(/^scrypt\$16\$8\$1\$/);
+        }
+      },
+    );
+
+    it('CA43 — senha certa em NFC confere na primeira forma, sem uma segunda derivação', async () => {
+      await casos.criarConta({ email: EMAIL, senha: NFD });
+      const verificar = vi.spyOn(hasher, 'verificar');
+
+      await casos.entrar({ email: EMAIL, senha: NFD });
+
+      expect(verificar).toHaveBeenCalledTimes(1);
+      expect(verificar.mock.calls[0]?.[0]).toBe(NFC);
+    });
+
+    it('CA43 — o teto de 128 vale para a forma recebida: 128 em NFD (que vira menos em NFC) ainda é conferida; 129 é recusada sem derivar', async () => {
+      const verificar = vi.spyOn(hasher, 'verificar');
+      const limite = 'é'.repeat(64);
+      expect([...limite]).toHaveLength(128);
+
+      await erroDe(casos.entrar({ email: EMAIL, senha: limite }));
+      expect(verificar).toHaveBeenCalledTimes(2);
+      verificar.mockClear();
+      await erroDe(casos.entrar({ email: EMAIL, senha: `${limite}x` }));
+      expect(verificar).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('S7 — conta e primeira sessão gravadas juntas (CA44)', () => {
+    it('CA44 — o cadastro entrega a sessão ao repositório de contas, numa só gravação, e não grava sessão à parte', async () => {
+      const salvarConta = vi.spyOn(contas, 'salvar');
+      const salvarSessao = vi.spyOn(sessoes, 'salvar');
+
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+
+      expect(salvarConta).toHaveBeenCalledTimes(1);
+      const [conta, inicial] = salvarConta.mock.calls[0] ?? [];
+      expect(inicial).toEqual({
+        tokenHash: sha256(token),
+        expiraEm: new Date(relogio.agora().getTime() + DURACAO_DA_SESSAO_MS),
+      });
+      expect(salvarSessao).not.toHaveBeenCalled();
+      expect(await casos.validarSessao(token)).toBe(conta?.id);
+    });
+
+    it('CA44 — Dada uma falha ao gravar a sessão, então o erro sobe e a conta não fica gravada', async () => {
+      vi.spyOn(sessoes, 'gravar').mockImplementation(() => {
+        throw new Error('sessão fora');
+      });
+
+      const erro = await erroDe(
+        casos.criarConta({ email: EMAIL, senha: SENHA }),
+      );
+
+      expect(erro.message).toBe('sessão fora');
+      expect(contas.quantidade).toBe(0);
+      expect(await contas.existeEmail(Email.criar(EMAIL))).toBe(false);
+    });
+  });
+
+  describe('S3 — espera máxima na fila e conexão caída (CA45)', () => {
+    /** Semáforo que conta as tarefas que de fato rodaram (derivações). */
+    class SemaforoContado extends Semaforo {
+      rodaram = 0;
+
+      override executar<T>(
+        tarefa: () => Promise<T>,
+        opcoes?: Parameters<Semaforo['executar']>[1],
+      ): Promise<T> {
+        return super.executar(() => {
+          this.rodaram += 1;
+          return tarefa();
+        }, opcoes);
+      }
+    }
+
+    /**
+     * Ocupa a única vaga até `liberar()`. A ocupação também conta em
+     * `rodaram`: quem compara as derivações mede antes de ocupar e soma 1.
+     */
+    function ocupar(semaforo: Semaforo) {
+      let liberar = () => {};
+      const ocupacao = semaforo.executar(
+        () =>
+          new Promise<void>((resolver) => {
+            liberar = resolver;
+          }),
+      );
+      return { liberar: () => liberar(), ocupacao };
+    }
+
+    /**
+     * Espera o pedido chegar à fila. Sem `vi.waitFor`: com timers falsos, ele
+     * avança o relógio a cada volta e gastaria parte da espera máxima.
+     */
+    async function esperarFila(semaforo: Semaforo, quantos: number) {
+      const limite = Date.now() + 4_000;
+      while (semaforo.naFila !== quantos && Date.now() < limite) {
+        await new Promise((resolver) => setImmediate(resolver));
+      }
+      expect(semaforo.naFila).toBe(quantos);
+    }
+
+    function confereOcupado(erro: Error): void {
+      expect(erro).toBeInstanceOf(ErroIndisponivel);
+      expect((erro as ErroIndisponivel).codigo).toBe('servico_ocupado');
+      expect((erro as ErroIndisponivel).tentarDeNovoEmS).toBe(10);
+    }
+
+    let scrypt: SemaforoContado;
+    let exportacao: SemaforoContado;
+    let contaId: string;
+
+    beforeEach(async () => {
+      scrypt = new SemaforoContado(1);
+      exportacao = new SemaforoContado(1);
+      hasher = new HasherScrypt(
+        { N: 2 ** 4, r: 8, p: 1 },
+        { semaforo: scrypt },
+      );
+      dados = new DadosDaContaEmMemoria({ contas, sessoes });
+      casos = criarCasosDeUsoDeContas({
+        contas,
+        sessoes,
+        contasExcluidas: lapides,
+        tentativasDeEntrada,
+        hasher,
+        relogio,
+        dadosDaConta: dados,
+        semaforoDaExportacao: exportacao,
+      });
+      const { token } = await casos.criarConta({ email: EMAIL, senha: SENHA });
+      contaId = (await casos.validarSessao(token)) ?? '';
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('D42 — a espera máxima é 10 s e o retry-after, 10 s', () => {
+      expect(ESPERA_MAXIMA_NA_FILA_MS).toBe(10_000);
+      expect(TENTAR_DE_NOVO_EM_S).toBe(10);
+    });
+
+    const PEDIDOS_COM_SCRYPT = [
+      {
+        nome: 'cadastro',
+        pedir: (c: CasosDeUsoDeContas) =>
+          c.criarConta({ email: 'joao@exemplo.com', senha: SENHA }),
+      },
+      {
+        nome: 'entrada',
+        pedir: (c: CasosDeUsoDeContas) =>
+          c.entrar({ email: EMAIL, senha: SENHA }),
+      },
+      {
+        nome: 'entrada com e-mail inexistente',
+        pedir: (c: CasosDeUsoDeContas) =>
+          c.entrar({ email: 'ana@exemplo.com', senha: SENHA }),
+      },
+      {
+        nome: 'exclusão',
+        pedir: (c: CasosDeUsoDeContas, id: string) => c.excluirConta(id, SENHA),
+      },
+      {
+        nome: 'exportação',
+        pedir: (c: CasosDeUsoDeContas, id: string) =>
+          c.exportarDados(id, SENHA, EM_JSON),
+      },
+    ];
+
+    it.each(PEDIDOS_COM_SCRYPT)(
+      'CA45 — Dada a fila do scrypt cheia, quando a $nome espera 10 s, então recebe servico_ocupado sem derivar nem gravar',
+      async ({ pedir }) => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const antes = scrypt.rodaram + 1;
+        const vaga = ocupar(scrypt);
+        const quantasContas = contas.quantidade;
+
+        const resultado = pedir(casos, contaId).then(
+          () => null,
+          (erro: Error) => erro,
+        );
+        await esperarFila(scrypt, 1);
+        await vi.advanceTimersByTimeAsync(ESPERA_MAXIMA_NA_FILA_MS - 1);
+        expect(scrypt.naFila).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+
+        const erro = await resultado;
+        confereOcupado(erro as Error);
+        expect(scrypt.naFila).toBe(0);
+        vaga.liberar();
+        await vaga.ocupacao;
+        expect(scrypt.rodaram).toBe(antes);
+        expect(contas.quantidade).toBe(quantasContas);
+        expect(dados.exclusoes).toEqual([]);
+        expect(dados.coletas).toEqual([]);
+      },
+    );
+
+    it.each(PEDIDOS_COM_SCRYPT)(
+      'CA45 — Dada a $nome na fila do scrypt, quando a conexão cai, então sai da fila na hora, sem derivar',
+      async ({ pedir }) => {
+        const antes = scrypt.rodaram + 1;
+        const vaga = ocupar(scrypt);
+        const conexao = new AbortController();
+
+        const resultado = pedirComSinal(pedir, conexao.signal).then(
+          () => null,
+          (erro: Error) => erro,
+        );
+        await esperarFila(scrypt, 1);
+        conexao.abort();
+
+        confereOcupado((await resultado) as Error);
+        expect(scrypt.naFila).toBe(0);
+        vaga.liberar();
+        await vaga.ocupacao;
+        expect(scrypt.rodaram).toBe(antes);
+        expect(dados.exclusoes).toEqual([]);
+        expect(dados.coletas).toEqual([]);
+      },
+    );
+
+    /** O mesmo pedido da tabela, com o sinal da conexão. */
+    function pedirComSinal(
+      pedir: (c: CasosDeUsoDeContas, id: string) => Promise<unknown>,
+      sinal: AbortSignal,
+    ): Promise<unknown> {
+      // Repassa o sinal a cada caso de uso chamado pelo pedido.
+      const comSinal: CasosDeUsoDeContas = {
+        ...casos,
+        criarConta: (credenciais) => casos.criarConta(credenciais, sinal),
+        entrar: (credenciais) => casos.entrar(credenciais, sinal),
+        excluirConta: (id, senha) => casos.excluirConta(id, senha, sinal),
+        exportarDados: (id, senha, opcoes) =>
+          casos.exportarDados(id, senha, { ...opcoes, sinal }),
+      };
+      return pedir(comSinal, contaId);
+    }
+
+    it('CA45 — Dada a fila da exportação cheia, quando a coleta espera 10 s, então recebe servico_ocupado sem coletar', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const vaga = ocupar(exportacao);
+
+      const resultado = casos.exportarDados(contaId, SENHA, EM_JSON).then(
+        () => null,
+        (erro: Error) => erro,
+      );
+      await esperarFila(exportacao, 1);
+      await vi.advanceTimersByTimeAsync(ESPERA_MAXIMA_NA_FILA_MS);
+
+      confereOcupado((await resultado) as Error);
+      vaga.liberar();
+      await vaga.ocupacao;
+      expect(exportacao.rodaram).toBe(1);
+      expect(dados.coletas).toEqual([]);
+    });
+
+    it('CA45 — Dada a exportação esperando a vaga da coleta, quando a conexão cai, então sai da fila sem coletar', async () => {
+      const vaga = ocupar(exportacao);
+      const conexao = new AbortController();
+
+      const resultado = casos
+        .exportarDados(contaId, SENHA, { ...EM_JSON, sinal: conexao.signal })
+        .then(
+          () => null,
+          (erro: Error) => erro,
+        );
+      await esperarFila(exportacao, 1);
+      conexao.abort();
+
+      confereOcupado((await resultado) as Error);
+      expect(exportacao.naFila).toBe(0);
+      vaga.liberar();
+      await vaga.ocupacao;
+      expect(exportacao.rodaram).toBe(1);
+      expect(dados.coletas).toEqual([]);
+    });
+
+    it('a vaga livre não espera: com a fila vazia, o pedido roda na hora mesmo com o sinal', async () => {
+      const conexao = new AbortController();
+
+      const sessao = await casos.entrar(
+        { email: EMAIL, senha: SENHA },
+        conexao.signal,
+      );
+
+      expect(await casos.validarSessao(sessao.token)).toBe(contaId);
+    });
+
+    it('a conexão que cai depois da vaga não interrompe: a senha conferida abre a sessão', async () => {
+      const conexao = new AbortController();
+      const verificar = vi.spyOn(hasher, 'verificar');
+
+      const pedido = casos.entrar(
+        { email: EMAIL, senha: SENHA },
+        conexao.signal,
+      );
+      await vi.waitFor(() => expect(verificar).toHaveBeenCalled());
+      conexao.abort();
+
+      const { token } = await pedido;
+      expect(await casos.validarSessao(token)).toBe(contaId);
+    });
+
+    it('o hash fictício da partida não tem espera máxima: com a fila cheia por mais de 10 s, o e-mail inexistente ainda recebe credenciais_invalidas', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const vaga = ocupar(scrypt);
+      // Montagem nova: o hash fictício entra na fila atrás da vaga ocupada.
+      const nova = criarCasosDeUsoDeContas({
+        contas,
+        sessoes,
+        contasExcluidas: lapides,
+        tentativasDeEntrada,
+        hasher,
+        relogio,
+        dadosDaConta: dados,
+      });
+      await esperarFila(scrypt, 1);
+      await vi.advanceTimersByTimeAsync(3 * ESPERA_MAXIMA_NA_FILA_MS);
+      expect(scrypt.naFila).toBe(1);
+
+      vaga.liberar();
+      const erro = await erroDe(
+        nova.entrar({ email: 'ana@exemplo.com', senha: SENHA }),
+      );
+      expect((erro as ErroDeRegra).codigo).toBe('credenciais_invalidas');
     });
   });
 });

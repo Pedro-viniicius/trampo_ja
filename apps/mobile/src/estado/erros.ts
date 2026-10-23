@@ -14,6 +14,18 @@ export type Formulario =
   | 'candidatura'
   | 'nenhum';
 
+/**
+ * Texto de uma ação sem formulário que falhou por falta de conexão ou por
+ * excesso de tentativas; qualquer outro erro vira `padrao`. O erro cru nunca
+ * vai para a tela.
+ */
+export function textoDeErroDeAcao(erro: unknown, padrao: string): string {
+  const { geral } = chaveDoErro(erro, 'nenhum');
+  return geral === 'sem_conexao' || geral === 'muitas_tentativas_acao'
+    ? textos.erros[geral]
+    : padrao;
+}
+
 export interface ErroTraduzido {
   /** Erro que não é de um campo (mostrado acima do botão ou como aviso). */
   readonly geral?: ChaveDeErro;
@@ -145,7 +157,10 @@ const CONFLITOS: ReadonlyMap<string, ChaveDeErro> = new Map<
   ['trampo_nao_aberto', 'trampo_nao_aberto'],
   ['candidatura_nao_pendente', 'candidatura_nao_pendente'],
   ['conflito_de_versao', 'conflito_de_versao'],
+  ['trampo_nao_editavel', 'trampo_nao_editavel'],
   ['conversa_consigo_mesmo', 'conversa_consigo_mesmo'],
+  // Exportação acima do limite (CA48, D41): o texto orienta pedir por e-mail.
+  ['exportacao_grande', 'exportacao_grande'],
 ]);
 
 const SERVIDOR: ErroTraduzido = { geral: 'erro_servidor', campos: {} };
@@ -179,8 +194,8 @@ const PROIBIDOS: ReadonlyMap<string, ChaveDeErro> = new Map<
  * - 409 com código conhecido (`email_em_uso`, `perfil_incompleto`,
  *   `autor_nao_pode_candidatar`, `candidatura_duplicada`, `trampo_nao_aberto`,
  *   `candidatura_nao_pendente`, `conflito_de_versao`,
- *   `conversa_consigo_mesmo`) -> a chave de mesmo nome em `geral`; outro
- *   409 -> `erro_servidor`.
+ *   `trampo_nao_editavel`, `conversa_consigo_mesmo`, `exportacao_grande`)
+ *   -> a chave de mesmo nome em `geral`; outro 409 -> `erro_servidor`.
  * - 403 `sem_vinculo` (abrir conversa sem candidatura nem contratação) ->
  *   `sem_vinculo`; 403 `senha_incorreta` (excluir a conta, exportar os
  *   dados) -> `senha_incorreta`; outro 403 -> `erro_servidor`.

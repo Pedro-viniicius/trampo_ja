@@ -52,7 +52,8 @@ function useMutacaoDeSessao(
     gcTime: SEM_CACHE,
     mutationFn: async (credenciais) => {
       const { token } = await chamar(cliente, credenciais);
-      await sessao.entrar(token);
+      // O e-mail só vira a impressão da conta (D43), dentro da sessão.
+      await sessao.entrar(token, credenciais.email);
     },
   });
   useLimparDepoisDoSucesso(mutacao);
@@ -60,8 +61,8 @@ function useMutacaoDeSessao(
 }
 
 /**
- * Cria a conta (`POST /contas`) e, no sucesso, entrega o token à sessão
- * (CA1). O token não sai da mutação: `data` é sempre `undefined` (CA15). As
+ * Cria a conta (`POST /contas`) e, no sucesso, entrega o token e o e-mail à
+ * sessão (CA1; o e-mail vira a impressão da conta, D43). O token não sai da mutação: `data` é sempre `undefined` (CA15). As
  * credenciais ficam só em `variables` até a mutação terminar; no sucesso o
  * hook faz `reset()`. Erros sobem como `ErroDaApi`/`ErroDeRede`.
  */
@@ -75,11 +76,11 @@ export function useEntrar() {
 }
 
 /**
- * `DELETE /sessoes` e saída local (token e cache apagados). A sessão nunca
+ * Saída local (token, impressão e cache apagados) sem esperar a rede, e
+ * `DELETE /sessoes` em segundo plano (S6; ver `Sessao.sair`). A sessão nunca
  * rejeita, então a mutação também não. Roda mesmo sem conexão
  * (`networkMode: 'always'`): o padrão do TanStack pausaria a mutação e a
- * pessoa não conseguiria sair offline; a falha do `DELETE` não impede a saída
- * local.
+ * pessoa não conseguiria sair offline.
  */
 export function useSair() {
   const sessao = useSessao();

@@ -59,6 +59,9 @@ export default function RotaDasCandidaturasRecebidas() {
   // O `aceitando` só chega à tela no próximo render: o toque duplo não pode
   // disparar um segundo `POST .../aceitar`.
   const emVoo = useRef<string | null>(null);
+  // Cada aceite tem o seu número: o texto de um que espera a releitura do
+  // trampo não pode aparecer depois de outro aceite ter começado.
+  const aceiteAtual = useRef(0);
   // "Conversar" com quem se candidatou (CA12, D23: qualquer status), pelo
   // `freelancerId`.
   const conversa = useConversarPorConta(!online);
@@ -125,6 +128,8 @@ export default function RotaDasCandidaturasRecebidas() {
       return;
     }
     emVoo.current = candidaturaId;
+    aceiteAtual.current += 1;
+    const numero = aceiteAtual.current;
     setAceitando(candidaturaId);
     setErroDoAceite(undefined);
     aceitar.mutate(candidaturaId, {
@@ -134,17 +139,28 @@ export default function RotaDasCandidaturasRecebidas() {
       },
       onError: (erro) => {
         const chave = chaveDoErro(erro, 'nenhum').geral ?? 'erro_servidor';
-        // No aceite, `trampo_nao_aberto` quer dizer que outra candidatura
-        // foi aceita antes (a lista é recarregada logo abaixo).
-        setErroDoAceite(
-          textos.erros[
-            chave === 'trampo_nao_aberto' ? 'aceite_perdido' : chave
-          ],
-        );
-        if (ehConflitoDoAceite(erro)) {
-          void consultaDoTrampo.recarregar();
-          void consultaDaLista.recarregar();
+        const conflito = ehConflitoDoAceite(erro);
+        // `trampo_nao_aberto` quer dizer que outra candidatura foi aceita
+        // antes ou que o autor encerrou o trampo: só a releitura diz qual.
+        const dependeDoTrampo = conflito && chave === 'trampo_nao_aberto';
+        if (!dependeDoTrampo) {
+          setErroDoAceite(textos.erros[chave]);
         }
+        if (!conflito) {
+          return;
+        }
+        void consultaDaLista.recarregar();
+        void consultaDoTrampo.recarregar().then((resultado) => {
+          if (!dependeDoTrampo || numero !== aceiteAtual.current) {
+            return;
+          }
+          // Encerrado já tem o aviso informativo na tela.
+          setErroDoAceite(
+            resultado.data?.status === 'encerrado'
+              ? undefined
+              : textos.erros.aceite_perdido,
+          );
+        });
       },
       onSettled: () => {
         emVoo.current = null;

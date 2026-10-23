@@ -32,6 +32,44 @@ export async function ofertarServico(
   });
 }
 
+/**
+ * `PUT /servicos/:id` (CA32, D33). Só manda as chaves aceitas e a `versao`
+ * lida: a API recusa chave extra com 400. `cidade` vazia não vai, e a API a
+ * trata como "sem cidade" (D7). Resolve em 204. 400 `dados_invalidos` traz os
+ * `campos`; 404 para quem não é o autor; 409 `conflito_de_versao`.
+ */
+export async function editarServico(
+  cliente: ClienteHttp,
+  id: string,
+  {
+    titulo,
+    descricao,
+    categoria,
+    cidade,
+    precoBaseCentavos,
+    versao,
+  }: EntradaDeServico & { readonly versao: number },
+): Promise<void> {
+  await cliente.put<void>(`/servicos/${segmentoDaUrl(id)}`, {
+    titulo,
+    descricao,
+    categoria,
+    ...(!estaVazio(cidade) && { cidade }),
+    precoBaseCentavos,
+    versao,
+  });
+}
+
+/**
+ * `DELETE /servicos/:id` (CA33). Resolve em 204; 404 para quem não é o autor.
+ */
+export async function excluirServico(
+  cliente: ClienteHttp,
+  id: string,
+): Promise<void> {
+  await cliente.delete<void>(`/servicos/${segmentoDaUrl(id)}`);
+}
+
 /** `GET /servicos/meus`: os serviços da conta, mais recentes primeiro. */
 export async function listarMeusServicos(
   cliente: ClienteHttp,

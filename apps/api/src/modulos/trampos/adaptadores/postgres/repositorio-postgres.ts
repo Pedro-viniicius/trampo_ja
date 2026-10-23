@@ -10,11 +10,13 @@ import type {
 } from '../../dominio/candidatura.js';
 import type {
   FiltrosDeBusca,
+  GravacaoSobTrava,
   RepositorioDeTrampos,
 } from '../../dominio/portas.js';
 import {
   type DadosDoTrampo,
   Trampo,
+  type TrampoDoAutor,
   type TrampoResumo,
 } from '../../dominio/trampo.js';
 import type { TabelasDeTrampos } from './tabelas.js';
@@ -33,6 +35,13 @@ const FORMATO_UUID =
 function ehUuid(valor: string): boolean {
   return FORMATO_UUID.test(valor);
 }
+
+/**
+ * Folga por linha em `medirExportacao`: cobre os ids, as datas, os números,
+ * os nomes das chaves e a pontuação do JSON, que não entram na soma dos
+ * textos (contrato da L3, CA48).
+ */
+const BYTES_POR_LINHA_NA_MEDIDA = 256;
 
 /**
  * Padrão do `LIKE` para "contém o texto": escapa `\`, `%` e `_`, para que
@@ -163,8 +172,10 @@ async function inserirTrampo(
 /**
  * Trava otimista: só grava se a versão no banco ainda for a lida (`versao - 1`).
  * Com duas transações concorrentes, a segunda espera a trava da linha e, depois
- * do commit da primeira, não acha mais a versão antiga. O agregado só muda
- * `status` e `versao`; os demais campos não são regravados.
+ * do commit da primeira, não acha mais a versão antiga. Regrava os campos
+ * editáveis (CA25), o status e a versão; `autor_id` e `criado_em` nunca mudam.
+ * É a primeira escrita da transação: a linha de `trampos` fica travada antes
+ * de qualquer candidatura, na mesma ordem da exclusão de conta.
  */
 async function atualizarTrampo(
   trx: Transaction<TabelasDeTrampos>,
@@ -172,7 +183,18 @@ async function atualizarTrampo(
 ): Promise<void> {
   const resultado = await trx
     .updateTable('trampos')
-    .set({ status: dados.status, versao: dados.versao })
+    .set({
+      titulo: dados.titulo,
+      descricao: dados.descricao,
+      categoria: dados.categoria,
+      cidade: dados.cidade,
+      cidade_normalizada: dados.cidadeNormalizada,
+      texto_busca: dados.textoBusca,
+      valor_centavos: dados.valorCentavos,
+      prazo: dados.prazo,
+      status: dados.status,
+      versao: dados.versao,
+    })
     .where('id', '=', dados.id)
     .where('versao', '=', dados.versao - 1)
     .executeTakeFirst();
@@ -181,11 +203,28 @@ async function atualizarTrampo(
   }
 }
 
-/** Insere as candidaturas novas e atualiza o status das que mudaram. */
+/**
+ * Grava nas candidaturas só o que a operação mudou (ADR-006): apaga as que
+ * ela tirou, insere as que ela criou e atualiza o status das demais que ainda
+ * estão no banco. Uma candidatura que outra transação apagou depois da
+ * leitura (retirada ou exclusão de conta, D25) não é inserida de novo: o
+ * `UPDATE` numa linha que já não existe não afeta nada.
+ */
 async function sincronizarCandidaturas(
   trx: Transaction<TabelasDeTrampos>,
-  dados: DadosDoTrampo,
+  trampo: Trampo,
 ): Promise<void> {
+  const dados = trampo.dados();
+  const { inseridas, removidas } = trampo.alteracoesDasCandidaturas();
+
+  if (removidas.length > 0) {
+    await trx
+      .deleteFrom('candidaturas')
+      .where('trampo_id', '=', dados.id)
+      .where('id', 'in', removidas)
+      .execute();
+  }
+
   const guardadas = await trx
     .selectFrom('candidaturas')
     .select(['id', 'status'])
@@ -193,11 +232,10 @@ async function sincronizarCandidaturas(
     .execute();
   const statusGuardado = new Map(guardadas.map((c) => [c.id, c.status]));
 
-  const novas = dados.candidaturas.filter((c) => !statusGuardado.has(c.id));
-  if (novas.length > 0) {
+  if (inseridas.length > 0) {
     await trx
       .insertInto('candidaturas')
-      .values(novas.map(linhaDaCandidatura))
+      .values(inseridas.map(linhaDaCandidatura))
       .execute();
   }
 
@@ -221,9 +259,75 @@ async function sincronizarCandidaturas(
 }
 
 /**
+ * O agregado na transação `trx`: a linha do trampo e as candidaturas. Com
+ * `travar`, a leitura da linha é `for update`, sem filtro de versão.
+ */
+async function lerAgregado(
+  trx: Transaction<TabelasDeTrampos>,
+  id: string,
+  travar: boolean,
+): Promise<Trampo | null> {
+  const consulta = colunasDoResumo(trx).where('id', '=', id);
+  const linha = await (travar
+    ? consulta.forUpdate()
+    : consulta
+  ).executeTakeFirst();
+  if (!linha) {
+    return null;
+  }
+  const candidaturas = await trx
+    .selectFrom('candidaturas')
+    .selectAll()
+    .where('trampo_id', '=', id)
+    .orderBy('criada_em')
+    .orderBy('id')
+    .execute();
+  return Trampo.reconstituir({
+    ...paraResumo(linha),
+    versao: linha.versao,
+    candidaturas: candidaturas.map(paraCandidatura),
+  });
+}
+
+/** Corpo de `salvar`, dentro da transação recebida. */
+async function gravarAgregado(
+  trx: Transaction<TabelasDeTrampos>,
+  trampo: Trampo,
+): Promise<void> {
+  const dados = trampo.dados();
+  if (dados.versao === 1) {
+    await inserirTrampo(trx, dados);
+  } else {
+    await atualizarTrampo(trx, dados);
+  }
+  await sincronizarCandidaturas(trx, trampo);
+}
+
+/**
+ * CA28, com a linha do trampo já travada: trava as candidaturas em ordem de
+ * id e apaga as candidaturas e o trampo. Mesma ordem de travas da exclusão de
+ * conta (trampo, depois candidaturas), sem deadlock.
+ */
+async function apagarTrampo(
+  trx: Transaction<TabelasDeTrampos>,
+  id: string,
+): Promise<void> {
+  await trx
+    .selectFrom('candidaturas')
+    .select('id')
+    .where('trampo_id', '=', id)
+    .orderBy('id')
+    .forUpdate()
+    .execute();
+  await trx.deleteFrom('candidaturas').where('trampo_id', '=', id).execute();
+  await trx.deleteFrom('trampos').where('id', '=', id).execute();
+}
+
+/**
  * Repositório do agregado `Trampo` no Postgres (tabelas da migração
  * `0002_trampos.ts`). Grava o agregado inteiro numa transação, com trava
- * otimista pela coluna `versao`.
+ * otimista pela coluna `versao`; encerrar e excluir usam a trava pessimista
+ * de `alterarSobTrava`.
  */
 export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
   readonly #db: Conexao;
@@ -240,19 +344,61 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
    * vira `candidatura_duplicada`.
    */
   async salvar(trampo: Trampo): Promise<void> {
-    const dados = trampo.dados();
     try {
-      await this.#db.transaction().execute(async (trx) => {
-        if (dados.versao === 1) {
-          await inserirTrampo(trx, dados);
-        } else {
-          await atualizarTrampo(trx, dados);
+      await this.#db
+        .transaction()
+        .execute((trx) => gravarAgregado(trx, trampo));
+    } catch (erro) {
+      throw traduzirErroDoBanco(erro);
+    }
+  }
+
+  /**
+   * Encerrar e excluir (D33, S1). Numa transação, `select … for update` na
+   * linha do trampo, sem filtro de versão: uma escrita que já gravou é vista
+   * na leitura; uma que chega depois espera a trava no `UPDATE … WHERE
+   * versao` e, depois do commit, não acha mais a versão que leu (ou a linha):
+   * relê e recebe 404 ou `trampo_nao_aberto`. As candidaturas são lidas sob a
+   * trava do trampo. `decidir` roda dentro da transação; se lançar, nada é
+   * gravado. Id fora do formato uuid: `false`, como trampo inexistente.
+   */
+  async alterarSobTrava(
+    id: string,
+    decidir: (trampo: Trampo) => GravacaoSobTrava,
+  ): Promise<boolean> {
+    if (!ehUuid(id)) {
+      return false;
+    }
+    try {
+      return await this.#db.transaction().execute(async (trx) => {
+        const trampo = await lerAgregado(trx, id, true);
+        if (!trampo) {
+          return false;
         }
-        await sincronizarCandidaturas(trx, dados);
+        const gravacao = decidir(trampo);
+        if (gravacao === 'salvar') {
+          await gravarAgregado(trx, trampo);
+        } else if (gravacao === 'excluir') {
+          await apagarTrampo(trx, id);
+        }
+        return true;
       });
     } catch (erro) {
       throw traduzirErroDoBanco(erro);
     }
+  }
+
+  /** Id fora do formato uuid ou candidatura inexistente: `null`. */
+  async trampoDaCandidatura(candidaturaId: string): Promise<string | null> {
+    if (!ehUuid(candidaturaId)) {
+      return null;
+    }
+    const linha = await this.#db
+      .selectFrom('candidaturas')
+      .select('trampo_id')
+      .where('id', '=', candidaturaId)
+      .executeTakeFirst();
+    return linha?.trampo_id ?? null;
   }
 
   /** Lê o trampo e as candidaturas no mesmo instante (`repeatable read`). */
@@ -264,38 +410,31 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
       .transaction()
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
-      .execute(async (trx) => {
-        const linha = await colunasDoResumo(trx)
-          .where('id', '=', id)
-          .executeTakeFirst();
-        if (!linha) {
-          return null;
-        }
-        const candidaturas = await trx
-          .selectFrom('candidaturas')
-          .selectAll()
-          .where('trampo_id', '=', id)
-          .orderBy('criada_em')
-          .orderBy('id')
-          .execute();
-        return Trampo.reconstituir({
-          ...paraResumo(linha),
-          versao: linha.versao,
-          candidaturas: candidaturas.map(paraCandidatura),
-        });
-      });
+      .execute((trx) => lerAgregado(trx, id, false));
   }
 
-  async listarDoAutor(autorId: string): Promise<TrampoResumo[]> {
+  /** Visão do autor (D33): com a versão e a contagem de candidaturas. */
+  async listarDoAutor(autorId: string): Promise<TrampoDoAutor[]> {
     if (!ehUuid(autorId)) {
       return [];
     }
     const linhas = await colunasDoResumo(this.#db)
+      .select((eb) =>
+        eb
+          .selectFrom('candidaturas')
+          .select(sql<number>`count(*)::int`.as('total'))
+          .whereRef('candidaturas.trampo_id', '=', 'trampos.id')
+          .as('candidaturas_recebidas'),
+      )
       .where('autor_id', '=', autorId)
       .orderBy('criado_em', 'desc')
       .orderBy('id', 'desc')
       .execute();
-    return linhas.map(paraResumo);
+    return linhas.map((linha) => ({
+      ...paraResumo(linha),
+      versao: linha.versao,
+      candidaturasRecebidas: linha.candidaturas_recebidas ?? 0,
+    }));
   }
 
   /**
@@ -558,4 +697,54 @@ export async function exportarDadosDaConta(
         })),
       };
     });
+}
+
+/**
+ * Tamanho estimado, em bytes, da parte de `trampos` na exportação (CA48),
+ * calculado no banco sem carregar os textos: soma de `octet_length` dos
+ * textos que `exportarDadosDaConta` devolve mais `BYTES_POR_LINHA_NA_MEDIDA`
+ * por linha. Mede os trampos de que a conta é autora (`titulo`, `descricao`,
+ * `categoria`, `cidade` e `status`) e as candidaturas que ela fez
+ * (`mensagem` e `status`); o texto das candidaturas recebidas, de terceiros,
+ * não entra, como na exportação. Uma consulta só, num só instante. Id fora
+ * do formato: 0, sem consultar.
+ */
+export async function medirExportacao(
+  db: Conexao,
+  contaId: string,
+): Promise<number> {
+  if (!ehUuid(contaId)) {
+    return 0;
+  }
+  const { trampos, candidaturas } = await db
+    .selectNoFrom((eb) => [
+      // `sum` de inteiros é `bigint`, que o `pg` devolve como texto.
+      eb
+        .selectFrom('trampos')
+        .select(
+          sql<string>`coalesce(sum(
+            octet_length(titulo)
+            + octet_length(descricao)
+            + octet_length(categoria)
+            + octet_length(cidade)
+            + octet_length(status)
+            + ${sql.lit(BYTES_POR_LINHA_NA_MEDIDA)}
+          ), 0)`.as('bytes'),
+        )
+        .where('autor_id', '=', contaId)
+        .as('trampos'),
+      eb
+        .selectFrom('candidaturas')
+        .select(
+          sql<string>`coalesce(sum(
+            octet_length(mensagem)
+            + octet_length(status)
+            + ${sql.lit(BYTES_POR_LINHA_NA_MEDIDA)}
+          ), 0)`.as('bytes'),
+        )
+        .where('freelancer_id', '=', contaId)
+        .as('candidaturas'),
+    ])
+    .executeTakeFirstOrThrow();
+  return Number(trampos ?? 0) + Number(candidaturas ?? 0);
 }

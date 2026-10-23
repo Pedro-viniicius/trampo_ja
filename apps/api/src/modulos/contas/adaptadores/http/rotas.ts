@@ -4,6 +4,7 @@ import {
   exigirAutenticacao,
   extrairToken,
 } from '../../../../compartilhado/http/autenticacao.js';
+import { sinalDaConexao } from '../../../../compartilhado/http/sinal-da-conexao.js';
 import type {
   CasosDeUsoDeContas,
   Credenciais,
@@ -165,14 +166,21 @@ export interface OpcoesDasRotasDeContas {
  * Rotas do módulo `contas`:
  * - `POST /contas {email,senha}` → 201 `{token}`; 400 campos; 409 `email_em_uso`;
  * - `POST /sessoes {email,senha}` → 200 `{token}`; 401 `credenciais_invalidas`;
+ *   429 `muitas_requisicoes` com `retry-after` acima do limite por e-mail+IP
+ *   (antes do caso de uso) ou do teto por conta no banco (D31, sem rodar o
+ *   scrypt, mesmo com a senha certa);
  * - `DELETE /sessoes` (exige `Authorization: Bearer`) → 204; sem sessão, 401.
  * - `POST /contas/eu/exclusao {senha}` (autenticada) → 204; 400 corpo; 403
  *   `senha_incorreta`; 404 conta inexistente (D25, CA17);
  * - `POST /contas/eu/exportacao {senha}` (autenticada) → 200 com o JSON
- *   `trampo-ja.exportacao.v1`; mesmos erros (D26, CA19).
+ *   `trampo-ja.exportacao.v1`; mesmos erros (D26, CA19) e 409
+ *   `exportacao_grande` acima do teto (D41).
  *
- * As duas últimas respondem sempre com `Cache-Control: no-store`. Os demais
- * erros seguem para o tratador compartilhado (`tratarErro`).
+ * As duas últimas respondem sempre com `Cache-Control: no-store`. As quatro
+ * com senha respondem 503 `servico_ocupado` com `retry-after` quando a fila do
+ * scrypt (ou da exportação) passa da espera máxima, e saem da fila sem rodar
+ * se a conexão cair (`sinalDaConexao`, D42). Os demais erros seguem para o
+ * tratador compartilhado (`tratarErro`).
  */
 export function criarRotasDeContas(
   casos: CasosDeUsoDeContas,
@@ -189,7 +197,10 @@ export function criarRotasDeContas(
         },
       },
       async (requisicao, resposta) => {
-        const sessao = await casos.criarConta(requisicao.body);
+        const sessao = await casos.criarConta(
+          requisicao.body,
+          sinalDaConexao(resposta),
+        );
         return resposta.code(201).send({ token: sessao.token });
       },
     );
@@ -204,7 +215,10 @@ export function criarRotasDeContas(
       },
       async (requisicao, resposta) => {
         try {
-          const sessao = await casos.entrar(requisicao.body);
+          const sessao = await casos.entrar(
+            requisicao.body,
+            sinalDaConexao(resposta),
+          );
           return resposta.code(200).send({ token: sessao.token });
         } catch (erro) {
           // Recusa genérica: não diz se foi o e-mail ou a senha.
@@ -248,7 +262,11 @@ export function criarRotasDeContas(
         '/contas/eu/exclusao',
         { schema: { body: CORPO_COM_SENHA }, onSend: semCache },
         async (requisicao, resposta) => {
-          await casos.excluirConta(requisicao.contaId, requisicao.body?.senha);
+          await casos.excluirConta(
+            requisicao.contaId,
+            requisicao.body?.senha,
+            sinalDaConexao(resposta),
+          );
           return resposta.code(204).send();
         },
       );
@@ -263,11 +281,25 @@ export function criarRotasDeContas(
           onSend: semCache,
         },
         async (requisicao, resposta) => {
-          const exportacao = await casos.exportarDados(
+          // O serializador compilado do schema fechado da resposta (CA19).
+          // Roda dentro da vaga da exportação (S1-R); a string pronta sai
+          // como está, sem serializar de novo.
+          const serializar = resposta.getSerializationFunction('200');
+          if (serializar === undefined) {
+            throw new Error('exportação: rota sem schema de resposta 200');
+          }
+          const corpo = await casos.exportarDados(
             requisicao.contaId,
             requisicao.body?.senha,
+            {
+              serializar: (exportacao) => serializar({ ...exportacao }),
+              sinal: sinalDaConexao(resposta),
+            },
           );
-          return resposta.code(200).send(exportacao);
+          return resposta
+            .code(200)
+            .type('application/json; charset=utf-8')
+            .send(corpo);
         },
       );
     });

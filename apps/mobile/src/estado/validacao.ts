@@ -74,15 +74,22 @@ export function validarEmail(valor: string): ChaveDeErro | null {
 }
 
 /**
- * Senha de 8 a 128 pontos de código. Não é aparada: espaços fazem parte da
- * senha. Acima do dobro do teto (cada ponto ocupa 1 ou 2 unidades) recusa sem
- * percorrer o texto. `null` = válida.
+ * Senha de 8 a 128 pontos de código, como a API: o teto vale na forma crua,
+ * antes de normalizar, e o mínimo na forma NFC, que é a que vira hash ("éééé"
+ * em NFD tem 8 pontos de código, mas só 4 em NFC). Não é aparada: espaços
+ * fazem parte da senha. Acima do dobro do teto (cada ponto ocupa 1 ou 2
+ * unidades) recusa sem percorrer o texto. `null` = válida.
  */
 export function validarSenha(valor: string): ChaveDeErro | null {
-  if (valor.length > LIMITES.senha.max * 2) {
+  if (
+    valor.length > LIMITES.senha.max * 2 ||
+    tamanhoDe(valor) > LIMITES.senha.max
+  ) {
     return 'senha_curta';
   }
-  return dentroDe(tamanhoDe(valor), LIMITES.senha) ? null : 'senha_curta';
+  return tamanhoDe(valor.normalize('NFC')) < LIMITES.senha.min
+    ? 'senha_curta'
+    : null;
 }
 
 function validarTextoObrigatorio(

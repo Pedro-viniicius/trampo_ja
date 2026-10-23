@@ -37,10 +37,16 @@ async function principal(argumentos: readonly string[]): Promise<number> {
   const teste = opcoes.includes('--teste');
 
   carregarArquivoEnv();
+  // A leitura confere o TLS do banco remoto (CA41) antes de conectar.
   const url = teste
     ? lerUrlDoBancoDeTeste()
     : lerUrlDoBanco(process.env, 'DATABASE_URL');
-  const db = criarConexao(url, { maximoDeConexoes: 1 });
+  // Sem `statement_timeout` (D42): uma migração pode passar dos 10 s do pool
+  // da API. Os outros tempos (conexão e transação ociosa) continuam valendo.
+  const db = criarConexao(url, {
+    maximoDeConexoes: 1,
+    tempoMaximoDeConsultaMs: 0,
+  });
   try {
     console.log(
       `Banco de ${teste ? 'teste' : 'desenvolvimento'}: ${baixar ? 'revertendo a última migração' : 'aplicando migrações pendentes'}.`,

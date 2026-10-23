@@ -24,6 +24,40 @@ export interface PerfilIncompleto {
 
 export type TipoDeAnuncio = 'trampo' | 'servico';
 
+/** Status aceito pelas telas. `encerrado` entra em `StatusDoTrampo` na etapa 5 (L2). */
+export type StatusDoTrampoParaExibir = StatusDoTrampo | 'encerrado';
+
+/** Ação da folha "Mais opções"; ausente no objeto = a ação não existe para o anúncio. */
+export interface AcaoDoAnuncio {
+  disponivel: boolean;
+  /** Motivo (já traduzido) quando indisponível. */
+  motivo?: string;
+}
+
+/** Folha "Mais opções" de um anúncio. Os diálogos ficam na folha. */
+export interface PropsDaFolhaDeAcoes {
+  visivel: boolean;
+  /** Título do anúncio, para o rótulo da folha. */
+  titulo: string;
+  tipo: TipoDeAnuncio;
+  editar: AcaoDoAnuncio;
+  /** Só trampo aberto ou em andamento. */
+  encerrar?: AcaoDoAnuncio;
+  excluir: AcaoDoAnuncio;
+  /** Mensagens dos diálogos, já traduzidas. */
+  efeitoDoEncerrar: string;
+  efeitoDoExcluir: string;
+  processando: 'encerrar' | 'excluir' | null;
+  /** Mensagem já traduzida, mostrada na folha. */
+  erro?: string;
+  onEditar: () => void;
+  /** Chamado só depois do diálogo. */
+  onEncerrar: () => void;
+  /** Chamado só depois do diálogo. */
+  onExcluir: () => void;
+  onFechar: () => void;
+}
+
 /** Item de lista pronto para exibir: rótulo, valor e data já formatados pelo contêiner. */
 export interface ItemParaExibir {
   tipo: TipoDeAnuncio;
@@ -143,7 +177,7 @@ export interface TrampoParaExibir {
   valorFormatado: string;
   /** `null` sem prazo. */
   prazoFormatado: string | null;
-  status: StatusDoTrampo;
+  status: StatusDoTrampoParaExibir;
 }
 
 export interface ServicoParaExibir {
@@ -165,13 +199,21 @@ export interface PropsDoDetalheDoTrampo {
   semConexao?: boolean;
   onVoltar: () => void;
   onAbrirAutor: (contaId: string) => void;
+  /** Só para o autor (L2). */
+  onMaisOpcoes?: () => void;
+  folha?: PropsDaFolhaDeAcoes;
 }
 
 export interface PropsDoDetalheDoServico {
   estado: Estado<ServicoParaExibir>;
   autor: Estado<PerfilPublico>;
   rodape?: ReactNode;
+  /** Slot sobreposto (ex.: `Toast`) (L2). */
+  sobreposicao?: ReactNode;
   semConexao?: boolean;
+  /** Só para o autor (L2). */
+  onMaisOpcoes?: () => void;
+  folha?: PropsDaFolhaDeAcoes;
   onVoltar: () => void;
   onAbrirAutor: (contaId: string) => void;
 }
@@ -272,6 +314,23 @@ export interface ValoresDoAnuncio {
 
 export type ErrosDoAnuncio = Partial<Record<CampoDoAnuncio | 'geral', string>>;
 
+export interface EdicaoDeAnuncio {
+  situacao: 'carregando' | 'erro' | 'nao_encontrado' | 'pronta';
+  /** Anúncio que não pode mais ser editado: aviso e campos desabilitados. */
+  naoEditavel: boolean;
+  /** Motivo específico (`textos.anuncio.motivoEditar*`); sem ele, vale o texto genérico. */
+  motivoNaoEditavel?: string;
+  /** Conflito de versão (409): aviso com "Ver versão atual". */
+  conflito: boolean;
+  /** Diálogo "Descartar alterações?". */
+  descartarVisivel: boolean;
+  onTentarDeNovo: () => void;
+  onVerVersaoAtual: () => void;
+  onDispensarConflito: () => void;
+  onDescartar: () => void;
+  onContinuarEditando: () => void;
+}
+
 export interface PropsDoFormularioDeAnuncio {
   /** `servico`: sem prazo, cidade opcional, "Preço base (R$)". */
   tipo: TipoDeAnuncio;
@@ -286,6 +345,8 @@ export interface PropsDoFormularioDeAnuncio {
   publicado: boolean;
   /** Sobe a cada envio recusado: leva o foco ao primeiro erro mesmo se ele não mudou. */
   tentativa?: number;
+  /** Modo editar (L2): sem a prop, a tela publica. */
+  edicao?: EdicaoDeAnuncio;
   onMudar: (campo: Exclude<CampoDoAnuncio, 'categoria'>, texto: string) => void;
   onMudarCategoria: (id: string | null) => void;
   onSairDoCampo: (campo: CampoDoAnuncio) => void;
@@ -323,6 +384,12 @@ export interface PropsDoRodapeDoTrampo {
   /** Chega na 2c. */
   onConversar?: () => void;
   estadoDoConversar?: EstadoDoConversar;
+  /** Só para candidatura pendente (L2). `motivo`: botão desabilitado e texto. */
+  retirar?: {
+    retirando: boolean;
+    motivo: string | null;
+    onRetirar: () => void;
+  };
 }
 
 export interface CandidaturaParaExibir {
@@ -338,7 +405,7 @@ export interface CandidaturaParaExibir {
 }
 
 export interface PropsDasCandidaturasRecebidas {
-  trampo: Estado<{ titulo: string; status: StatusDoTrampo }>;
+  trampo: Estado<{ titulo: string; status: StatusDoTrampoParaExibir }>;
   lista: Estado<readonly CandidaturaParaExibir[]>;
   /** Id em aceite: desabilita todos os "Aceitar". */
   aceitando: string | null;
@@ -371,18 +438,30 @@ export interface MinhaCandidaturaParaExibir {
   valorPropostoFormatado: string;
   dataFormatada: string;
   status: StatusDaCandidatura;
+  /** Mostra "Retirar candidatura" (só pendente) (L2). */
+  podeRetirar?: boolean;
 }
 
 export interface PropsDasMinhasCandidaturas {
   lista: Estado<readonly MinhaCandidaturaParaExibir[]>;
   semConexao?: boolean;
+  /** Id da candidatura sendo retirada: desabilita os "Retirar" (L2). */
+  retirando?: string | null;
+  /** Aviso já traduzido (ex.: candidatura já respondida) (L2). */
+  aviso?: string;
+  /** Dispensa o aviso; sem ela, o aviso não tem botão de fechar. */
+  onFecharAviso?: () => void;
+  toast?: string | null;
+  /** Chamado depois do diálogo. */
+  onRetirar?: (id: string) => void;
+  onFecharToast?: () => void;
   onAbrirTrampo: (trampoId: string) => void;
   onBuscarTrampos: () => void;
   onVoltar: () => void;
 }
 
 export type MeuAnuncioParaExibir = ItemParaExibir & {
-  status: StatusDoTrampo | 'ativo';
+  status: StatusDoTrampoParaExibir | 'ativo';
 };
 
 export interface PropsDosMeusAnuncios {
@@ -392,6 +471,11 @@ export interface PropsDosMeusAnuncios {
   onAbrirItem: (item: MeuAnuncioParaExibir) => void;
   onPublicar: () => void;
   onVoltar: () => void;
+  /** L2: folha "Mais opções" do item aberto, toast de resultado. */
+  folha?: PropsDaFolhaDeAcoes;
+  onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
+  toast?: string | null;
+  onFecharToast?: () => void;
 }
 
 // ---- Entrega 2c: conversas ----

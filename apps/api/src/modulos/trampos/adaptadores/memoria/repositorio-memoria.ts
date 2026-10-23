@@ -5,11 +5,13 @@ import {
 } from '../../dominio/candidatura.js';
 import type {
   FiltrosDeBusca,
+  GravacaoSobTrava,
   RepositorioDeTrampos,
 } from '../../dominio/portas.js';
 import {
   type DadosDoTrampo,
   Trampo,
+  type TrampoDoAutor,
   type TrampoResumo,
 } from '../../dominio/trampo.js';
 
@@ -49,14 +51,47 @@ export class RepositorioDeTramposEmMemoria implements RepositorioDeTrampos {
     this.#guardados.set(dados.id, dados);
   }
 
+  /**
+   * Equivalente à trava pessimista do Postgres: da leitura à gravação não há
+   * `await` que ceda a vez, então nenhuma outra escrita entra no meio. A
+   * gravação passa por `salvar`, com a mesma conferência de versão.
+   */
+  async alterarSobTrava(
+    id: string,
+    decidir: (trampo: Trampo) => GravacaoSobTrava,
+  ): Promise<boolean> {
+    const dados = this.#guardados.get(id);
+    if (!dados) {
+      return false;
+    }
+    const trampo = Trampo.reconstituir(dados);
+    const gravacao = decidir(trampo);
+    if (gravacao === 'salvar') {
+      await this.salvar(trampo);
+    } else if (gravacao === 'excluir') {
+      this.#guardados.delete(id);
+    }
+    return true;
+  }
+
   async buscarPorId(id: string): Promise<Trampo | null> {
     const dados = this.#guardados.get(id);
     return dados ? Trampo.reconstituir(dados) : null;
   }
 
-  async listarDoAutor(autorId: string): Promise<TrampoResumo[]> {
-    return this.#resumos()
-      .filter((t) => t.autorId === autorId)
+  async trampoDaCandidatura(candidaturaId: string): Promise<string | null> {
+    for (const dados of this.#guardados.values()) {
+      if (dados.candidaturas.some((c) => c.id === candidaturaId)) {
+        return dados.id;
+      }
+    }
+    return null;
+  }
+
+  async listarDoAutor(autorId: string): Promise<TrampoDoAutor[]> {
+    return [...this.#guardados.values()]
+      .filter((dados) => dados.autorId === autorId)
+      .map((dados) => Trampo.reconstituir(dados).resumoDoAutor())
       .sort(maisRecentesPrimeiro);
   }
 

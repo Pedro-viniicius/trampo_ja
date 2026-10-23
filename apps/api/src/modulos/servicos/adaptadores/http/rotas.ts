@@ -3,8 +3,14 @@ import {
   exigirAutenticacao,
   type ValidarSessao,
 } from '../../../../compartilhado/http/autenticacao.js';
-import type { CasosDeUsoDeServicos } from '../../aplicacao/casos-de-uso.js';
-import type { EntradaDeServico, Servico } from '../../dominio/servico.js';
+import type {
+  CasosDeUsoDeServicos,
+  VisaoDoServico,
+} from '../../aplicacao/casos-de-uso.js';
+import type {
+  EntradaDeEdicaoDeServico,
+  EntradaDeServico,
+} from '../../dominio/servico.js';
 
 export interface OpcoesDasRotasDeServicos {
   /** Porta para a fachada de `contas` (CA14). */
@@ -43,6 +49,24 @@ const CORPO_DA_OFERTA = {
   },
 } as const;
 
+const CAMPOS_DA_EDICAO = [...CAMPOS_DA_OFERTA, 'versao'] as const;
+
+/**
+ * Corpo de `PUT /servicos/:id` (CA26): os campos da oferta e a `versao` lida
+ * (D33). Fechado como o da oferta, então não há como trocar autor, status nem
+ * data. A `versao` só aceita inteiro a partir de 1; ausente ou nula, o caso
+ * de uso responde `obrigatorio` antes de ler o serviço (o 400 vem antes do
+ * 404). Sem `required` aqui, como nos outros corpos: o domínio aponta o campo.
+ */
+const CORPO_DA_EDICAO = {
+  ...CORPO_DA_OFERTA,
+  propertyNames: { enum: CAMPOS_DA_EDICAO },
+  properties: {
+    ...CORPO_DA_OFERTA.properties,
+    versao: { type: ['integer', 'null'], minimum: 1 },
+  },
+} as const;
+
 const PARAMETROS_COM_ID = {
   type: 'object',
   required: ['id'],
@@ -57,7 +81,10 @@ const RESPOSTA_DA_OFERTA = {
   properties: { id: { type: 'string' }, status: { type: 'string' } },
 } as const;
 
-/** Serviço como sai na API: sem as colunas internas da busca. */
+/**
+ * Serviço como sai na API: sem as colunas internas da busca. A `versao` é
+ * opcional: só sai na visão do autor (D33).
+ */
 const SERVICO_PUBLICO = {
   type: 'object',
   required: [
@@ -82,6 +109,7 @@ const SERVICO_PUBLICO = {
     precoBaseCentavos: { type: 'integer' },
     status: { type: 'string' },
     criadoEm: { type: 'string' },
+    versao: { type: 'integer' },
   },
 } as const;
 
@@ -95,9 +123,10 @@ interface ServicoPublico {
   readonly precoBaseCentavos: number;
   readonly status: string;
   readonly criadoEm: string;
+  readonly versao?: number;
 }
 
-function paraResposta(servico: Servico): ServicoPublico {
+function paraResposta(servico: VisaoDoServico): ServicoPublico {
   return {
     id: servico.id,
     autorId: servico.autorId,
@@ -108,6 +137,7 @@ function paraResposta(servico: Servico): ServicoPublico {
     precoBaseCentavos: servico.precoBaseCentavos,
     status: servico.status,
     criadoEm: servico.criadoEm.toISOString(),
+    ...(servico.versao !== undefined ? { versao: servico.versao } : {}),
   };
 }
 
@@ -115,8 +145,18 @@ function paraResposta(servico: Servico): ServicoPublico {
  * Rotas do módulo `servicos`, todas autenticadas (CA14, D8):
  * - `POST /servicos` → 201 `{id,status:"ativo"}`; 400 campos;
  *   409 `perfil_incompleto` (D9);
- * - `GET /servicos/meus` → 200 lista dos serviços da conta, mais recentes primeiro;
- * - `GET /servicos/:id` → 200 serviço; 404 se não existir.
+ * - `GET /servicos/meus` → 200 lista dos serviços da conta, mais recentes
+ *   primeiro, com `versao`;
+ * - `GET /servicos/:id` → 200 serviço, com `versao` só para o autor (D33);
+ *   404 se não existir;
+ * - `PUT /servicos/:id {titulo, descricao, categoria, cidade?,
+ *   precoBaseCentavos, versao}` → 204; 400 `dados_invalidos`; 404 se não
+ *   existir ou for de outra conta; 409 `conflito_de_versao` (CA26);
+ * - `DELETE /servicos/:id` → 204; 404 se não existir ou for de outra conta.
+ *
+ * Inexistente, de outra conta ou com id fora do formato uuid dão o mesmo 404.
+ * Os limites por conta (`PUT` em `publicacao`, `DELETE` em `escrita`, D36)
+ * casam pela url modelo `/servicos/:id`: não troque o nome do parâmetro.
  *
  * Os erros seguem para o tratador compartilhado (`tratarErro`).
  */
@@ -168,8 +208,33 @@ export function criarRotasDeServicos(
         },
       },
       async (requisicao) => {
-        const servico = await casos.obterServico(requisicao.params.id);
+        const servico = await casos.obterServico(
+          requisicao.params.id,
+          requisicao.contaId,
+        );
         return paraResposta(servico);
+      },
+    );
+
+    app.put<{ Params: { id: string }; Body: EntradaDeEdicaoDeServico }>(
+      '/servicos/:id',
+      { schema: { params: PARAMETROS_COM_ID, body: CORPO_DA_EDICAO } },
+      async (requisicao, resposta) => {
+        await casos.editarServico(
+          requisicao.contaId,
+          requisicao.params.id,
+          requisicao.body,
+        );
+        return resposta.code(204).send();
+      },
+    );
+
+    app.delete<{ Params: { id: string } }>(
+      '/servicos/:id',
+      { schema: { params: PARAMETROS_COM_ID } },
+      async (requisicao, resposta) => {
+        await casos.excluirServico(requisicao.contaId, requisicao.params.id);
+        return resposta.code(204).send();
       },
     );
   };

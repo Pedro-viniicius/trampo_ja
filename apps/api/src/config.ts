@@ -54,7 +54,13 @@ function lerObrigatoria(env: Ambiente, nome: string): string {
   return valor;
 }
 
-/** Lê e valida uma URL `postgres://` (ou `postgresql://`) com nome de banco. */
+/**
+ * Lê e valida uma URL `postgres://` (ou `postgresql://`) com nome de banco.
+ * Banco fora desta máquina (ver `ehBancoLocal`) só com `sslmode=verify-full`
+ * e sem `NODE_TLS_REJECT_UNAUTHORIZED=0` no ambiente. Toda leitura da URL do
+ * banco (servidor, `migrar`, `semear` e banco de teste) passa por aqui, então
+ * nenhum caminho conecta sem essas conferências.
+ */
 export function lerUrlDoBanco(env: Ambiente, nome: string): string {
   const valor = lerObrigatoria(env, nome);
   let url: URL;
@@ -79,7 +85,101 @@ export function lerUrlDoBanco(env: Ambiente, nome: string): string {
       'inválida: falta o nome do banco no caminho',
     );
   }
+  // D42: os tempos do pool são fixos no código (`conexao.ts`). O `pg` deixa
+  // o parâmetro da URL sobrescrever a configuração do pool, então recusamos.
+  if (PARAMETROS_DE_TEMPO.some((p) => url.searchParams.has(p))) {
+    throw new ErroDeConfiguracao(
+      nome,
+      'inválida: os tempos do banco são fixos no código; tire statement_timeout, idle_in_transaction_session_timeout e connectionTimeoutMillis da URL',
+    );
+  }
+  // D44 (S10): fora da máquina, só com TLS e certificado conferido.
+  if (!ehBancoLocal(valor) && !exigeVerifyFull(url)) {
+    throw new ErroDeConfiguracao(
+      nome,
+      'inválida: banco fora desta máquina exige sslmode=verify-full (veja apps/api/.env.example)',
+    );
+  }
+  recusarTlsSemConferencia(env, valor);
   return valor;
+}
+
+const PARAMETROS_DE_TEMPO = [
+  'statement_timeout',
+  'idle_in_transaction_session_timeout',
+  'connectionTimeoutMillis',
+] as const;
+
+// Repetir `sslmode` faria o `pg` usar o último valor: só vale um, exato.
+function exigeVerifyFull(url: URL): boolean {
+  const modos = url.searchParams.getAll('sslmode');
+  return modos.length === 1 && modos[0] === 'verify-full';
+}
+
+/**
+ * Diz se a URL aponta para um banco nesta máquina: host `localhost`,
+ * IPv4 em `127.0.0.0/8`, `::1` ou socket Unix (caminho começando em `/`).
+ *
+ * Segue a leitura do `pg`: o parâmetro `host` da query vale mais que o host
+ * da URL, e todos os que vierem precisam ser locais. Na dúvida, devolve
+ * `false`: URL inválida, host vazio (o `pg` cairia no `PGHOST`), IPv4 escrito
+ * de forma abreviada (`127.1`) ou nome que só o DNS resolveria.
+ */
+export function ehBancoLocal(url: string): boolean {
+  let lida: URL;
+  try {
+    lida = new URL(url);
+  } catch {
+    return false;
+  }
+  const daQuery = lida.searchParams.getAll('host');
+  const hosts =
+    daQuery.length > 0 ? daQuery : [decodificar(lida.hostname) ?? ''];
+  return hosts.every(ehHostLocal);
+}
+
+function decodificar(texto: string): string | undefined {
+  try {
+    return decodeURIComponent(texto);
+  } catch {
+    return undefined;
+  }
+}
+
+function ehHostLocal(host: string): boolean {
+  if (host.startsWith('/')) {
+    return true;
+  }
+  const semColchetes = host.replace(/^\[(.+)\]$/, '$1').toLowerCase();
+  if (semColchetes === 'localhost') {
+    return true;
+  }
+  if (isIP(semColchetes) === 4) {
+    return semColchetes.split('.')[0] === '127';
+  }
+  return isIP(semColchetes) === 6 && ehLoopbackIpv6(semColchetes);
+}
+
+// `::1` em qualquer grafia (`::1`, `0:0:0:0:0:0:0:1`, `0::1`).
+function ehLoopbackIpv6(endereco: string): boolean {
+  if (endereco.includes('.')) {
+    return false;
+  }
+  const [inicio = '', fim] = endereco.split('::');
+  const grupos = (parte: string | undefined) =>
+    parte ? parte.split(':').map((g) => Number.parseInt(g, 16)) : [];
+  const esquerda = grupos(inicio);
+  const direita = grupos(fim);
+  const zeros = 8 - esquerda.length - direita.length;
+  const todos =
+    fim === undefined
+      ? esquerda
+      : [...esquerda, ...Array<number>(zeros).fill(0), ...direita];
+  return (
+    todos.length === 8 &&
+    todos.slice(0, 7).every((g) => g === 0) &&
+    todos[7] === 1
+  );
 }
 
 /**
@@ -158,10 +258,26 @@ export function lerTrustProxy(env: Ambiente = process.env): string | boolean {
   return itens.join(',');
 }
 
+/**
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0` desliga, no processo inteiro, a conferência
+ * do certificado que o `sslmode=verify-full` exige do banco remoto. Com banco
+ * local não há TLS em jogo; com remoto, recusamos. O Node só desliga com `0`
+ * exato, então a comparação também é exata.
+ */
+function recusarTlsSemConferencia(env: Ambiente, url: string) {
+  if (env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && !ehBancoLocal(url)) {
+    throw new ErroDeConfiguracao(
+      'NODE_TLS_REJECT_UNAUTHORIZED',
+      'inválida: desliga a conferência do certificado que o banco fora desta máquina exige; remova a variável (veja o README)',
+    );
+  }
+}
+
 /** Configuração da aplicação (servidor e script de migração no banco de desenvolvimento). */
 export function carregarConfig(env: Ambiente = process.env): Config {
+  const databaseUrl = lerUrlDoBanco(env, 'DATABASE_URL');
   return {
-    databaseUrl: lerUrlDoBanco(env, 'DATABASE_URL'),
+    databaseUrl,
     porta: lerPorta(env),
     trustProxy: lerTrustProxy(env),
   };

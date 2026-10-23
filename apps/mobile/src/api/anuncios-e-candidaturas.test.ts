@@ -1,7 +1,12 @@
 import { criarFetchFalso, type FetchFalso } from '../testes/fetch-falso';
 import { type ClienteHttp, criarCliente } from './cliente';
 import { ErroDaApi } from './erros';
-import { listarMeusServicos, ofertarServico } from './servicos';
+import {
+  editarServico,
+  excluirServico,
+  listarMeusServicos,
+  ofertarServico,
+} from './servicos';
 import type {
   CandidaturaRecebida,
   EntradaDeCandidatura,
@@ -14,10 +19,14 @@ import type {
 import {
   aceitarCandidatura,
   candidatar,
+  editarTrampo,
+  encerrarTrampo,
+  excluirTrampo,
   listarCandidaturasDoTrampo,
   listarMeusTrampos,
   listarMinhasCandidaturas,
   publicarTrampo,
+  retirarCandidatura,
 } from './trampos';
 
 const URL_BASE = 'http://192.168.0.10:3000';
@@ -548,6 +557,478 @@ describe('aceitarCandidatura (CA10)', () => {
   );
 });
 
+/** Sentinelas do que a pessoa digita ao editar: nunca na URL nem no erro. */
+const TITULO_EDITADO = 'Sentinela-título editado';
+const DESCRICAO_EDITADA = 'Sentinela-descrição editada, ligue 35 98888-7777';
+
+describe('editarTrampo (CA32)', () => {
+  const ENTRADA = {
+    ...ENTRADA_DO_TRAMPO,
+    titulo: TITULO_EDITADO,
+    descricao: DESCRICAO_EDITADA,
+    prazo: '2026-12-31',
+    versao: 3,
+  };
+
+  it('faz PUT /trampos/:id com o id codificado, token, só as chaves aceitas e a versão, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`PUT /trampos/${ID_ESPECIAL_CODIFICADO}`, { status: 204 });
+
+    const resultado = await editarTrampo(cliente, ID_ESPECIAL, {
+      ...ENTRADA,
+      autorId: 'outra-conta',
+      status: 'encerrado',
+      criadoEm: '2020-01-01T00:00:00.000Z',
+    } as never);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('PUT');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/trampos/${ID_ESPECIAL_CODIFICADO}`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.cabecalhos['content-type']).toBe('application/json');
+    expect(requisicao.corpo).toEqual({
+      titulo: TITULO_EDITADO,
+      descricao: DESCRICAO_EDITADA,
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 15000,
+      prazo: '2026-12-31',
+      versao: 3,
+    });
+  });
+
+  it.each([
+    ['ausente', undefined],
+    ['null', null],
+    ['vazio', ''],
+    ['em branco', '  '],
+  ])('omite o prazo %s: a API remove o prazo', async (_nome, prazo) => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /trampos/t1', { status: 204 });
+
+    await editarTrampo(cliente, 't1', { ...ENTRADA, prazo });
+
+    expect(falso.ultima().corpo).toEqual({
+      titulo: TITULO_EDITADO,
+      descricao: DESCRICAO_EDITADA,
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 15000,
+      versao: 3,
+    });
+    expect(falso.ultima().corpo).not.toHaveProperty('prazo');
+  });
+
+  it('o texto digitado não vai para a URL', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /trampos/t1', { status: 204 });
+
+    await editarTrampo(cliente, 't1', ENTRADA);
+
+    expect(falso.ultima().url).toBe(`${URL_BASE}/trampos/t1`);
+  });
+
+  it('400 traz os campos, sem o que foi digitado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /trampos/t1', {
+      status: 400,
+      corpo: {
+        erro: 'dados_invalidos',
+        campos: [{ campo: 'valorCentavos', motivo: 'invalido' }],
+      },
+    });
+
+    const erro = await capturar(
+      editarTrampo(cliente, 't1', { ...ENTRADA, valorCentavos: -1 }),
+    );
+
+    expect(erro).toMatchObject({
+      status: 400,
+      codigo: 'dados_invalidos',
+      campos: [{ campo: 'valorCentavos', motivo: 'invalido' }],
+    });
+    esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /trampos/t1', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    const erro = await capturar(editarTrampo(cliente, 't1', ENTRADA));
+
+    expect(erro).toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+  });
+
+  it.each(['trampo_nao_editavel', 'conflito_de_versao'])(
+    '409 %s sobe como ErroDaApi',
+    async (codigo) => {
+      const { cliente, falso, aoExpirar } = montar();
+      falso.responder('PUT /trampos/t1', {
+        status: 409,
+        corpo: { erro: codigo },
+      });
+
+      const erro = await capturar(editarTrampo(cliente, 't1', ENTRADA));
+
+      expect(erro).toMatchObject({ status: 409, codigo, campos: [] });
+      expect(aoExpirar).not.toHaveBeenCalled();
+      esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+    },
+  );
+
+  it('id ".." lança nao_encontrado sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    const erro = await capturar(editarTrampo(cliente, '..', ENTRADA));
+
+    expect(erro).toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+});
+
+describe('encerrarTrampo (CA33)', () => {
+  it('faz POST /trampos/:id/encerrar com o id codificado, sem corpo e sem Content-Type, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`POST /trampos/${ID_ESPECIAL_CODIFICADO}/encerrar`, {
+      status: 204,
+    });
+
+    const resultado = await encerrarTrampo(cliente, ID_ESPECIAL);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('POST');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/trampos/${ID_ESPECIAL_CODIFICADO}/encerrar`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.corpo).toBeUndefined();
+    expect(requisicao.cabecalhos).not.toHaveProperty('content-type');
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('POST /trampos/t1/encerrar', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    await expect(
+      capturar(encerrarTrampo(cliente, 't1')),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+  });
+
+  it('id ".." lança nao_encontrado sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(
+      capturar(encerrarTrampo(cliente, '..')),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+});
+
+describe('excluirTrampo (CA33)', () => {
+  it('faz DELETE /trampos/:id com o id codificado, sem corpo e sem Content-Type, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`DELETE /trampos/${ID_ESPECIAL_CODIFICADO}`, {
+      status: 204,
+    });
+
+    const resultado = await excluirTrampo(cliente, ID_ESPECIAL);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('DELETE');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/trampos/${ID_ESPECIAL_CODIFICADO}`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.corpo).toBeUndefined();
+    expect(requisicao.cabecalhos).not.toHaveProperty('content-type');
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /trampos/t1', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    await expect(capturar(excluirTrampo(cliente, 't1'))).resolves.toMatchObject(
+      { status: 404, codigo: 'nao_encontrado' },
+    );
+  });
+
+  it('409 trampo_nao_aberto sobe como ErroDaApi', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /trampos/t1', {
+      status: 409,
+      corpo: { erro: 'trampo_nao_aberto' },
+    });
+
+    await expect(capturar(excluirTrampo(cliente, 't1'))).resolves.toMatchObject(
+      {
+        status: 409,
+        codigo: 'trampo_nao_aberto',
+        campos: [],
+      },
+    );
+  });
+
+  it('id ".." lança nao_encontrado sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(capturar(excluirTrampo(cliente, '..'))).resolves.toMatchObject(
+      { status: 404, codigo: 'nao_encontrado' },
+    );
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+});
+
+describe('retirarCandidatura (CA34)', () => {
+  it('faz DELETE /candidaturas/:id com o id codificado, sem corpo e sem Content-Type, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`DELETE /candidaturas/${ID_ESPECIAL_CODIFICADO}`, {
+      status: 204,
+    });
+
+    const resultado = await retirarCandidatura(cliente, ID_ESPECIAL);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('DELETE');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/candidaturas/${ID_ESPECIAL_CODIFICADO}`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.corpo).toBeUndefined();
+    expect(requisicao.cabecalhos).not.toHaveProperty('content-type');
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /candidaturas/c1', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    await expect(
+      capturar(retirarCandidatura(cliente, 'c1')),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+  });
+
+  it('409 candidatura_nao_pendente sobe como ErroDaApi', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /candidaturas/c1', {
+      status: 409,
+      corpo: { erro: 'candidatura_nao_pendente' },
+    });
+
+    await expect(
+      capturar(retirarCandidatura(cliente, 'c1')),
+    ).resolves.toMatchObject({
+      status: 409,
+      codigo: 'candidatura_nao_pendente',
+      campos: [],
+    });
+  });
+
+  it.each(['..', '.', ''])(
+    'id "%s" lança nao_encontrado sem requisição',
+    async (id) => {
+      const { cliente, falso } = montar();
+
+      await expect(
+        capturar(retirarCandidatura(cliente, id)),
+      ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+      expect(falso.requisicoes).toHaveLength(0);
+    },
+  );
+});
+
+describe('editarServico (CA32)', () => {
+  const ENTRADA = {
+    ...ENTRADA_DO_SERVICO,
+    titulo: TITULO_EDITADO,
+    descricao: DESCRICAO_EDITADA,
+    cidade: 'Lavras',
+    versao: 2,
+  };
+
+  it('faz PUT /servicos/:id com o id codificado, token, só as chaves aceitas e a versão, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`PUT /servicos/${ID_ESPECIAL_CODIFICADO}`, {
+      status: 204,
+    });
+
+    const resultado = await editarServico(cliente, ID_ESPECIAL, {
+      ...ENTRADA,
+      autorId: 'outra-conta',
+      status: 'ativo',
+      prazo: '2026-12-31',
+    } as never);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('PUT');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/servicos/${ID_ESPECIAL_CODIFICADO}`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.cabecalhos['content-type']).toBe('application/json');
+    expect(requisicao.corpo).toEqual({
+      titulo: TITULO_EDITADO,
+      descricao: DESCRICAO_EDITADA,
+      categoria: 'aulas',
+      cidade: 'Lavras',
+      precoBaseCentavos: 8000,
+      versao: 2,
+    });
+  });
+
+  it.each([
+    ['ausente', undefined],
+    ['null', null],
+    ['vazia', ''],
+    ['em branco', '  '],
+  ])(
+    'omite a cidade %s: a API deixa o serviço sem cidade (D7)',
+    async (_nome, cidade) => {
+      const { cliente, falso } = montar();
+      falso.responder('PUT /servicos/s1', { status: 204 });
+
+      await editarServico(cliente, 's1', { ...ENTRADA, cidade });
+
+      expect(falso.ultima().corpo).toEqual({
+        titulo: TITULO_EDITADO,
+        descricao: DESCRICAO_EDITADA,
+        categoria: 'aulas',
+        precoBaseCentavos: 8000,
+        versao: 2,
+      });
+      expect(falso.ultima().corpo).not.toHaveProperty('cidade');
+    },
+  );
+
+  it('400 traz os campos, sem o que foi digitado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /servicos/s1', {
+      status: 400,
+      corpo: {
+        erro: 'dados_invalidos',
+        campos: [{ campo: 'precoBaseCentavos', motivo: 'invalido' }],
+      },
+    });
+
+    const erro = await capturar(
+      editarServico(cliente, 's1', { ...ENTRADA, precoBaseCentavos: -1 }),
+    );
+
+    expect(erro).toMatchObject({
+      status: 400,
+      codigo: 'dados_invalidos',
+      campos: [{ campo: 'precoBaseCentavos', motivo: 'invalido' }],
+    });
+    esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /servicos/s1', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    const erro = await capturar(editarServico(cliente, 's1', ENTRADA));
+
+    expect(erro).toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+  });
+
+  it('409 conflito_de_versao sobe como ErroDaApi', async () => {
+    const { cliente, falso, aoExpirar } = montar();
+    falso.responder('PUT /servicos/s1', {
+      status: 409,
+      corpo: { erro: 'conflito_de_versao' },
+    });
+
+    const erro = await capturar(editarServico(cliente, 's1', ENTRADA));
+
+    expect(erro).toMatchObject({
+      status: 409,
+      codigo: 'conflito_de_versao',
+      campos: [],
+    });
+    expect(aoExpirar).not.toHaveBeenCalled();
+    esperarSemDadoDigitado(erro, [TITULO_EDITADO, DESCRICAO_EDITADA]);
+  });
+
+  it('id ".." lança nao_encontrado sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(
+      capturar(editarServico(cliente, '..', ENTRADA)),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+});
+
+describe('excluirServico (CA33)', () => {
+  it('faz DELETE /servicos/:id com o id codificado, sem corpo e sem Content-Type, e resolve em 204', async () => {
+    const { cliente, falso } = montar();
+    falso.responder(`DELETE /servicos/${ID_ESPECIAL_CODIFICADO}`, {
+      status: 204,
+    });
+
+    const resultado = await excluirServico(cliente, ID_ESPECIAL);
+
+    expect(resultado).toBeUndefined();
+    expect(falso.requisicoes).toHaveLength(1);
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('DELETE');
+    expect(requisicao.url).toBe(
+      `${URL_BASE}/servicos/${ID_ESPECIAL_CODIFICADO}`,
+    );
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(requisicao.corpo).toBeUndefined();
+    expect(requisicao.cabecalhos).not.toHaveProperty('content-type');
+  });
+
+  it('404 sobe como ErroDaApi nao_encontrado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /servicos/s1', {
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+
+    await expect(
+      capturar(excluirServico(cliente, 's1')),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+  });
+
+  it('id ".." lança nao_encontrado sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(
+      capturar(excluirServico(cliente, '..')),
+    ).resolves.toMatchObject({ status: 404, codigo: 'nao_encontrado' });
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+});
+
 describe('listas "minhas"', () => {
   it('listarMeusTrampos faz GET /trampos/meus e devolve os trampos com status', async () => {
     const { cliente, falso } = montar();
@@ -563,6 +1044,22 @@ describe('listas "minhas"', () => {
     ]);
     expect(falso.ultima().metodo).toBe('GET');
     expect(falso.ultima().url).toBe(`${URL_BASE}/trampos/meus`);
+  });
+
+  it('a visão do autor traz versao, candidaturasRecebidas e o status encerrado (D33, D34)', async () => {
+    const { cliente, falso } = montar();
+    const trampo: Trampo = {
+      ...TRAMPO,
+      status: 'encerrado',
+      versao: 4,
+      candidaturasRecebidas: 2,
+    };
+    const servico: Servico = { ...SERVICO, versao: 3 };
+    falso.responder('GET /trampos/meus', { corpo: [trampo] });
+    falso.responder('GET /servicos/meus', { corpo: [servico] });
+
+    await expect(listarMeusTrampos(cliente)).resolves.toEqual([trampo]);
+    await expect(listarMeusServicos(cliente)).resolves.toEqual([servico]);
   });
 
   it('listarMinhasCandidaturas faz GET /candidaturas/minhas e devolve as candidaturas com trampoId', async () => {
@@ -625,6 +1122,18 @@ describe('autenticação (CA14)', () => {
     ['GET /candidaturas/minhas', (c) => listarMinhasCandidaturas(c)],
     ['POST /servicos', (c) => ofertarServico(c, ENTRADA_DO_SERVICO)],
     ['GET /servicos/meus', (c) => listarMeusServicos(c)],
+    [
+      'PUT /trampos/t1',
+      (c) => editarTrampo(c, 't1', { ...ENTRADA_DO_TRAMPO, versao: 1 }),
+    ],
+    ['POST /trampos/t1/encerrar', (c) => encerrarTrampo(c, 't1')],
+    ['DELETE /trampos/t1', (c) => excluirTrampo(c, 't1')],
+    ['DELETE /candidaturas/c1', (c) => retirarCandidatura(c, 'c1')],
+    [
+      'PUT /servicos/s1',
+      (c) => editarServico(c, 's1', { ...ENTRADA_DO_SERVICO, versao: 1 }),
+    ],
+    ['DELETE /servicos/s1', (c) => excluirServico(c, 's1')],
   ];
 
   it.each(CHAMADAS)('%s leva o Bearer', async (rota, chamar) => {

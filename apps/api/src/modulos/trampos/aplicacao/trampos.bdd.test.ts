@@ -7,7 +7,10 @@ import {
 import { RelogioFixo } from '../../../compartilhado/dominio/relogio.js';
 import { RepositorioDeTramposEmMemoria } from '../adaptadores/memoria/repositorio-memoria.js';
 import { VerificadorDePerfilEmMemoria } from '../adaptadores/memoria/verificador-perfil-memoria.js';
-import type { RepositorioDeTrampos } from '../dominio/portas.js';
+import type {
+  GravacaoSobTrava,
+  RepositorioDeTrampos,
+} from '../dominio/portas.js';
 import type { EntradaDeTrampo } from '../dominio/trampo.js';
 import {
   type CasosDeUsoDeTrampos,
@@ -65,12 +68,55 @@ async function publicar(
 function repositorioComoObjeto(): RepositorioDeTrampos {
   return {
     salvar: (t) => repositorio.salvar(t),
+    alterarSobTrava: (id, decidir) => repositorio.alterarSobTrava(id, decidir),
     buscarPorId: (id) => repositorio.buscarPorId(id),
+    trampoDaCandidatura: (id) => repositorio.trampoDaCandidatura(id),
     listarDoAutor: (a) => repositorio.listarDoAutor(a),
     buscar: (f) => repositorio.buscar(f),
     existeCandidaturaEntre: (a, b) => repositorio.existeCandidaturaEntre(a, b),
     listarCandidaturasDoFreelancer: (f) =>
       repositorio.listarCandidaturasDoFreelancer(f),
+  };
+}
+
+type Desfecho = { ok: true } | { ok: false; erro: unknown };
+
+/**
+ * Casos de uso cuja trava do trampo (`alterarSobTrava`) tem escritas
+ * concorrentes: `antes` grava por inteiro logo antes da trava (a ação do autor
+ * a vê); `durante` é disparada com a trava tomada e só lê o trampo depois que
+ * a ação do autor grava. `desfechoDeDurante` diz como ela terminou.
+ */
+function casosComConcorrencia(
+  antes: () => Promise<unknown>,
+  durante: () => Promise<unknown>,
+) {
+  let concorrente: Promise<Desfecho> | undefined;
+  const casosDaCorrida = criarCasosDeUsoDeTrampos({
+    repositorio: {
+      ...repositorioComoObjeto(),
+      alterarSobTrava: async (id, decidir) => {
+        await antes();
+        return repositorio.alterarSobTrava(id, (trampo) => {
+          concorrente = durante().then(
+            () => ({ ok: true as const }),
+            (erro: unknown) => ({ ok: false as const, erro }),
+          );
+          return decidir(trampo);
+        });
+      },
+    },
+    verificadorDePerfil: verificador,
+    relogio,
+  });
+  return {
+    casos: casosDaCorrida,
+    desfechoDeDurante: async () => {
+      if (!concorrente) {
+        throw new Error('a escrita concorrente não foi disparada');
+      }
+      return concorrente;
+    },
   };
 }
 
@@ -88,7 +134,7 @@ describe('CA4 — publicar trampo', () => {
     const resultado = await casos.publicarTrampo(EMPREGADOR, trampoValido);
 
     expect(resultado.status).toBe('aberto');
-    const detalhe = await casos.obterTrampo(resultado.id);
+    const detalhe = await casos.obterTrampo(resultado.id, ANA);
     expect(detalhe).toMatchObject({
       autorId: EMPREGADOR,
       titulo: 'Pintar a sala',
@@ -101,7 +147,7 @@ describe('CA4 — publicar trampo', () => {
 
   it('CA4 — Dado o limite de 5 caracteres no título e 1 centavo, quando publica, então o trampo é aceito', async () => {
     const id = await publicar({ titulo: 'Pinta', valorCentavos: 1 });
-    expect((await casos.obterTrampo(id)).titulo).toBe('Pinta');
+    expect((await casos.obterTrampo(id, ANA)).titulo).toBe('Pinta');
   });
 
   it('CA4 — Dado um autor, quando lista os seus trampos, então vê o publicado', async () => {
@@ -113,7 +159,7 @@ describe('CA4 — publicar trampo', () => {
   });
 
   it('CA4 — Dado um id inexistente, quando busca o detalhe, então recebe não encontrado', async () => {
-    expect(await rejeicao(casos.obterTrampo('nao-existe'))).toBeInstanceOf(
+    expect(await rejeicao(casos.obterTrampo('nao-existe', ANA))).toBeInstanceOf(
       ErroNaoEncontrado,
     );
   });
@@ -361,7 +407,7 @@ describe('CA10 — aceitar candidatura', () => {
 
     await casos.aceitarCandidatura(EMPREGADOR, id, bruno.id);
 
-    expect((await casos.obterTrampo(id)).status).toBe('em_andamento');
+    expect((await casos.obterTrampo(id, ANA)).status).toBe('em_andamento');
     const lista = await casos.listarCandidaturas(EMPREGADOR, id);
     const statusPorId = Object.fromEntries(lista.map((c) => [c.id, c.status]));
     expect(statusPorId).toEqual({
@@ -378,7 +424,7 @@ describe('CA10 — aceitar candidatura', () => {
     expect(
       await rejeicao(casos.aceitarCandidatura(ANA, id, ana.id)),
     ).toBeInstanceOf(ErroNaoEncontrado);
-    expect((await casos.obterTrampo(id)).status).toBe('aberto');
+    expect((await casos.obterTrampo(id, ANA)).status).toBe('aberto');
   });
 
   it('CA10 — Dado uma candidatura inexistente, quando o autor tenta aceitar, então recebe não encontrado', async () => {
@@ -491,7 +537,7 @@ describe('CA10 — aceitar candidatura', () => {
 
     await casosComCorrida.aceitarCandidatura(EMPREGADOR, id, ana.id);
 
-    expect((await casos.obterTrampo(id)).status).toBe('em_andamento');
+    expect((await casos.obterTrampo(id, ANA)).status).toBe('em_andamento');
     const lista = await casos.listarCandidaturas(EMPREGADOR, id);
     expect(
       Object.fromEntries(lista.map((c) => [c.freelancerId, c.status])),
@@ -519,6 +565,30 @@ describe('CA10 — aceitar candidatura', () => {
     );
 
     expect(erro).toEqual(new ErroDeRegra('conflito_de_versao'));
+    expect(gravacoes).toBe(TENTATIVAS_DE_GRAVACAO);
+  });
+
+  it('CA28 — Dado uma candidatura que perde a trava em todas as tentativas e, na última, para a exclusão do trampo, então recebe não encontrado, não conflito', async () => {
+    const id = await publicar();
+    let gravacoes = 0;
+    const casosQuePerdem = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async () => {
+          gravacoes += 1;
+          if (gravacoes === TENTATIVAS_DE_GRAVACAO) {
+            await casos.excluirTrampo(EMPREGADOR, id);
+          }
+          throw new ErroDeRegra('conflito_de_versao');
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    const erro = await rejeicao(casosQuePerdem.candidatar(ANA, id, proposta));
+
+    expect(erro).toBeInstanceOf(ErroNaoEncontrado);
     expect(gravacoes).toBe(TENTATIVAS_DE_GRAVACAO);
   });
 
@@ -710,6 +780,751 @@ describe('existeVinculoEntre (contrato com conversas)', () => {
     expect(await casos.existeVinculoEntre(EMPREGADOR, ANA)).toBe(false);
     expect(await casos.existeVinculoEntre(ANA, ANA)).toBe(false);
     expect(await casos.existeVinculoEntre(ANA, 'desconhecida')).toBe(false);
+  });
+});
+
+const edicao = {
+  titulo: 'Trocar o piso',
+  descricao: 'Piso da cozinha, 12 m².',
+  categoria: 'reformas',
+  cidade: 'Belo Horizonte',
+  valorCentavos: 90000,
+  prazo: '2026-12-01',
+};
+
+/** Código do erro de regra (ou o próprio erro, se não for de regra). */
+async function codigo(promessa: Promise<unknown>): Promise<unknown> {
+  const erro = await rejeicao(promessa);
+  return erro instanceof ErroDeRegra ? erro.codigo : erro;
+}
+
+describe('CA25 — editar trampo', () => {
+  it('CA25 — Dado o autor com a versão lida, quando edita, então os campos mudam, a busca acha o texto novo e criadoEm e a posição na busca não mudam', async () => {
+    const id = await publicar();
+    relogio.avancar(60_000);
+    const depois = await publicar({ titulo: 'Outro trampo' }, ANA);
+    const { versao } = await casos.obterTrampo(id, EMPREGADOR);
+
+    relogio.avancar(60_000);
+    await casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao });
+
+    const detalhe = await casos.obterTrampo(id, EMPREGADOR);
+    expect(detalhe).toMatchObject({
+      ...edicao,
+      autorId: EMPREGADOR,
+      status: 'aberto',
+      criadoEm: new Date('2026-10-20T12:00:00.000Z'),
+      versao: 2,
+      candidaturasRecebidas: 0,
+    });
+    expect(
+      (await casos.buscarTrampos({ texto: 'cozinha' })).map((t) => t.id),
+    ).toEqual([id]);
+    expect(
+      (await casos.buscarTrampos({ texto: 'pintar' })).map((t) => t.id),
+    ).toEqual([]);
+    expect(
+      (await casos.buscarTrampos({ cidade: 'belo horizonte' })).map(
+        (t) => t.id,
+      ),
+    ).toEqual([id]);
+    expect((await casos.buscarTrampos({})).map((t) => t.id)).toEqual([
+      depois,
+      id,
+    ]);
+  });
+
+  it('CA25 — Dado um prazo ausente na edição, quando o autor edita, então o trampo fica sem prazo', async () => {
+    const id = await publicar({ prazo: '2026-12-31' });
+    const { prazo: _prazo, ...semPrazo } = edicao;
+
+    await casos.editarTrampo(EMPREGADOR, id, { ...semPrazo, versao: 1 });
+
+    expect((await casos.obterTrampo(id, EMPREGADOR)).prazo).toBeNull();
+  });
+
+  it('CA25 — Dado um terceiro ou o candidato, quando tenta editar, então recebe não encontrado e nada muda', async () => {
+    const id = await publicar();
+    const outro = await publicar({}, ANA);
+    await casos.candidatar(BRUNO, outro, proposta);
+    const antes = await casos.obterTrampo(id, EMPREGADOR);
+
+    for (const quem of [ANA, CARLA]) {
+      expect(
+        await rejeicao(casos.editarTrampo(quem, id, { ...edicao, versao: 1 })),
+      ).toBeInstanceOf(ErroNaoEncontrado);
+    }
+    expect(
+      await rejeicao(
+        casos.editarTrampo(BRUNO, outro, { ...edicao, versao: 2 }),
+      ),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+  });
+
+  it('CA25 — Dado um trampo inexistente ou id fora do formato, quando edita, então recebe não encontrado', async () => {
+    for (const id of ['nao-existe', '00000000-0000-4000-8000-000000000000']) {
+      expect(
+        await rejeicao(
+          casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 }),
+        ),
+      ).toBeInstanceOf(ErroNaoEncontrado);
+    }
+  });
+
+  it('CA25 — Dado um trampo com candidatura, em andamento ou encerrado, quando o autor edita, então recebe trampo_nao_editavel e nada muda', async () => {
+    const comCandidatura = await publicar();
+    await casos.candidatar(ANA, comCandidatura, proposta);
+    const emAndamento = await publicar();
+    const ana = await casos.candidatar(ANA, emAndamento, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, emAndamento, ana.id);
+    const encerrado = await publicar();
+    await casos.encerrarTrampo(EMPREGADOR, encerrado);
+
+    for (const id of [comCandidatura, emAndamento, encerrado]) {
+      const antes = await casos.obterTrampo(id, EMPREGADOR);
+      expect(
+        await codigo(
+          casos.editarTrampo(EMPREGADOR, id, {
+            ...edicao,
+            versao: antes.versao,
+          }),
+        ),
+      ).toBe('trampo_nao_editavel');
+      expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+    }
+  });
+
+  it('CA25 — Dado uma versão velha, quando o autor edita, então recebe conflito_de_versao e nada muda', async () => {
+    const id = await publicar();
+    await casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 });
+    const antes = await casos.obterTrampo(id, EMPREGADOR);
+
+    expect(
+      await codigo(
+        casos.editarTrampo(EMPREGADOR, id, { ...trampoValido, versao: 1 }),
+      ),
+    ).toBe('conflito_de_versao');
+    expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+  });
+
+  it('CA25 — ordem: versão ausente ou inválida (400) antes do 404; 404 antes da regra; regra antes da versão; versão antes dos campos', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    const semCandidatura = await publicar();
+
+    for (const versao of [undefined, null]) {
+      expect(
+        await rejeicao(casos.editarTrampo(CARLA, 'nao-existe', { versao })),
+      ).toEqual(ErroDeValidacao.doCampo('versao', 'obrigatorio'));
+    }
+    for (const versao of [0, -1, 1.5, '1']) {
+      expect(
+        await rejeicao(casos.editarTrampo(CARLA, 'nao-existe', { versao })),
+      ).toEqual(ErroDeValidacao.doCampo('versao', 'invalido'));
+    }
+    expect(
+      await rejeicao(casos.editarTrampo(CARLA, id, { versao: 99 })),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(
+      await codigo(casos.editarTrampo(EMPREGADOR, id, { versao: 99 })),
+    ).toBe('trampo_nao_editavel');
+    expect(
+      await codigo(
+        casos.editarTrampo(EMPREGADOR, semCandidatura, { versao: 99 }),
+      ),
+    ).toBe('conflito_de_versao');
+    const erro = await rejeicao(
+      casos.editarTrampo(EMPREGADOR, semCandidatura, {
+        titulo: 'abc',
+        versao: 1,
+      }),
+    );
+    expect(erro).toBeInstanceOf(ErroDeValidacao);
+    expect((erro as ErroDeValidacao).campos).toContainEqual({
+      campo: 'titulo',
+      motivo: 'tamanho',
+    });
+  });
+
+  it('CA25 — Dado campos inválidos (CA5), quando o autor edita, então todos são apontados e nada muda', async () => {
+    const id = await publicar();
+    const antes = await casos.obterTrampo(id, EMPREGADOR);
+
+    const erro = await rejeicao(
+      casos.editarTrampo(EMPREGADOR, id, {
+        titulo: 'abc',
+        descricao: '',
+        categoria: 'magia',
+        cidade: null,
+        valorCentavos: 0,
+        prazo: '2026-02-30',
+        versao: 1,
+      }),
+    );
+
+    expect((erro as ErroDeValidacao).campos).toEqual([
+      { campo: 'titulo', motivo: 'tamanho' },
+      { campo: 'descricao', motivo: 'obrigatorio' },
+      { campo: 'categoria', motivo: 'invalido' },
+      { campo: 'cidade', motivo: 'obrigatorio' },
+      { campo: 'valorCentavos', motivo: 'invalido' },
+      { campo: 'prazo', motivo: 'invalido' },
+    ]);
+    expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+  });
+
+  it('CA25 — Dado uma candidatura gravada entre a leitura e a gravação da edição, quando a edição perde a trava, então relê e recebe trampo_nao_editavel', async () => {
+    const id = await publicar();
+    let intrometeu = false;
+    const casosComCorrida = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async (trampo) => {
+          if (!intrometeu) {
+            intrometeu = true;
+            await casos.candidatar(ANA, id, proposta);
+          }
+          return repositorio.salvar(trampo);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    expect(
+      await codigo(
+        casosComCorrida.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 }),
+      ),
+    ).toBe('trampo_nao_editavel');
+    expect((await casos.obterTrampo(id, EMPREGADOR)).titulo).toBe(
+      trampoValido.titulo,
+    );
+  });
+
+  it('CA25 — Dado duas edições com a mesma versão (dois aparelhos), quando gravam, então uma vence e a outra recebe conflito_de_versao', async () => {
+    const id = await publicar();
+
+    const resultados = await Promise.allSettled([
+      casos.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 }),
+      casos.editarTrampo(EMPREGADOR, id, {
+        ...edicao,
+        titulo: 'Outro título',
+        versao: 1,
+      }),
+    ]);
+
+    expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const perdedor = resultados.find((r) => r.status === 'rejected');
+    expect((perdedor as PromiseRejectedResult).reason).toEqual(
+      new ErroDeRegra('conflito_de_versao'),
+    );
+    expect((await casos.obterTrampo(id, EMPREGADOR)).versao).toBe(2);
+  });
+
+  it('CA25 — Dado o trampo excluído entre a leitura e a gravação da edição, quando a edição perde a trava, então recebe não encontrado', async () => {
+    const id = await publicar();
+    const casosComCorrida = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async (trampo) => {
+          await casos.excluirTrampo(EMPREGADOR, id);
+          return repositorio.salvar(trampo);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    expect(
+      await rejeicao(
+        casosComCorrida.editarTrampo(EMPREGADOR, id, { ...edicao, versao: 1 }),
+      ),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+  });
+});
+
+describe('CA27 — encerrar trampo', () => {
+  it('CA27 — Dado um trampo aberto com pendentes, quando o autor encerra, então fica encerrado, as pendentes viram recusadas e ele sai da busca', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect((await casos.obterTrampo(id, CARLA)).status).toBe('encerrado');
+    expect(
+      (await casos.listarCandidaturas(EMPREGADOR, id)).map((c) => c.status),
+    ).toEqual(['recusada', 'recusada']);
+    expect(
+      (await casos.listarMinhasCandidaturas(ANA)).map((c) => c.status),
+    ).toEqual(['recusada']);
+    expect(await casos.buscarTrampos({})).toEqual([]);
+    // Continua em Meus anúncios (D34) e o vínculo das conversas fica.
+    expect(
+      (await casos.listarMeusTrampos(EMPREGADOR)).map((t) => t.status),
+    ).toEqual(['encerrado']);
+    expect(await casos.existeVinculoEntre(EMPREGADOR, ANA)).toBe(true);
+  });
+
+  it('CA27 — Dado um trampo encerrado, quando um freelancer se candidata ou o autor aceita, então recebe trampo_nao_aberto', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await codigo(casos.candidatar(CARLA, id, proposta))).toBe(
+      'trampo_nao_aberto',
+    );
+    expect(await codigo(casos.aceitarCandidatura(EMPREGADOR, id, ana.id))).toBe(
+      'trampo_nao_aberto',
+    );
+    expect(await casos.listarCandidaturas(EMPREGADOR, id)).toHaveLength(1);
+  });
+
+  it('CA27 e D25 — Dado um trampo em andamento, quando o autor encerra, então fica encerrado e a aceita continua aceita', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe('encerrado');
+    const lista = await casos.listarCandidaturas(EMPREGADOR, id);
+    expect(
+      Object.fromEntries(lista.map((c) => [c.freelancerId, c.status])),
+    ).toEqual({ [ANA]: 'aceita', [BRUNO]: 'recusada' });
+  });
+
+  it('CA27 — Dado um trampo já encerrado, quando o autor encerra de novo, então resolve sem gravar nada', async () => {
+    const id = await publicar();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+    const antes = await casos.obterTrampo(id, EMPREGADOR);
+    let gravacoes = 0;
+    const decisoes: GravacaoSobTrava[] = [];
+    const casosContando = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async (trampo) => {
+          gravacoes += 1;
+          return repositorio.salvar(trampo);
+        },
+        alterarSobTrava: (trampoId, decidir) =>
+          repositorio.alterarSobTrava(trampoId, (trampo) => {
+            const decisao = decidir(trampo);
+            decisoes.push(decisao);
+            return decisao;
+          }),
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    await casosContando.encerrarTrampo(EMPREGADOR, id);
+
+    expect(gravacoes).toBe(0);
+    expect(decisoes).toEqual(['nada']);
+    expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+  });
+
+  it('CA27 — Dado um terceiro ou o candidato, quando tenta encerrar, então recebe não encontrado e nada muda', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+
+    for (const quem of [ANA, CARLA]) {
+      expect(await rejeicao(casos.encerrarTrampo(quem, id))).toBeInstanceOf(
+        ErroNaoEncontrado,
+      );
+    }
+    expect(
+      await rejeicao(casos.encerrarTrampo(EMPREGADOR, 'nao-existe')),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe('aberto');
+    expect((await casos.listarCandidaturas(EMPREGADOR, id))[0]?.status).toBe(
+      'pendente',
+    );
+  });
+
+  it('CA27 — Dado uma candidatura gravada logo antes da trava e outra que chega com a trava tomada, quando o autor encerra, então a primeira é recusada junto e a segunda recebe trampo_nao_aberto', async () => {
+    const id = await publicar();
+    const corrida = casosComConcorrencia(
+      () => casos.candidatar(ANA, id, proposta),
+      () => casos.candidatar(BRUNO, id, proposta),
+    );
+
+    await corrida.casos.encerrarTrampo(EMPREGADOR, id);
+
+    const durante = await corrida.desfechoDeDurante();
+    expect(durante.ok === false && durante.erro).toEqual(
+      new ErroDeRegra('trampo_nao_aberto'),
+    );
+    expect(
+      (await casos.listarCandidaturas(EMPREGADOR, id)).map((c) => [
+        c.freelancerId,
+        c.status,
+      ]),
+    ).toEqual([[ANA, 'recusada']]);
+  });
+});
+
+describe('CA28 — excluir trampo', () => {
+  it('CA28 — Dado um trampo aberto com candidaturas, quando o autor exclui, então o trampo e as candidaturas somem e o detalhe dá não encontrado', async () => {
+    const id = await publicar();
+    const outro = await publicar({ titulo: 'Outro trampo' });
+    await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(ANA, outro, proposta);
+
+    await casos.excluirTrampo(EMPREGADOR, id);
+
+    for (const quem of [EMPREGADOR, ANA, CARLA]) {
+      expect(await rejeicao(casos.obterTrampo(id, quem))).toBeInstanceOf(
+        ErroNaoEncontrado,
+      );
+    }
+    expect(
+      (await casos.listarMinhasCandidaturas(ANA)).map((c) => c.trampoId),
+    ).toEqual([outro]);
+    expect(
+      (await casos.listarMeusTrampos(EMPREGADOR)).map((t) => t.id),
+    ).toEqual([outro]);
+    expect((await casos.buscarTrampos({})).map((t) => t.id)).toEqual([outro]);
+    expect(
+      await rejeicao(casos.candidatar(BRUNO, id, proposta)),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+  });
+
+  it('CA28 — Dado um trampo em andamento ou encerrado, quando o autor exclui, então recebe trampo_nao_aberto e nada muda', async () => {
+    const emAndamento = await publicar();
+    const ana = await casos.candidatar(ANA, emAndamento, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, emAndamento, ana.id);
+    const encerrado = await publicar();
+    await casos.encerrarTrampo(EMPREGADOR, encerrado);
+
+    for (const id of [emAndamento, encerrado]) {
+      const antes = await casos.obterTrampo(id, EMPREGADOR);
+      expect(await codigo(casos.excluirTrampo(EMPREGADOR, id))).toBe(
+        'trampo_nao_aberto',
+      );
+      expect(await casos.obterTrampo(id, EMPREGADOR)).toEqual(antes);
+    }
+  });
+
+  it('CA28 — Dado um terceiro ou o candidato, quando tenta excluir, então recebe não encontrado e nada muda', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+
+    for (const quem of [ANA, CARLA]) {
+      expect(await rejeicao(casos.excluirTrampo(quem, id))).toBeInstanceOf(
+        ErroNaoEncontrado,
+      );
+    }
+    expect(
+      await rejeicao(casos.excluirTrampo(EMPREGADOR, 'nao-existe')),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await casos.listarCandidaturas(EMPREGADOR, id)).toHaveLength(1);
+  });
+
+  it('CA28 — Dado uma candidatura gravada logo antes da trava e outra que chega com a trava tomada, quando o autor exclui, então a primeira é apagada junto e a segunda recebe não encontrado', async () => {
+    const id = await publicar();
+    let candidaturaId = '';
+    const corrida = casosComConcorrencia(
+      async () => {
+        candidaturaId = (await casos.candidatar(ANA, id, proposta)).id;
+      },
+      () => casos.candidatar(BRUNO, id, proposta),
+    );
+
+    await corrida.casos.excluirTrampo(EMPREGADOR, id);
+
+    expect(candidaturaId).not.toBe('');
+    const durante = await corrida.desfechoDeDurante();
+    expect(durante.ok === false && durante.erro).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect(await repositorio.buscarPorId(id)).toBeNull();
+    expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
+    expect(await casos.listarMinhasCandidaturas(BRUNO)).toEqual([]);
+  });
+
+  it('CA28 — Dado um aceite gravado logo antes da trava, quando o autor exclui, então recebe trampo_nao_aberto e o trampo fica', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const corrida = casosComConcorrencia(
+      () => casos.aceitarCandidatura(EMPREGADOR, id, ana.id),
+      async () => undefined,
+    );
+
+    expect(await codigo(corrida.casos.excluirTrampo(EMPREGADOR, id))).toBe(
+      'trampo_nao_aberto',
+    );
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe(
+      'em_andamento',
+    );
+  });
+
+  it('CA28 — Dado um aceite que chega com a trava da exclusão tomada, então o aceite recebe não encontrado e o trampo some', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const corrida = casosComConcorrencia(
+      async () => undefined,
+      () => casos.aceitarCandidatura(EMPREGADOR, id, ana.id),
+    );
+
+    await corrida.casos.excluirTrampo(EMPREGADOR, id);
+
+    const durante = await corrida.desfechoDeDurante();
+    expect(durante.ok === false && durante.erro).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect(await repositorio.buscarPorId(id)).toBeNull();
+  });
+
+  it('CA28 — Dado duas exclusões ao mesmo tempo (toque duplo), quando gravam, então uma apaga e a outra, ao reler, recebe não encontrado', async () => {
+    const id = await publicar();
+
+    const resultados = await Promise.allSettled([
+      casos.excluirTrampo(EMPREGADOR, id),
+      casos.excluirTrampo(EMPREGADOR, id),
+    ]);
+
+    expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const perdedor = resultados.find((r) => r.status === 'rejected');
+    expect((perdedor as PromiseRejectedResult).reason).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+  });
+});
+
+describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', () => {
+  /**
+   * Casos de uso do autor em que cada leitura do trampo, e também a entrada
+   * na trava, é seguida de uma candidatura nova gravada por inteiro: quem relê
+   * e grava com trava otimista perderia todas as rodadas.
+   */
+  function casosSobRajada() {
+    const freelancers = Array.from(
+      { length: TENTATIVAS_DE_GRAVACAO * 3 },
+      (_, i) => `conta-rajada-${i}`,
+    );
+    const casosDaRajada = criarCasosDeUsoDeTrampos({
+      repositorio,
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(freelancers),
+      relogio,
+    });
+    let gravadas = 0;
+    async function proximaCandidatura(trampoId: string): Promise<void> {
+      const freelancer = freelancers[gravadas];
+      if (freelancer !== undefined) {
+        gravadas += 1;
+        await casosDaRajada.candidatar(freelancer, trampoId, proposta);
+      }
+    }
+    const casosDoAutor = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        buscarPorId: async (trampoId) => {
+          const lido = await repositorio.buscarPorId(trampoId);
+          if (lido) {
+            await proximaCandidatura(trampoId);
+          }
+          return lido;
+        },
+        alterarSobTrava: async (trampoId, decidir) => {
+          await proximaCandidatura(trampoId);
+          return repositorio.alterarSobTrava(trampoId, decidir);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+    return { casos: casosDoAutor, gravadas: () => gravadas };
+  }
+
+  it('S1 — Dado candidaturas chegando sem parar, quando o autor encerra, então termina sem conflito_de_versao e nenhuma fica pendente', async () => {
+    const id = await publicar();
+    const rajada = casosSobRajada();
+
+    await rajada.casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(rajada.gravadas()).toBeGreaterThan(0);
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe('encerrado');
+    const lista = await casos.listarCandidaturas(EMPREGADOR, id);
+    expect(lista).toHaveLength(rajada.gravadas());
+    expect(lista.every((c) => c.status === 'recusada')).toBe(true);
+  });
+
+  it('S1 — Dado candidaturas chegando sem parar, quando o autor exclui, então termina sem conflito_de_versao e nenhuma sobra', async () => {
+    const id = await publicar();
+    const rajada = casosSobRajada();
+
+    await rajada.casos.excluirTrampo(EMPREGADOR, id);
+
+    expect(rajada.gravadas()).toBeGreaterThan(0);
+    expect(await repositorio.buscarPorId(id)).toBeNull();
+    expect(await casos.listarMinhasCandidaturas('conta-rajada-0')).toEqual([]);
+  });
+});
+
+describe('CA29 — retirar candidatura', () => {
+  it('CA29 — Dado uma candidatura pendente, quando o freelancer retira, então ela some e ele pode se candidatar de novo', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+
+    await casos.retirarCandidatura(ANA, ana.id);
+
+    expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
+    expect(
+      (await casos.listarCandidaturas(EMPREGADOR, id)).map(
+        (c) => c.freelancerId,
+      ),
+    ).toEqual([BRUNO]);
+    const deNovo = await casos.candidatar(ANA, id, proposta);
+    expect(deNovo.id).not.toBe(ana.id);
+    expect(
+      (await casos.listarMinhasCandidaturas(ANA)).map((c) => c.id),
+    ).toEqual([deNovo.id]);
+  });
+
+  it('CA29 — Dado uma candidatura aceita ou recusada, quando o freelancer retira, então recebe candidatura_nao_pendente e nada muda', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const bruno = await casos.candidatar(BRUNO, id, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+    const antes = await casos.listarCandidaturas(EMPREGADOR, id);
+
+    expect(await codigo(casos.retirarCandidatura(ANA, ana.id))).toBe(
+      'candidatura_nao_pendente',
+    );
+    expect(await codigo(casos.retirarCandidatura(BRUNO, bruno.id))).toBe(
+      'candidatura_nao_pendente',
+    );
+    expect(await casos.listarCandidaturas(EMPREGADOR, id)).toEqual(antes);
+  });
+
+  it('CA29 — Dado a candidatura de outra conta, quando o autor do trampo ou um terceiro tenta retirar, então recebe não encontrado (mesmo se ela não estiver pendente)', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const outro = await publicar();
+    const anaNoOutro = await casos.candidatar(ANA, outro, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, outro, anaNoOutro.id);
+
+    for (const quem of [EMPREGADOR, CARLA]) {
+      expect(
+        await rejeicao(casos.retirarCandidatura(quem, ana.id)),
+      ).toBeInstanceOf(ErroNaoEncontrado);
+      expect(
+        await rejeicao(casos.retirarCandidatura(quem, anaNoOutro.id)),
+      ).toBeInstanceOf(ErroNaoEncontrado);
+    }
+    expect(
+      await rejeicao(casos.retirarCandidatura(ANA, 'nao-existe')),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await casos.listarMinhasCandidaturas(ANA)).toHaveLength(2);
+  });
+
+  it('CA29 — Dado o id em maiúsculas, quando o freelancer retira, então acha a candidatura', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+
+    await casos.retirarCandidatura(ANA, ana.id.toUpperCase());
+
+    expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
+  });
+
+  it('CA29 — Dado um aceite gravado entre a leitura e a retirada, quando a retirada perde a trava, então relê e recebe candidatura_nao_pendente', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    let intrometeu = false;
+    const casosComCorrida = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async (trampo) => {
+          if (!intrometeu) {
+            intrometeu = true;
+            await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+          }
+          return repositorio.salvar(trampo);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    expect(await codigo(casosComCorrida.retirarCandidatura(ANA, ana.id))).toBe(
+      'candidatura_nao_pendente',
+    );
+    expect((await casos.listarCandidaturas(EMPREGADOR, id))[0]?.status).toBe(
+      'aceita',
+    );
+  });
+
+  it('CA29 — Dado uma retirada gravada entre a leitura e o aceite de outra candidatura, quando o aceite perde a trava, então relê e a retirada não volta', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const bruno = await casos.candidatar(BRUNO, id, proposta);
+    let intrometeu = false;
+    const casosComCorrida = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        salvar: async (trampo) => {
+          if (!intrometeu) {
+            intrometeu = true;
+            await casos.retirarCandidatura(BRUNO, bruno.id);
+          }
+          return repositorio.salvar(trampo);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    await casosComCorrida.aceitarCandidatura(EMPREGADOR, id, ana.id);
+
+    expect(await casos.listarCandidaturas(EMPREGADOR, id)).toEqual([
+      expect.objectContaining({ freelancerId: ANA, status: 'aceita' }),
+    ]);
+    expect(await casos.listarMinhasCandidaturas(BRUNO)).toEqual([]);
+  });
+});
+
+describe('CA31 — visão do autor', () => {
+  it('CA31 — Dado o autor, quando lê o detalhe ou Meus anúncios, então vê versao e candidaturasRecebidas; terceiro e candidato veem o corpo de antes', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+
+    const doAutor = await casos.obterTrampo(id, EMPREGADOR);
+    expect(doAutor).toMatchObject({ versao: 3, candidaturasRecebidas: 2 });
+    expect((await casos.listarMeusTrampos(EMPREGADOR))[0]).toEqual(doAutor);
+
+    for (const quem of [ANA, CARLA]) {
+      const visao = await casos.obterTrampo(id, quem);
+      expect(visao).not.toHaveProperty('versao');
+      expect(visao).not.toHaveProperty('candidaturasRecebidas');
+      const { versao: _v, candidaturasRecebidas: _c, ...resumo } = doAutor;
+      expect(visao).toEqual(resumo);
+    }
+  });
+
+  it('CA31 — Dado candidaturas em vários estados, quando o autor lista os seus, então a contagem soma todas', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+    relogio.avancar(1000);
+    const vazio = await publicar();
+
+    expect(
+      (await casos.listarMeusTrampos(EMPREGADOR)).map((t) => [
+        t.id,
+        t.candidaturasRecebidas,
+        t.versao,
+      ]),
+    ).toEqual([
+      [vazio, 0, 1],
+      [id, 2, 4],
+    ]);
   });
 });
 

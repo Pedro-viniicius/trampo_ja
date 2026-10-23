@@ -111,6 +111,64 @@ describe('criarCliente: cabeçalhos e corpo', () => {
     expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
   });
 
+  it('o token da requisição tem prioridade sobre obterToken (S6)', async () => {
+    const falso = criarFetchFalso().responder('DELETE /sessoes', {
+      status: 204,
+    });
+    const obterToken = jest.fn(async () => 'token-da-porta');
+    const cliente = criarCliente({
+      fetch: falso.fetch,
+      urlBase: URL_BASE,
+      obterToken,
+      aoExpirar: jest.fn(),
+    });
+
+    await cliente.delete('/sessoes', { token: TOKEN });
+
+    expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(obterToken).not.toHaveBeenCalled();
+  });
+
+  it('com a porta já vazia, o token da requisição ainda vai no cabeçalho', async () => {
+    const { cliente, falso } = montar({ token: null });
+    falso.responder('DELETE /sessoes', { status: 204 });
+
+    await cliente.delete('/sessoes', { token: TOKEN });
+
+    expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('token da requisição vazio vai sem Authorization e sem ler a porta', async () => {
+    const falso = criarFetchFalso().responder('DELETE /sessoes', {
+      status: 204,
+    });
+    const obterToken = jest.fn(async () => TOKEN);
+    const cliente = criarCliente({
+      fetch: falso.fetch,
+      urlBase: URL_BASE,
+      obterToken,
+      aoExpirar: jest.fn(),
+    });
+
+    await cliente.delete('/sessoes', { token: '' });
+
+    expect(falso.ultima().cabecalhos).not.toHaveProperty('authorization');
+    expect(obterToken).not.toHaveBeenCalled();
+  });
+
+  it('com autenticar: false, nem o token da requisição vai', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('POST /sessoes', { corpo: { token: 'novo' } });
+
+    await cliente.post(
+      '/sessoes',
+      { email: EMAIL },
+      { autenticar: false, token: TOKEN },
+    );
+
+    expect(falso.ultima().cabecalhos).not.toHaveProperty('authorization');
+  });
+
   it('manda o corpo como JSON e Content-Type só quando há corpo', async () => {
     const { cliente, falso } = montar();
     falso
@@ -235,6 +293,28 @@ describe('criarCliente: 401 e sessão expirada (CA14)', () => {
     await capturar(cliente.get('/perfis/eu'));
 
     expect(aoExpirar).toHaveBeenCalledWith('token-antigo');
+  });
+
+  it('401 de requisição com o token da requisição chama aoExpirar com ele (S6)', async () => {
+    const falso = criarFetchFalso().responder('GET /perfis/eu', {
+      status: 401,
+    });
+    const aoExpirar = jest.fn();
+    const cliente = criarCliente({
+      fetch: falso.fetch,
+      urlBase: URL_BASE,
+      obterToken: async () => 'token-da-porta',
+      aoExpirar,
+    });
+
+    const erro = await capturar(
+      cliente.get('/perfis/eu', { token: 'token-capturado' }),
+    );
+
+    expect(aoExpirar).toHaveBeenCalledTimes(1);
+    expect(aoExpirar).toHaveBeenCalledWith('token-capturado');
+    expect(erro).toMatchObject({ status: 401, codigo: 'sessao_expirada' });
+    expect(tudoQueOErroMostra(erro)).not.toContain('token-capturado');
   });
 
   it('401 do login (POST /sessoes) não chama aoExpirar e vira credenciais_invalidas', async () => {

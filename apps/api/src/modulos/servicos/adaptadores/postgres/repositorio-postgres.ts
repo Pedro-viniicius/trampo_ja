@@ -17,6 +17,13 @@ function ehUuid(valor: string): boolean {
 }
 
 /**
+ * Folga por linha em `medirExportacao`: cobre os ids, as datas, os números,
+ * os nomes das chaves e a pontuação do JSON, que não entram na soma dos
+ * textos (contrato da L3, CA48).
+ */
+const BYTES_POR_LINHA_NA_MEDIDA = 256;
+
+/**
  * Escapa os curingas do `LIKE` (`%` e `_`) e o próprio caractere de escape
  * (`\`), para que o texto buscado case só literalmente.
  */
@@ -37,6 +44,7 @@ function paraLinha(servico: Servico): TabelaServicos {
     preco_base_centavos: servico.precoBaseCentavos,
     status: servico.status,
     criado_em: servico.criadoEm,
+    versao: servico.versao,
   };
 }
 
@@ -55,6 +63,7 @@ function paraServico(linha: Selectable<TabelaServicos>): Servico {
     precoBaseCentavos: linha.preco_base_centavos,
     status: linha.status,
     criadoEm: linha.criado_em,
+    versao: linha.versao,
   };
 }
 
@@ -68,6 +77,49 @@ export class RepositorioDeServicosPostgres implements RepositorioDeServicos {
 
   async salvar(servico: Servico): Promise<void> {
     await this.#db.insertInto('servicos').values(paraLinha(servico)).execute();
+  }
+
+  /**
+   * CA26 e ADR-006: um só `UPDATE … WHERE id, autor_id e versao = lida`. Em
+   * duas edições simultâneas com a mesma versão, a segunda espera a trava da
+   * linha, relê a versão já incrementada e não afeta nada. Regrava a cidade
+   * normalizada e o texto de busca, como na criação; status e `criado_em`
+   * ficam como estão.
+   */
+  async atualizar(servico: Servico): Promise<boolean> {
+    if (!ehUuid(servico.id) || !ehUuid(servico.autorId)) {
+      return false;
+    }
+    const linha = paraLinha(servico);
+    const resultado = await this.#db
+      .updateTable('servicos')
+      .set({
+        titulo: linha.titulo,
+        descricao: linha.descricao,
+        categoria: linha.categoria,
+        cidade: linha.cidade,
+        cidade_normalizada: linha.cidade_normalizada,
+        texto_busca: linha.texto_busca,
+        preco_base_centavos: linha.preco_base_centavos,
+        versao: linha.versao,
+      })
+      .where('id', '=', servico.id)
+      .where('autor_id', '=', servico.autorId)
+      .where('versao', '=', servico.versao - 1)
+      .executeTakeFirst();
+    return resultado.numUpdatedRows > 0n;
+  }
+
+  async excluir(id: string, autorId: string): Promise<boolean> {
+    if (!ehUuid(id) || !ehUuid(autorId)) {
+      return false;
+    }
+    const resultado = await this.#db
+      .deleteFrom('servicos')
+      .where('id', '=', id)
+      .where('autor_id', '=', autorId)
+      .executeTakeFirst();
+    return resultado.numDeletedRows > 0n;
   }
 
   async buscarPorId(id: string): Promise<Servico | null> {
@@ -147,7 +199,9 @@ export class RepositorioDeServicosPostgres implements RepositorioDeServicos {
  * Serviço como sai na exportação da conta (D26, ADR-005). Mesmo formato de
  * `ServicoExportado` do módulo `contas`, declarado aqui para não acoplar os
  * módulos. Ficam de fora as colunas derivadas (`cidade_normalizada`,
- * `texto_busca`) e o `autor_id` (é a própria conta).
+ * `texto_busca`), o `autor_id` (é a própria conta) e a `versao` (contador da
+ * trava, não é dado da pessoa; o `trampo-ja.exportacao.v1` não a tem, como
+ * em `trampos`). Serviço editado sai com os textos atuais.
  */
 export interface ServicoExportado {
   readonly id: string;
@@ -223,4 +277,37 @@ export async function exportarDadosDaConta(
       criadoEm: linha.criado_em.toISOString(),
     })),
   };
+}
+
+/**
+ * Tamanho estimado, em bytes, da parte de `servicos` na exportação (CA48):
+ * soma de `octet_length` dos textos que `exportarDadosDaConta` devolve
+ * (`titulo`, `descricao`, `cidade`, `categoria` e `status`) mais
+ * `BYTES_POR_LINHA_NA_MEDIDA` por serviço, calculada no banco sem carregar
+ * os textos. Mede só os serviços de que a conta é autora. Id fora do
+ * formato: 0, sem consultar.
+ */
+export async function medirExportacao(
+  db: Kysely<TabelasDeServicos>,
+  contaId: string,
+): Promise<number> {
+  if (!ehUuid(contaId)) {
+    return 0;
+  }
+  const { bytes } = await db
+    .selectFrom('servicos')
+    .select(
+      // `sum` de inteiros é `bigint`, que o `pg` devolve como texto.
+      sql<string>`coalesce(sum(
+        octet_length(titulo)
+        + octet_length(descricao)
+        + coalesce(octet_length(cidade), 0)
+        + octet_length(categoria)
+        + octet_length(status)
+        + ${sql.lit(BYTES_POR_LINHA_NA_MEDIDA)}
+      ), 0)`.as('bytes'),
+    )
+    .where('autor_id', '=', contaId)
+    .executeTakeFirstOrThrow();
+  return Number(bytes);
 }

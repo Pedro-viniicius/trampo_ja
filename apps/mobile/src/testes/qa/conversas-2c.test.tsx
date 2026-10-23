@@ -647,10 +647,8 @@ describe('polling da conversa (CA12, D20)', () => {
         { autor: FREELA, texto: textoDe(2) },
       ],
     });
-    const { fetch, armazenamento, queryClient } = await abrirConversaComo(
-      FREELA,
-      mundo,
-    );
+    const { fetch, armazenamento, queryClient, getPathname } =
+      await abrirConversaComo(FREELA, mundo);
     await screen.findByLabelText(new RegExp(`${textoDe(2)}$`));
 
     mundo.falhaDoGet = { status: 401, corpo: { erro: 'sessao_invalida' } };
@@ -671,16 +669,16 @@ describe('polling da conversa (CA12, D20)', () => {
     await avancar(120_000);
     expect(GETS_DAS_MENSAGENS(fetch)).toHaveLength(depois);
 
-    // Uma terceira conta entra e cai de volta na rota anterior: 404, sem nada da conversa.
+    // Uma terceira conta entra: a rota anterior era de outra conta, então ela
+    // cai no Início (CA50), sem nada da conversa.
     mundo.falhaDoGet = null;
-    await entrarComo(ESTRANHO, { esperar: false });
-    expect(
-      await screen.findByText(textos.conversas.indisponivelTitulo),
-    ).toBeOnTheScreen();
+    await entrarComo(ESTRANHO);
+    expect(getPathname()).toBe('/');
     expect(screen.queryAllByLabelText(/TEXTO-SENTINELA-/)).toHaveLength(0);
+    // O Início cumprimenta a conta nova pelo nome; nenhum outro sentinela.
     expect(
       textosEPropriedades(screen.toJSON()).some((t) =>
-        t.includes('SENTINELA-'),
+        t.replaceAll(ESTRANHO.nome, '').includes('SENTINELA-'),
       ),
     ).toBe(false);
   });

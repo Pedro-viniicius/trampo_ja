@@ -23,6 +23,7 @@ export const TABELAS = [
   'trampos',
   'servicos',
   'perfis',
+  'tentativas_de_entrada',
   'sessoes',
   'contas',
 ];

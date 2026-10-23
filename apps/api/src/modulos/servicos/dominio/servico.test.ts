@@ -7,6 +7,7 @@ import {
   type ContextoDeCriacao,
   criarServico,
   type EntradaDeServico,
+  editarServico,
   LIMITES_DO_SERVICO,
 } from './servico.js';
 
@@ -50,6 +51,7 @@ describe('criarServico', () => {
       precoBaseCentavos: 15000,
       status: 'ativo',
       criadoEm: CONTEXTO.agora,
+      versao: 1,
     });
   });
 
@@ -257,5 +259,81 @@ describe('criarServico', () => {
       expect(serializado).not.toContain(segredo);
       expect((erro as Error).message).not.toContain('Eletricista');
     }
+  });
+});
+
+describe('editarServico (CA26)', () => {
+  const ATUAL = criarServico(VALIDA, CONTEXTO);
+
+  it('CA26 — substitui os campos, recalcula cidade e texto de busca e sobe a versão; id, autor, status e criadoEm ficam', () => {
+    const editado = editarServico(
+      { ...ATUAL, versao: 4 },
+      {
+        titulo: '  Encanador de plantão ',
+        descricao: 'Vazamentos e DESENTUPIMENTO.',
+        categoria: 'limpeza',
+        cidade: ' Belo Horizonte ',
+        precoBaseCentavos: 9900,
+      },
+    );
+
+    expect(editado).toEqual({
+      id: ATUAL.id,
+      autorId: 'autor-1',
+      titulo: 'Encanador de plantão',
+      descricao: 'Vazamentos e DESENTUPIMENTO.',
+      categoria: 'limpeza',
+      cidade: 'Belo Horizonte',
+      cidadeNormalizada: 'belo horizonte',
+      textoBusca: 'encanador de plantao vazamentos e desentupimento.',
+      precoBaseCentavos: 9900,
+      status: 'ativo',
+      criadoEm: CONTEXTO.agora,
+      versao: 5,
+    });
+    expect(Object.isFrozen(editado)).toBe(true);
+    expect(editado.criadoEm).not.toBe(ATUAL.criadoEm);
+  });
+
+  it.each([undefined, null, '', '  '])(
+    'D7 — cidade %j na edição tira a cidade do serviço',
+    (cidade) => {
+      const editado = editarServico(ATUAL, { ...VALIDA, cidade });
+      expect(editado).not.toHaveProperty('cidade');
+      expect(editado).not.toHaveProperty('cidadeNormalizada');
+    },
+  );
+
+  it('CA6 — usa a mesma validação da criação: todos os campos inválidos num único erro, sem o valor', () => {
+    const segredo = 'texto-pessoal-da-edicao';
+    let capturado: unknown;
+    try {
+      editarServico(ATUAL, {
+        titulo: 'ab',
+        descricao: segredo,
+        categoria: 'x',
+        cidade: 'A',
+        precoBaseCentavos: 0,
+      });
+    } catch (erro) {
+      capturado = erro;
+    }
+
+    expect(capturado).toBeInstanceOf(ErroDeValidacao);
+    expect((capturado as ErroDeValidacao).campos).toEqual([
+      { campo: 'titulo', motivo: 'tamanho' },
+      { campo: 'categoria', motivo: 'invalido' },
+      { campo: 'precoBaseCentavos', motivo: 'invalido' },
+      { campo: 'cidade', motivo: 'tamanho' },
+    ]);
+    expect(JSON.stringify(capturado) + String(capturado)).not.toContain(
+      segredo,
+    );
+  });
+
+  it('entrada nula aponta todos os obrigatórios e não mexe no serviço atual', () => {
+    expect(() => editarServico(ATUAL, null)).toThrow(ErroDeValidacao);
+    expect(ATUAL.titulo).toBe('Eletricista residencial');
+    expect(ATUAL.versao).toBe(1);
   });
 });

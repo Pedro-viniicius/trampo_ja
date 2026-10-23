@@ -29,13 +29,52 @@ docker compose up -d banco                    # sobe o Postgres em 127.0.0.1:543
 cp apps/api/.env.example apps/api/.env        # uma vez: DATABASE_URL, DATABASE_URL_TESTE, PORT e TRUST_PROXY locais
 pnpm --filter api migrar                      # aplica as migrações no banco de desenvolvimento
 pnpm --filter api migrar -- --teste           # o mesmo no banco de teste (o test:integracao já faz isso)
-pnpm --filter api migrar -- --baixar          # reverte a última migração (só remove tabela vazia)
+pnpm --filter api migrar -- --baixar          # reverte a última migração (aborta em vez de apagar dados)
 pnpm test:integracao                          # migra o banco de teste e roda os testes de integração
 docker compose down -v                        # apaga o banco local (volume) para recriar do zero
 ```
 
+Banco local e banco remoto (D44): "local" quer dizer host `localhost`, IPv4 em `127.0.0.0/8`, `::1` ou socket Unix.
+Local dispensa TLS. Qualquer outro host só é aceito com `sslmode=verify-full` na URL, que liga o TLS e confere o
+certificado e o nome do servidor; sem isso, a API e os scripts recusam a partida com um erro que traz só o nome da
+variável, nunca o valor. Se o certificado for de uma CA privada (comum em banco gerenciado), acrescente
+`sslrootcert=<caminho do arquivo da CA no disco do servidor>`. `require`, `verify-ca` e `no-verify` não servem. Com
+banco remoto, a API, o `migrar` e o `semear` também recusam a partida se `NODE_TLS_REJECT_UNAUTHORIZED=0` estiver no
+ambiente, porque essa variável desliga a conferência do certificado no processo inteiro (o erro cita só o nome dela);
+com banco local, ela não muda nada. Exemplo (valores fictícios):
+
+```text
+DATABASE_URL=postgres://usuario:senha@db.exemplo.com:5432/trampoja?sslmode=verify-full&sslrootcert=/caminho/ca.pem
+```
+
+Tempos do banco (D42): a API usa tempos fixos no código, sem variável de ambiente: conexão em 5 s
+(`connectionTimeoutMillis`), consulta em 10 s (`statement_timeout`) e transação ociosa em 30 s
+(`idle_in_transaction_session_timeout`). Uma consulta que passa de 10 s dá erro 500 em vez de travar o pedido. O
+`migrar` roda sem `statement_timeout`, porque uma migração pode levar mais que isso. A URL não pode trazer parâmetros
+de tempo (`statement_timeout` e parecidos): a API recusa a partida.
+
 Variáveis já exportadas no shell têm prioridade sobre o `apps/api/.env`. As variáveis estão documentadas em
 `apps/api/.env.example`. As migrações seguem as regras de `apps/api/migracoes/README.md`.
+
+A `0006_anuncios` (L2) é a primeira que altera tabela em vez de criar: o `up` passa a aceitar o status `encerrado`
+em `trampos` e cria `servicos.versao` (1 nas linhas que já existem). O `--baixar` dela trava `trampos` e, se houver
+algum trampo encerrado, aborta sem mudar nada, com o código `trampos_encerrados` na saída: converter o status seria
+decisão do dono, e não há script para isso. Sem trampo encerrado, restaura a regra antiga do status e remove
+`servicos.versao`, que é só um contador. Depois de subir de novo, as versões recomeçam em 1, e um app que mande a
+versão antiga recebe 409 `conflito_de_versao` e recarrega o anúncio.
+
+A `0007_contas_excluidas` (L3, D40) só cria a tabela `contas_excluidas` (lápide da conta excluída: só o id e a data,
+sem dado pessoal; ver "Limpeza periódica" em "Rodar a API"). Para reverter: volte o código, deixe a limpeza rodar uma
+última vez (ou espere a lápide mais nova passar dos 10 min) e rode `pnpm --filter api migrar -- --baixar`. O `down`
+só remove a tabela vazia: se ainda houver lápide, aborta sem mudar nada, com o código `tabela_nao_vazia`
+na saída.
+
+A `0008_tentativas_de_entrada` (L3, D31) cria a tabela `tentativas_de_entrada`: o teto de entrada de cada conta
+(início da janela de 1 h e quantas tentativas caíram nela), sem e-mail nem IP, com FK para `contas` e `on delete
+cascade` (a exclusão da conta apaga a linha junto). Ver "Rate limit" em "API". Para reverter: volte o código e rode
+`pnpm --filter api migrar -- --baixar`. O `down` remove a tabela mesmo com linhas: ela só guarda contadores de
+segurança que vencem em 1 h, nada que a pessoa forneceu (como o contador `servicos.versao` da `0006`). Perder os
+contadores só recomeça a janela do teto de cada conta.
 
 ## Rodar a API
 
@@ -49,12 +88,28 @@ A porta vem de `PORT` (padrão 3000) e o servidor escuta em `0.0.0.0`. Em `SIGIN
 requisições, termina as que estão em andamento e fecha a conexão com o banco. A API não aplica migrações sozinha:
 rode `pnpm --filter api migrar` antes.
 
+**Limpeza periódica (D40, ADR-007).** O servidor agenda uma tarefa no próprio processo, sem cron: a primeira rodada
+1 min depois de subir e as seguintes a cada 1 h. Cada rodada apaga as sessões expiradas, os contadores do teto de
+entrada com a janela vencida (`tentativas_de_entrada`, D31) e, pela lápide
+`contas_excluidas` (só id e data, migração `0007`), refaz a exclusão das contas excluídas há mais de 10 min, para
+varrer o que uma escrita em voo durante a exclusão tenha gravado depois (não há FK entre módulos). Uma lápide vive de
+10 a cerca de 70 min. A tarefa é idempotente e roda em cada réplica. O log registra só o código do erro, nunca o id
+da conta. Órfãos anteriores à `0007` não são varridos, porque não têm lápide. Em `SIGINT`/`SIGTERM`, a próxima rodada
+é cancelada e a que estiver em curso termina antes de a conexão com o banco fechar.
+
 ## Semente (dados fictícios)
 
 ```bash
 pnpm --filter api semear                # banco de desenvolvimento
 pnpm --filter api semear -- --teste     # banco de teste
+pnpm --filter api semear -- --permitir-banco-remoto   # só se o banco for mesmo de outra máquina
 ```
+
+A senha dos dados é pública, então o `semear` só roda em banco local (ver "Banco local" acima). Diante de um banco
+que não seja local, ele recusa antes de abrir qualquer conexão e sai com código 2, a não ser que receba
+`--permitir-banco-remoto`. O código 2 só aparece rodando dentro de `apps/api`; com `pnpm --filter`, o pnpm achata
+qualquer falha em 1. A mensagem de recusa cita o nome da variável, nunca a URL. Com a flag, a URL ainda passa pelas
+conferências de TLS de "Banco local" acima (`sslmode=verify-full`, sem `NODE_TLS_REJECT_UNAUTHORIZED=0`).
 
 Aplica as migrações pendentes e cria, pela própria API (com as mesmas validações de uma requisição real):
 
@@ -115,11 +170,20 @@ pnpm --filter mobile typecheck   # tsc --noEmit
 pnpm --filter mobile lint        # Biome (inclui noConsole como erro)
 pnpm --filter mobile test        # jest-expo + Testing Library
 pnpm --filter mobile build       # expo export para Android em apps/mobile/dist (apague depois)
+EXPO_PUBLIC_API_URL=https://api.exemplo.com pnpm --filter mobile build:producao   # o mesmo, exigindo https://
 ```
 
 Um arquivo de teste isolado: `pnpm --filter mobile exec jest <caminho>`. Na raiz, `pnpm typecheck|lint|test` rodam
 a API e o app. No fim do `build`, o CLI pode imprimir "Something prevented Expo from exiting"; não é falha (sai com
 código 0).
+
+**Build de produção (L3, CA53).** `build:producao` faz o mesmo que `build`, mas confere a URL da API antes de gerar o
+bundle: sem `EXPO_PUBLIC_API_URL`, com valor inválido ou sem `https://`, o build falha com uma mensagem fixa que não
+repete o valor. A URL **vai no ambiente do comando** (`EXPO_PUBLIC_API_URL=https://… pnpm --filter mobile
+build:producao`), e não no `apps/mobile/.env`: o Expo lê o `app.config.ts` (onde a conferência roda) antes de carregar
+o `.env`. O `build` comum não confere nada, para o `.env` de desenvolvimento poder usar `http://` na rede local.
+Apague o `dist/` depois, como no `build`. Os dois scripts passam `--clear` ao `expo export`: o cache do Metro não
+leva o valor de `EXPO_PUBLIC_API_URL` na chave, e sem limpar ele um build reaproveitaria a URL do build anterior.
 
 ### Estrutura
 
@@ -153,21 +217,44 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/perfis/:contaId` | `(app)/perfis/[contaId].tsx` | perfil público |
 | `/trampos/novo` | `(app)/trampos/novo.tsx` | formulário Publicar trampo (a confirmação é estado da tela) |
 | `/servicos/novo` | `(app)/servicos/novo.tsx` | formulário Ofertar serviço |
-| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura com Conversar ou Ver candidaturas (n) |
-| `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço, com Conversar para quem não é o autor |
-| `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas |
+| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura com Conversar e Retirar candidatura (se pendente) ou Ver candidaturas (n); para o autor, "Mais opções" no cabeçalho |
+| `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço, com Conversar para quem não é o autor e "Mais opções" para o autor |
+| `/trampos/editar/:id` | `(app)/trampos/editar/[id].tsx` | Editar trampo: o formulário de publicar, preenchido, com "Salvar alterações" |
+| `/servicos/editar/:id` | `(app)/servicos/editar/[id].tsx` | Editar serviço, como o de trampo |
+| `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas, com Retirar candidatura nas pendentes |
 | `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
 | `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
-| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`) |
+| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`), com "Mais opções" em cada anúncio |
 
 As abas são Início, Buscar, Publicar, Conversas e Perfil; os formulários, as listas e a conversa ficam na pilha
 `(app)`, sem a barra de abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão
 na URL.
 
+Anúncios e candidaturas (L2, D30, D33 a D37):
+
+- **Mais opções.** Aparece em cada anúncio de Meus anúncios e, só para o autor, no detalhe. A folha traz Editar,
+  Encerrar (só trampo aberto ou em andamento) e Excluir; a ação indisponível fica desabilitada com o motivo (trampo
+  com candidaturas, em andamento ou encerrado; sem conexão). Encerrar e excluir pedem confirmação num diálogo que diz
+  o efeito, e o sucesso mostra um toast. Um 404 vira "Este anúncio já não existe." e recarrega. O selo "Encerrado"
+  aparece em Meus anúncios, no detalhe e em Candidaturas recebidas.
+- **Editar.** O formulário abre preenchido com o anúncio lido e manda a `versao` dele. No sucesso, volta à tela de
+  antes com "Alterações salvas.". Erro de campo, falta de conexão e 429 mantêm o rascunho. O 409
+  `conflito_de_versao` mostra o aviso com "Ver versão atual", que recarrega o anúncio e mantém os campos que a
+  pessoa já mexeu (D37); o `trampo_nao_editavel` mostra o aviso e desabilita os campos. Sair com alteração não
+  salva pergunta "Descartar alterações?", também no voltar do sistema (botão do Android e gesto do iOS).
+- **Aviso de retorno.** "Alterações salvas.", "Trampo excluído.", "Serviço excluído." e "Este anúncio já não
+  existe." são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto, em
+  memória, por 10 s e só na mesma sessão. Se a volta cai numa tela que não mostra avisos, ele se perde.
+- **Retirar candidatura.** Em Minhas candidaturas e no rodapé do trampo, só para a candidatura pendente e sempre
+  com o diálogo "Manter candidatura" ou "Retirar candidatura". No sucesso, ela some da lista e o rodapé volta a
+  "Candidatar-se". O 409 avisa que ela já foi respondida e recarrega; o 404 a tira da lista. Toque duplo faz um
+  pedido só. Em trampo encerrado, a folha de candidatura mostra "fechado".
+
 Conversar (D22, D23) aparece em três pontos de entrada: no rodapé do detalhe do trampo, para quem se candidatou
 (com o autor); no detalhe do serviço, para quem não é o autor; e em cada candidatura recebida, em qualquer status
-(com quem se candidatou). O toque faz `POST /conversas` e abre `/conversas/:id`. Quem decide o vínculo é a API:
-o 403 `sem_vinculo` mostra "Você só pode conversar com quem tem uma candidatura ou contratação com você." e o 409
+(com quem se candidatou). O toque faz `POST /conversas` e abre `/conversas/:id`. Quem decide o vínculo é a API, e
+só para conversa nova: a já aberta continua abrindo depois da candidatura retirada ou do trampo excluído (D35). O
+403 `sem_vinculo` mostra "Você só pode conversar com quem tem uma candidatura ou contratação com você." e o 409
 `conversa_consigo_mesmo` mostra o seu texto; nos dois casos, o "Conversar" daquela conta fica desabilitado, com o
 texto, até a tela ser aberta outra vez. Sem conexão, o botão fica desabilitado com o motivo.
 
@@ -200,6 +287,23 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
 - O token só existe no `expo-secure-store` (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`), atrás da porta
   `ArmazenamentoDeToken`. Nunca vai para estado persistido, URL, parâmetro de rota, log ou mensagem de erro. Não há
   AsyncStorage.
+- **Marcador de instalação (L3, S2).** O secure-store do iOS sobrevive à desinstalação do app. Por isso o app cria
+  o arquivo `trampoja.instalacao` (conteúdo fixo, sem dado algum) em `Paths.document`, que o sistema apaga junto com
+  o app. Uma vez por execução, antes de qualquer leitura ou gravação, a porta confere o marcador: se ele não existe,
+  apaga o token e a impressão da conta que sobraram, cria o marcador e abre sem sessão. Se apagar falhar, o marcador
+  não é criado e a próxima operação tenta de novo. Na atualização para a versão com o marcador, todos os aparelhos
+  saem da conta uma vez (nenhum aparelho tem o marcador antes dela); sem usuários reais, o risco é aceito.
+- **Retorno ao login só para a mesma conta (D43).** Quando a sessão expira, o app guarda a rota em que a pessoa
+  estava para voltar a ela depois do login. Essa volta só vale se quem entrou for a mesma conta, comparada por uma
+  impressão do e-mail (aparado e em minúsculas) guardada no secure-store junto com o token; outra conta cai no Início.
+  A impressão nunca vai para log, rota ou cache.
+- **O "Sair" não espera a rede (S6).** Sair guarda o token, limpa o secure-store e os caches e só então dispara o
+  `DELETE /sessoes` com esse token, sem esperar a resposta: sem rede ou com a API pendurada, a pessoa sai do mesmo
+  jeito. O 401 desse pedido é ignorado, para nunca derrubar um login feito depois.
+- **Barreira de telemetria na árvore transitiva (S7).** `src/testes/dependencias-de-producao.test.ts` percorre as
+  `dependencies` e `optionalDependencies` de cada pacote, a partir do `package.json` do app, resolvendo-os pelo
+  `node_modules` real, e falha se algum tiver nome de telemetria ou de crash report (Sentry, Firebase, analytics,
+  Datadog, PostHog e similares). Só passa ferramenta de build listada com o motivo no próprio teste.
 - `console` é proibido em `apps/mobile` (regra `noConsole` do Biome como erro). Erros da API viram chaves de
   `textos.erros`; `ErroDaApi` não guarda corpo, URL com query nem o que a pessoa digitou.
 - Sem telemetria nem crash report no app. `src/testes/sem-dado-pessoal.test.tsx` percorre os fluxos com espiões
@@ -214,7 +318,10 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
     com 500 e com 401, e a conversa vista pela outra conta depois do login;
   - L1 (CA24): login, exportar com a senha errada (403) e com a certa (200), excluir com a senha errada (403), no
     limite (429) e com a certa (204, de volta ao login com token e caches vazios e sem `DELETE /sessoes`), e outra
-    conta entrando no mesmo aparelho depois.
+    conta entrando no mesmo aparelho depois;
+  - L2 (CA35): editar trampo (429, 409 `conflito_de_versao` com "Ver versão atual" e 204) e editar serviço (409,
+    429 e 204), com título e descrição sentinelas e um rascunho da descrição que vai num `PUT` recusado e é trocado
+    antes de salvar.
 
   O teste falha se aparecer, em texto puro, em maiúsculas ou codificado para URL, e-mail, senha, nome, cidade,
   habilidade, texto da busca, token, título, descrição, cidade do anúncio, mensagem da candidatura, nome de
@@ -226,8 +333,12 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
   descrição de anúncio, texto de mensagem) também não podem aparecer em nada disso nem em estado algum dos caches
   de consultas e de mutações, depois do sucesso e depois do erro. O JSON só pode chegar ao arquivo (a folha é
   simulada e guarda o que seria gravado): nem o texto da tela o mostra. A senha só vai no corpo de `POST /sessoes`
-  e dos `POST /contas/eu/*`. O mesmo arquivo falha se `apps/mobile/package.json` ganhar dependência de
-  AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment, Amplitude ou Mixpanel.
+  e dos `POST /contas/eu/*`. Na jornada L2, o título, a descrição e o rascunho da edição também não podem
+  aparecer em `testID`, chave de lista, propriedade que não seja texto da tela, URL, parâmetros ou estado da
+  navegação, cabeçalho ou corpo de outro pedido que não o `PUT`, erro guardado nem no cache de mutações depois que
+  a edição fecha; o rascunho que nunca foi salvo não pode ficar nem no cache de consultas nem na árvore. O aviso de
+  retorno só pode receber a chave `alteracoes_salvas`. O mesmo arquivo falha se `apps/mobile/package.json` ganhar
+  dependência de AsyncStorage, Sentry, Bugsnag, Firebase, analytics, Segment, Amplitude ou Mixpanel.
 - O que fica em memória nos fluxos da 2b (nada vai para disco):
   - **Rascunhos.** Título, descrição, categoria, cidade, valor e prazo de Publicar trampo e Ofertar serviço, e a
     mensagem e o valor proposto da folha Candidatar-se, ficam só no estado do componente da tela. Somem quando a
@@ -272,6 +383,14 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
   - **Exclusão.** `sessao.encerrarPorExclusao()` guarda o aviso `conta_excluida`, apaga o token e limpa os dois
     caches, sem `DELETE /sessoes`. Um 401 atrasado (da consulta periódica, por exemplo) é ignorado, porque o token
     já saiu.
+- O que fica em memória na edição de anúncio (L2, CA35):
+  - **Rascunho.** O que a pessoa mexeu fica só no estado do componente da rota de edição, por cima do anúncio lido;
+    nunca na URL nem nos parâmetros de rota, que levam só o id. Some quando a tela fecha (salvando ou descartando)
+    e no 401, que leva ao login.
+  - **Envio.** O corpo do `PUT` fica como `variables` da mutação enquanto a edição está aberta e sai do cache de
+    mutações quando ela fecha (`gcTime: 0`). O que foi salvo volta na leitura do anúncio, no cache de consultas,
+    como qualquer anúncio.
+  - **Aviso de retorno.** Guarda só a chave do texto, a sessão e o prazo; nunca o que foi digitado.
 - Opcional: `EXPO_NO_TELEMETRY=1` no shell desliga a coleta de uso do CLI do Expo (`expo start`, `expo export`).
   Isso vale para a máquina de desenvolvimento; o app em si não envia nada.
 
@@ -348,11 +467,12 @@ valor enviado. Códigos gerais:
 | 400 | `requisicao_invalida` | JSON malformado |
 | 401 | `nao_autenticado` | sem sessão válida |
 | 404 | `nao_encontrado` | rota inexistente, recurso inexistente ou de outra pessoa |
-| 409 | código da regra | regra de domínio (ex.: `perfil_incompleto`, `email_em_uso`) |
+| 409 | código da regra | regra de domínio (ex.: `perfil_incompleto`, `email_em_uso`, `exportacao_grande`) |
 | 413 | `corpo_grande_demais` | corpo acima do limite do Fastify (1 MiB) |
 | 415 | `tipo_nao_suportado` | `Content-Type` que não é JSON nem `text/plain` (corpo `text/plain` dá 400 `dados_invalidos`) |
-| 429 | `muitas_requisicoes` | rate limit de cadastro ou entrada (por IP ou, na entrada, por e-mail) ou limite por conta nas rotas autenticadas (D29) |
+| 429 | `muitas_requisicoes` | rate limit de cadastro ou entrada (por IP ou, na entrada, por e-mail e IP ou pelo teto da conta, D31) ou limite por conta nas rotas autenticadas (D29) |
 | 500 | `interno` | falha inesperada (o detalhe fica só no log, sem dado pessoal) |
+| 503 | `servico_ocupado` | a fila do scrypt ou da exportação não liberou vaga em 10 s (D42); traz `retry-after: 10` |
 
 ### Endpoints
 
@@ -360,21 +480,36 @@ Contas (públicas, exceto `DELETE /sessoes` e as de `/contas/eu`):
 
 | Rota | Corpo | Sucesso | Erros |
 |---|---|---|---|
-| `POST /contas` | `{email, senha}` | 201 `{token}` | 400; 409 `email_em_uso` |
-| `POST /sessoes` | `{email, senha}` | 200 `{token}` | 400; 401 `credenciais_invalidas` (genérico) |
+| `POST /contas` | `{email, senha}` | 201 `{token}` | 400; 409 `email_em_uso`; 429; 503 `servico_ocupado` |
+| `POST /sessoes` | `{email, senha}` | 200 `{token}` | 400; 401 `credenciais_invalidas` (genérico); 429; 503 `servico_ocupado` |
 | `DELETE /sessoes` | — | 204 | 401 |
-| `POST /contas/eu/exclusao` | `{senha}` | 204 | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 429 |
-| `POST /contas/eu/exportacao` | `{senha}` | 200, JSON `trampo-ja.exportacao.v1` (abaixo) | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 429 |
+| `POST /contas/eu/exclusao` | `{senha}` | 204 | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 429; 503 `servico_ocupado` |
+| `POST /contas/eu/exportacao` | `{senha}` | 200, JSON `trampo-ja.exportacao.v1` (abaixo) | 400; 401; 403 `senha_incorreta`; 404 conta inexistente; 409 `exportacao_grande`; 429; 503 `servico_ocupado` |
 
 As duas rotas de `/contas/eu` respondem sempre com `Cache-Control: no-store`, inclusive nos erros. O corpo só aceita
 a chave `senha` (outra chave dá 400). Senha errada, ausente, vazia ou acima de 128 caracteres dá 403
 `senha_incorreta`, e acima do teto nem roda o scrypt. É 403, e não 401, para o app não tratar como sessão expirada.
 No máximo duas derivações scrypt rodam ao mesmo tempo por processo (CA23); as demais esperam numa fila.
 
+- **Fila com espera máxima (D42):** quem espera mais de 10 s na fila do scrypt (cadastro, entrada, exclusão e
+  exportação) ou na da exportação recebe 503 `servico_ocupado` com `retry-after: 10` e o corpo só com o código. O
+  segundo é fixo, nunca o tamanho da fila. O pedido cuja conexão caiu enquanto esperava sai da fila sem derivar nem
+  coletar nada; depois que pegou a vaga, a tarefa termina.
+- **Senha em NFC (L3, S8):** a senha é normalizada em NFC (`String.prototype.normalize('NFC')`) no cadastro, no
+  login, na exclusão e na exportação, então quem se cadastrou digitando "é" decomposto (NFD) entra com o composto, e o
+  contrário. O hash novo é sempre da forma NFC. Contas com hash gravado sobre a forma crua ainda entram com ela. O
+  teto de 128 caracteres vale para o texto como veio, antes de normalizar. E-mail inexistente roda o mesmo número de
+  derivações que senha errada, para o tempo não revelar se a conta existe.
+- **Cadastro numa transação (L3):** `POST /contas` grava a conta e a primeira sessão na mesma transação. Se a
+  sessão falhar, nenhuma conta fica gravada, e repetir o cadastro é seguro.
+
 - **Exclusão (D25, CA17):** apaga na hora, numa só transação, a conta, as sessões de todos os aparelhos, o perfil,
   os trampos (com as candidaturas recebidas), os serviços, as candidaturas da conta e as conversas inteiras de que
   ela participa. O que os outros veem está em "Dados pessoais (LGPD) e logs".
-- **Exportação (D26, CA19):** só os dados da própria conta, com o schema da resposta fechado em todos os níveis. É
+- **Exportação (D26, D41, CA19):** o teto é 10 MiB (`TETO_DA_EXPORTACAO_BYTES`), medido no banco antes de coletar
+  (soma dos bytes dos textos exportados mais 256 bytes por linha): acima disso, 409 `exportacao_grande` e nada é
+  coletado nem serializado. O app orienta a pedir os dados pelo e-mail de contato da política, com resposta manual
+  em até 15 dias (LGPD, art. 19, II). A medida e a serialização rodam dentro da vaga da fila. Só os dados da própria conta, com o schema da resposta fechado em todos os níveis. É
   a única rota que devolve o e-mail da conta. Ficam fora o hash da senha, o hash do token, as colunas derivadas
   (`cidade_normalizada`, `texto_busca`) e textos de terceiros; da outra pessoa de cada conversa, só o id.
 
@@ -401,28 +536,60 @@ Trampos e candidaturas:
 | Rota | Corpo | Sucesso | Erros |
 |---|---|---|---|
 | `POST /trampos` | `{titulo, descricao, categoria, cidade, valorCentavos, prazo?}` | 201 `{id, status:"aberto"}` | 400; 409 `perfil_incompleto` |
-| `GET /trampos/meus` | — | 200 lista de trampos | — |
-| `GET /trampos/:id` | — | 200 trampo (com `autorId` e `status`) | 404 |
+| `GET /trampos/meus` | — | 200 lista de trampos, em qualquer status, com `versao` e `candidaturasRecebidas` | — |
+| `GET /trampos/:id` | — | 200 trampo (com `autorId` e `status`; `versao` e `candidaturasRecebidas` só para o autor) | 404 |
+| `PUT /trampos/:id` | `{titulo, descricao, categoria, cidade, valorCentavos, prazo?, versao}` | 204 | 400; 404; 409 `trampo_nao_editavel`, `conflito_de_versao` |
+| `POST /trampos/:id/encerrar` | — | 204, também se já estava encerrado | 404 |
+| `DELETE /trampos/:id` | — | 204 | 404; 409 `trampo_nao_aberto` |
 | `POST /trampos/:id/candidaturas` | `{mensagem, valorPropostoCentavos}` | 201 `{id, status:"pendente"}` | 400; 404; 409 (abaixo) |
 | `GET /trampos/:id/candidaturas` | — | 200 lista (só o autor) | 404 para quem não é o autor |
 | `POST /trampos/:id/candidaturas/:cid/aceitar` | — | 200 `{status:"aceita"}` | 404; 409 (abaixo) |
 | `GET /candidaturas/minhas` | — | 200 lista com `trampoId` e `status` | — |
+| `DELETE /candidaturas/:id` | — | 204 | 404; 409 `candidatura_nao_pendente` |
 
 Códigos 409 de trampos: `perfil_incompleto`, `autor_nao_pode_candidatar`, `candidatura_duplicada`,
-`trampo_nao_aberto`, `candidatura_nao_pendente` e `conflito_de_versao`. Aceitar põe o trampo `em_andamento` e
-recusa as demais candidaturas pendentes. Candidaturas e aceites simultâneos no mesmo trampo não dão erro: quem perde
-a trava otimista relê o trampo e tenta de novo (até 10 vezes), então candidaturas de freelancers diferentes são
-todas gravadas, o segundo toque do mesmo freelancer vira `candidatura_duplicada` e o aceite que perde para outro
-aceite vira `trampo_nao_aberto`. `conflito_de_versao` só sai se o trampo mudar a cada uma das 10 tentativas (mais de
-10 gravações simultâneas no mesmo trampo); o app pode repetir a ação. Os ids na URL não distinguem maiúsculas.
+`trampo_nao_aberto`, `candidatura_nao_pendente`, `trampo_nao_editavel` e `conflito_de_versao`. Aceitar põe o
+trampo `em_andamento` e recusa as demais candidaturas pendentes. Candidaturas e aceites simultâneos no mesmo trampo
+não dão erro: quem perde a trava otimista relê o trampo e tenta de novo (até 10 vezes), então candidaturas de
+freelancers diferentes são todas gravadas, o segundo toque do mesmo freelancer vira `candidatura_duplicada` e o
+aceite que perde para outro aceite vira `trampo_nao_aberto`. `conflito_de_versao` só sai se o trampo mudar a cada
+uma das 10 tentativas (mais de 10 gravações simultâneas no mesmo trampo); o app pode repetir a ação. Os ids na URL
+não distinguem maiúsculas.
+
+Anúncios (L2, D30, D33 a D35; concorrência no ADR-006 de `docs/produto/planos/pre-lancamento-l2.md`):
+
+- **Status do trampo:** `aberto`, `em_andamento` ou `encerrado`. Encerrado é final: não reabre, não é editado nem
+  excluído, sai da busca e continua em `GET /trampos/meus`.
+- **Editar (`PUT`):** só o autor, só trampo aberto e sem candidaturas, e substitui todos os campos (`prazo` ausente
+  ou `null` tira o prazo). A `versao` é a lida em `GET /trampos/:id` ou `GET /trampos/meus`; se o trampo mudou
+  desde então, 409 `conflito_de_versao` e nada muda. `criadoEm` e a posição na
+  busca não mudam. O corpo é fechado: não troca autor, status nem data.
+- **Encerrar:** trampo aberto ou em andamento. As candidaturas pendentes viram recusadas; candidatar-se e aceitar
+  passam a dar 409 `trampo_nao_aberto`; as conversas continuam. É assim que o autor resolve o trampo em andamento
+  cuja contratada excluiu a conta. Uma candidatura que chega ao mesmo tempo é recusada junto ou leva
+  `trampo_nao_aberto`.
+- **Excluir:** só trampo aberto. Apaga o trampo com as candidaturas; o detalhe passa a dar 404 e as conversas
+  continuam. Uma candidatura que chega ao mesmo tempo termina em 201 (e é apagada junto) ou 404.
+- **Retirar candidatura:** só a pendente, e só por quem se candidatou. A linha é apagada, e a pessoa pode se
+  candidatar de novo. A conversa já aberta continua.
+- **Visão do autor (D33):** `versao` e `candidaturasRecebidas` só saem para quem publicou; para os demais, as
+  respostas não mudam. Encerrar, excluir e retirar não levam versão. Encerrar e excluir travam o trampo e aplicam a
+  regra sobre o estado atual, então nunca dão `conflito_de_versao`, nem sob uma rajada de candidaturas; retirar
+  relê e reaplica a regra.
+- Recurso inexistente, de outra conta ou com id fora do formato uuid recebe o mesmo 404.
 
 Serviços:
 
 | Rota | Corpo | Sucesso | Erros |
 |---|---|---|---|
 | `POST /servicos` | `{titulo, descricao, categoria, cidade?, precoBaseCentavos}` | 201 `{id, status:"ativo"}` | 400; 409 `perfil_incompleto` |
-| `GET /servicos/meus` | — | 200 lista | — |
-| `GET /servicos/:id` | — | 200 serviço (`cidade` pode ser `null`) | 404 |
+| `GET /servicos/meus` | — | 200 lista, com `versao` | — |
+| `GET /servicos/:id` | — | 200 serviço (`cidade` pode ser `null`; `versao` só para o autor) | 404 |
+| `PUT /servicos/:id` | `{titulo, descricao, categoria, cidade?, precoBaseCentavos, versao}` | 204 | 400; 404; 409 `conflito_de_versao` |
+| `DELETE /servicos/:id` | — | 204 | 404 |
+
+Só o autor edita ou exclui o serviço; para os demais, 404. Na edição, `cidade` ausente ou `null` deixa o serviço sem
+cidade (D7), e a `versao` funciona como a do trampo. O serviço excluído some da busca e o detalhe dele dá 404.
 
 Busca:
 
@@ -440,7 +607,7 @@ Conversas:
 
 | Rota | Corpo ou consulta | Sucesso | Erros |
 |---|---|---|---|
-| `POST /conversas` | `{outroUsuarioId}` | 201 `{conversaId}` (nova) ou 200 (já existia) | 400; 403 `sem_vinculo`; 409 `conversa_consigo_mesmo` |
+| `POST /conversas` | `{outroUsuarioId}` | 201 `{conversaId}` (nova) ou 200 (já existia, mesmo sem vínculo restante, D35) | 400; 403 `sem_vinculo` (sem conversa e sem vínculo); 409 `conversa_consigo_mesmo` |
 | `GET /conversas` | — | 200 `[{conversaId, outroUsuarioId, criadaEm, ultimaMensagem}]` | — |
 | `GET /conversas/:id/mensagens` | `?depoisDe=<id da mensagem>` | 200 até 50, na ordem de envio | 400; 404 |
 | `POST /conversas/:id/mensagens` | `{texto}` | 201 `{id, enviadaEm}` | 400 texto vazio; 404 |
@@ -451,10 +618,31 @@ Só abre conversa quem tem candidatura em comum, em qualquer estado (CA13). Quem
 ### Rate limit (D2, D29)
 
 `POST /contas` e `POST /sessoes` aceitam até 10 requisições por minuto por IP, com contador separado por rota
-(constante `LIMITE_PADRAO_DAS_ROTAS_PUBLICAS` em `apps/api/src/composicao.ts`). `POST /sessoes` tem ainda um
-segundo limite, por conta: 10 tentativas por 15 minutos no mesmo e-mail, venham de qualquer IP
-(`LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL`). O contador guarda só o SHA-256 do e-mail normalizado (aparado e em
-minúsculas), nunca o e-mail; corpo sem e-mail conta pelo IP. Acima de qualquer limite, 429 `muitas_requisicoes`.
+(constante `LIMITE_PADRAO_DAS_ROTAS_PUBLICAS` em `apps/api/src/composicao.ts`). O contador por IP de `POST /sessoes`
+guarda até 100 000 IPs (`CHAVES_DO_LIMITE_POR_IP_NA_ENTRADA`), acima dos 65 536 prefixos /64 de um /48, para que
+trocar de prefixo não apague o contador de quem ataca. `POST /sessoes` tem ainda dois limites da D31, conferidos
+nesta ordem:
+
+- **10 tentativas a cada 15 minutos por e-mail+IP** (`LIMITE_PADRAO_POR_EMAIL_E_IP`, em memória, em
+  `apps/api/src/compartilhado/http/limite-de-entrada.ts`);
+- **teto de 100 tentativas por hora por conta**, venham de quantos IPs vierem (`TETO_PADRAO_POR_EMAIL`, em
+  `apps/api/src/modulos/contas/aplicacao/casos-de-uso.ts`). Fica no banco, na tabela `tentativas_de_entrada`
+  (migração `0008`): uma linha por conta, com o início da janela e a contagem, sem e-mail nem IP. O caso de uso
+  `entrar` soma a tentativa depois de achar a conta e antes do scrypt, num `insert … on conflict … returning`
+  atômico; a janela é fixa, começa na primeira tentativa e recomeça quando vence. Acima de 100, 429 sem rodar o
+  scrypt, mesmo com a senha certa. E-mail sem conta não grava nada (e segue rodando o scrypt contra o hash fictício).
+  A limpeza periódica apaga as janelas vencidas, e a exclusão da conta apaga a linha junto (cascade).
+
+A tentativa recusada pelo primeiro limite não chega ao caso de uso, então não gasta o teto. O teto fica no banco, e
+não num contador em memória, porque um contador em memória guarda um número limitado de chaves: pedidos com e-mails
+de lixo (que nem chegam ao banco) despejariam o contador da vítima. Antes da D31 o limite era só por e-mail (10 a
+cada 15 minutos, de qualquer IP), o que deixava qualquer pessoa trancar a conta de outra; agora quem erra de um IP
+não tranca o e-mail para os demais. No IPv6, o IP contado é o prefixo /64 (quem tem um /64 troca de endereço à
+vontade), e o IPv4 mapeado em IPv6 conta como IPv4. O contador por e-mail+IP guarda só o SHA-256 do e-mail
+normalizado (aparado e em minúsculas), nunca o e-mail; corpo sem e-mail conta pelo IP normalizado. Acima de
+qualquer limite, 429 `muitas_requisicoes` genérico, com `retry-after` (o que falta para a janela vencer) e sem o
+e-mail, o hash nem o id da conta na resposta ou no log. O 429 do teto, para conta que existe, contra o 401 de
+e-mail sem conta, só revela o que o 409 `email_em_uso` do cadastro já revela.
 
 As rotas autenticadas têm limite por conta (D29, CA20): cada rota pertence a um grupo, e cada grupo tem um contador
 próprio por conta (`LIMITES_PADRAO_POR_CONTA`, `grupoDaRota` e `gruposDaRota` em
@@ -465,9 +653,9 @@ próprio por conta (`LIMITES_PADRAO_POR_CONTA`, `grupoDaRota` e `gruposDaRota` e
 | `leitura` | todo `GET` autenticado | 600 por minuto |
 | `mensagens` | `POST /conversas/:id/mensagens` | 30 por minuto |
 | `mensagens_dia` | `POST /conversas/:id/mensagens` (teto diário, somado a `mensagens`) | 1000 a cada 24 h |
-| `publicacao` | `POST /trampos`, `POST /servicos`, `POST /trampos/:id/candidaturas` | 30 por hora |
+| `publicacao` | `POST /trampos`, `POST /servicos`, `POST /trampos/:id/candidaturas`, `PUT /trampos/:id`, `PUT /servicos/:id` (D36) | 30 por hora |
 | `senha` | `POST /contas/eu/exclusao`, `POST /contas/eu/exportacao` | 5 a cada 15 minutos |
-| `escrita` | os demais `POST`, `PUT` e `DELETE` autenticados (rota nova sem grupo cai aqui) | 60 por minuto |
+| `escrita` | os demais `POST`, `PUT` e `DELETE` autenticados, como `PUT /perfis/eu`, `POST /trampos/:id/encerrar`, `DELETE /trampos/:id`, `DELETE /servicos/:id` e `DELETE /candidaturas/:id` (D36; rota nova sem grupo cai aqui) | 60 por minuto |
 
 `DELETE /sessoes` (sair) fica fora do limite por conta: o logout nunca recebe 429 nem gasta o contador de `escrita`.
 
@@ -514,7 +702,8 @@ Regras (CA15):
 `test/e2e/logs-sem-dado-pessoal.integracao.test.ts` força os erros (cadastro duplicado, senha errada, token
 inválido, validação, regras, JSON malformado, falha de banco) e varre o log inteiro atrás de dado pessoal e tokens.
 Também exporta e exclui uma conta com a senha (403, 200 e 204): nem a senha nem os textos do JSON exportado podem
-aparecer no log (CA24).
+aparecer no log (CA24). E edita trampo e serviço com sentinelas no corpo dos `PUT` (204, 400, 404, 409 e uma falha
+de banco com os textos no `detail`): nenhum deles pode aparecer no log (CA35).
 
 Exclusão da conta (D25, CA17): imediata e definitiva, sem prazo de carência, confirmada com a senha. Tudo numa
 transação; se falhar, nada é apagado e repetir é seguro. Para quem interagiu com a conta (CA18):
@@ -524,9 +713,15 @@ transação; se falhar, nada é apagado e repetir é seguro. Para quem interagiu
 | perfil | 404 e "Perfil indisponível" |
 | trampos da conta, com as candidaturas recebidas | o candidato perde a candidatura em "Minhas candidaturas"; o detalhe dá 404 |
 | serviços da conta | some da busca; o detalhe dá 404 |
-| candidaturas da conta | some das recebidas; se era a aceita, o trampo fica em andamento sem contratado (encerrar entra na L2) |
+| candidaturas da conta | some das recebidas; se era a aceita, o trampo fica em andamento sem contratado, e o autor o resolve encerrando (D34) |
 | conversas inteiras, com as mensagens dos dois lados | some da lista; com a conversa aberta, a próxima consulta dá 404 (nunca o 400 do cursor) e a tela mostra "indisponível" |
 | sessões de todos os aparelhos | outro aparelho da conta recebe 401 no próximo pedido e vai ao login com "sessão expirada" |
+
+A transação da exclusão grava também a lápide `contas_excluidas` (só o id e a data, sem dado pessoal; D40). A limpeza
+periódica (ver "Rodar a API") refaz a exclusão das lápides com mais de 10 min e as apaga, para varrer o que uma
+escrita em voo tenha deixado com o id da conta (ADR-007). Módulo novo com dado de conta entra no `excluirTudo`
+(ADR-005) e passa a ser varrido também, e implementa `medirExportacao` (a medida que a exportação confere contra o
+teto de 10 MiB, D41). O log da limpeza registra só contagens e códigos de erro, nunca o id.
 
 Os logs (com IP e sem `contaId`) não mudam: ficam fora do banco. Escritas de terceiros que chegam durante a exclusão
 esperam as travas e nunca dão 500 nem deixam linha com o id da conta excluída: enviar mensagem e se candidatar ao
@@ -538,7 +733,8 @@ insert (`apps/api/src/compartilhado/banco/travas-de-conta.ts`).
 
 Exportação (D26, CA19): o JSON `trampo-ja.exportacao.v1` (ver "Endpoints"), pedido com a senha. A API monta o JSON
 em memória, então só uma exportação coleta por vez em cada processo (`EXPORTACOES_SIMULTANEAS` em
-`apps/api/src/modulos/contas/aplicacao/casos-de-uso.ts`); as outras esperam numa fila, depois de conferir a senha. No
+`apps/api/src/modulos/contas/aplicacao/casos-de-uso.ts`); as outras esperam numa fila, depois de conferir a senha, por no máximo 10 s (depois, 503 `servico_ocupado`, D42). O
+teto de 10 MiB (D41) é medido no banco antes de coletar; acima dele, 409 `exportacao_grande`. No
 app, o arquivo temporário fica só no cache do app e é apagado depois que a folha de compartilhamento fecha; o que
 sobrar (o app morreu com a folha aberta) é apagado na próxima abertura do app (ver "Dados pessoais no app").
 
@@ -553,7 +749,7 @@ cadastro, sem registro na API. Ficam fora do código: hospedar a política e a p
 Em `docs/produto/`:
 
 - `visao.md`: visão do produto;
-- `decisoes.md`: decisões do dono (D1 a D32), que não se reabrem sem fato novo;
+- `decisoes.md`: decisões do dono (D1 a D44), que não se reabrem sem fato novo;
 - `briefs/mvp-trampo-ja.md`: brief do MVP com os critérios de aceite (CA1 a CA16);
 - `planos/mvp-trampo-ja.md`: plano técnico da entrega 1 (backend), com etapas, contratos e ADR;
 - `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2);
@@ -562,4 +758,8 @@ Em `docs/produto/`:
 - `planos/mvp-trampo-ja-app-2c.md`: plano técnico da entrega 2c (conversas);
 - `planos/pre-lancamento-lojas.md` e `specs/pre-lancamento-lojas.md`: plano e spec do pré-lançamento nas lojas
   (entrega L1: conta, privacidade e limites);
+- `planos/pre-lancamento-l2.md`: plano técnico da entrega L2 (editar, encerrar e excluir anúncios e retirar
+  candidatura), com o ADR-006;
+- `planos/pre-lancamento-l3.md`: plano técnico da entrega L3 (endurecimento de segurança: banco remoto e TLS, limites
+  de login, fila com espera máxima, NFC, limpeza periódica e teto da exportação), com o ADR-007;
 - `legal/politica-de-privacidade.md` e `legal/termos-de-uso.md`: rascunhos dos textos legais (D28).

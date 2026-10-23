@@ -1,4 +1,5 @@
 import {
+  type QueryClient,
   type QueryKey,
   type UseMutationResult,
   type UseQueryResult,
@@ -11,6 +12,8 @@ import { useCallback, useMemo } from 'react';
 import type { ClienteHttp } from '../../api/cliente';
 import { ehErroDaApi } from '../../api/erros';
 import {
+  editarServico,
+  excluirServico,
   listarMeusServicos,
   obterServico,
   ofertarServico,
@@ -25,10 +28,14 @@ import type {
   Trampo,
 } from '../../api/tipos';
 import {
+  editarTrampo,
+  encerrarTrampo,
+  excluirTrampo,
   listarMeusTrampos,
   obterTrampo,
   publicarTrampo,
 } from '../../api/trampos';
+import type { TipoDeAnuncio } from '../../telas/tipos';
 import { useCliente, useSessao } from '../sessao';
 import { chaves } from './chaves';
 
@@ -179,18 +186,65 @@ export interface ContextoDaMutacao {
  */
 export const TETO_DA_RECARGA_MS = 5_000;
 
-/** Chaves que uma mutação invalida no sucesso. */
-export interface ChavesDaMutacao {
+/**
+ * Lista de chaves de consulta, fixa ou calculada da entrada da mutação (ex.:
+ * o id do anúncio). A função só deve usar ids: nunca o texto do anúncio, que
+ * é dado pessoal.
+ */
+export type ListaDeChaves<TEntrada> =
+  | readonly QueryKey[]
+  | ((entrada: TEntrada) => readonly QueryKey[]);
+
+/** Chaves que uma mutação remove e invalida no sucesso. */
+export interface ChavesDaMutacao<TEntrada = unknown> {
   /**
    * Recarregadas antes do `onSuccess` passado ao `mutate`, mesmo sem tela
    * observando (`refetchType: 'all'`), com teto de `TETO_DA_RECARGA_MS`.
    */
-  readonly essenciais: readonly QueryKey[];
+  readonly essenciais: ListaDeChaves<TEntrada>;
   /**
    * Invalidadas sem esperar: recarrega já só o que alguma tela observa
    * (`refetchType: 'active'`); o resto recarrega quando uma tela abrir.
    */
-  readonly demais?: readonly QueryKey[];
+  readonly demais?: ListaDeChaves<TEntrada>;
+  /**
+   * Esquecidas (`esquecerConsultas`), sem recarregar: serve ao que deixou de
+   * existir (o detalhe de um anúncio excluído), cuja recarga daria 404. Saem
+   * antes das invalidações.
+   */
+  readonly remover?: ListaDeChaves<TEntrada>;
+}
+
+/**
+ * Tira do cache o que deixou de existir, sem recarregar (a recarga daria
+ * 404). A consulta que nenhuma tela observa sai (`removeQueries`). A que uma
+ * tela ainda observa (o detalhe, enquanto ela volta) fica com o dado que a
+ * tela já mostra, só marcada como velha: remover essa consulta faria o
+ * observador recriá-la e pedi-la na próxima renderização. Quem abrir o
+ * anúncio depois a recarrega e vê o 404.
+ */
+export function esquecerConsultas(
+  queryClient: QueryClient,
+  consultas: readonly QueryKey[],
+): void {
+  for (const queryKey of consultas) {
+    queryClient.removeQueries({ queryKey, type: 'inactive' });
+    for (const consulta of queryClient
+      .getQueryCache()
+      .findAll({ queryKey, type: 'active' })) {
+      consulta.invalidate();
+    }
+  }
+}
+
+function resolverChaves<TEntrada>(
+  lista: ListaDeChaves<TEntrada> | undefined,
+  entrada: TEntrada,
+): readonly QueryKey[] {
+  if (lista === undefined) {
+    return [];
+  }
+  return typeof lista === 'function' ? lista(entrada) : lista;
 }
 
 /** Espera `promessa` por até `ms`; falha dela também libera a espera. */
@@ -210,7 +264,8 @@ async function esperarComTeto(
 }
 
 /**
- * Mutação de uma ação da conta (publicar, ofertar, candidatar, aceitar):
+ * Mutação de uma ação da conta (publicar, ofertar, candidatar, aceitar,
+ * editar, encerrar, excluir, retirar):
  *
  * - `networkMode: 'always'`: sem conexão, falha na hora com `ErroDeRede`. O
  *   padrão do TanStack a deixaria pausada, para rodar sozinha quando a rede
@@ -218,8 +273,8 @@ async function esperarComTeto(
  * - Sem nova tentativa automática (`retry: 0`).
  * - `gcTime: 0`: a entrada (mensagem, valores) sai do cache de mutações assim
  *   que a tela que a enviou deixa de observá-la.
- * - No sucesso, se a sessão ainda é a mesma em que a mutação começou, invalida
- *   as `demais` sem esperar e espera a recarga das `essenciais` (até
+ * - No sucesso, se a sessão ainda é a mesma em que a mutação começou, esquece
+ *   as `remover`, invalida as `demais` sem esperar e espera a recarga das `essenciais` (até
  *   `TETO_DA_RECARGA_MS`): o `onSuccess` passado ao `mutate` já encontra as
  *   listas essenciais atualizadas, e uma recarga que falha ou demora não
  *   transforma o sucesso em erro. Se a sessão mudou (saída, expiração ou outra
@@ -229,7 +284,7 @@ async function esperarComTeto(
  */
 export function useMutacaoComInvalidacao<TDados, TEntrada>(
   executar: (cliente: ClienteHttp, entrada: TEntrada) => Promise<TDados>,
-  { essenciais, demais = [] }: ChavesDaMutacao,
+  { essenciais, demais, remover }: ChavesDaMutacao<TEntrada>,
 ): UseMutationResult<TDados, Error, TEntrada, ContextoDaMutacao> {
   const cliente = useCliente();
   const sessao = useSessao();
@@ -240,14 +295,15 @@ export function useMutacaoComInvalidacao<TDados, TEntrada>(
     retry: 0,
     gcTime: 0,
     onMutate: () => ({ geracao: sessao.geracao() }),
-    onSuccess: async (_dados, _entrada, contexto) => {
+    onSuccess: async (_dados, entrada, contexto) => {
       if (contexto.geracao !== sessao.geracao()) {
         return;
       }
-      const recargas = essenciais.map((queryKey) =>
+      esquecerConsultas(queryClient, resolverChaves(remover, entrada));
+      const recargas = resolverChaves(essenciais, entrada).map((queryKey) =>
         queryClient.invalidateQueries({ queryKey, refetchType: 'all' }),
       );
-      for (const queryKey of demais) {
+      for (const queryKey of resolverChaves(demais, entrada)) {
         void queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
       }
       await esperarComTeto(Promise.all(recargas), TETO_DA_RECARGA_MS);
@@ -277,6 +333,77 @@ export function useOfertarServico() {
     {
       essenciais: [chaves.meusServicos()],
       demais: [chaves.recentes('servicos'), chaves.todasAsBuscas()],
+    },
+  );
+}
+
+/**
+ * `PUT /trampos/:id` (CA32); a entrada leva a `versao` lida. No sucesso
+ * recarrega o trampo e Meus trampos (esperados) e invalida sem esperar os
+ * recentes de trampos e toda busca em cache (o texto mudou). 400 traz os
+ * `campos`; 409 `trampo_nao_editavel` e `conflito_de_versao` sobem como
+ * `ErroDaApi`. Ver `useMutacaoComInvalidacao`.
+ */
+export function useEditarTrampo(id: string) {
+  return useMutacaoComInvalidacao<
+    void,
+    EntradaDeTrampo & { readonly versao: number }
+  >((cliente, entrada) => editarTrampo(cliente, id, entrada), {
+    essenciais: [chaves.trampo(id), chaves.meusTrampos()],
+    demais: [chaves.recentes('trampos'), chaves.todasAsBuscas()],
+  });
+}
+
+/** `PUT /servicos/:id` (CA32), como `useEditarTrampo`, com os serviços. */
+export function useEditarServico(id: string) {
+  return useMutacaoComInvalidacao<
+    void,
+    EntradaDeServico & { readonly versao: number }
+  >((cliente, entrada) => editarServico(cliente, id, entrada), {
+    essenciais: [chaves.servico(id), chaves.meusServicos()],
+    demais: [chaves.recentes('servicos'), chaves.todasAsBuscas()],
+  });
+}
+
+/**
+ * `POST /trampos/:id/encerrar` (CA33); a entrada do `mutate` é o id do
+ * trampo. No sucesso recarrega o trampo e Meus trampos (esperados) e invalida
+ * sem esperar as candidaturas recebidas (as pendentes viram recusadas), os
+ * recentes de trampos e toda busca em cache. Encerrar de novo também
+ * resolve. 404 sobe como `ErroDaApi`.
+ */
+export function useEncerrarTrampo() {
+  return useMutacaoComInvalidacao<void, string>(encerrarTrampo, {
+    essenciais: (id) => [chaves.trampo(id), chaves.meusTrampos()],
+    demais: (id) => [
+      chaves.candidaturasRecebidas(id),
+      chaves.recentes('trampos'),
+      chaves.todasAsBuscas(),
+    ],
+  });
+}
+
+/**
+ * `DELETE /trampos/:id` ou `DELETE /servicos/:id` (CA33); a entrada do
+ * `mutate` é o id. No sucesso esquece o detalhe (e as candidaturas
+ * recebidas, no trampo), que agora daria 404 (`esquecerConsultas`), recarrega a lista "meus"
+ * (esperada) e invalida sem esperar os recentes e toda busca em cache. 409
+ * `trampo_nao_aberto` (trampo) e 404 sobem como `ErroDaApi`.
+ */
+export function useExcluirAnuncio(tipo: TipoDeAnuncio) {
+  const ehTrampo = tipo === 'trampo';
+  return useMutacaoComInvalidacao<void, string>(
+    ehTrampo ? excluirTrampo : excluirServico,
+    {
+      remover: (id) =>
+        ehTrampo
+          ? [chaves.trampo(id), chaves.candidaturasRecebidas(id)]
+          : [chaves.servico(id)],
+      essenciais: ehTrampo ? [chaves.meusTrampos()] : [chaves.meusServicos()],
+      demais: [
+        chaves.recentes(ehTrampo ? 'trampos' : 'servicos'),
+        chaves.todasAsBuscas(),
+      ],
     },
   );
 }

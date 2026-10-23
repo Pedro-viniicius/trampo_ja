@@ -1,4 +1,5 @@
 import { Text, View } from 'react-native';
+import { BotaoMaisOpcoes, FolhaDeAcoesDoAnuncio } from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
@@ -16,7 +17,10 @@ export function DetalheDoServico({
   estado,
   autor,
   rodape,
+  sobreposicao,
   semConexao,
+  onMaisOpcoes,
+  folha,
   onVoltar,
   onAbrirAutor,
 }: PropsDoDetalheDoServico) {
@@ -26,6 +30,12 @@ export function DetalheDoServico({
       onVoltar={onVoltar}
       semConexao={semConexao}
       rodape={rodape}
+      sobreposicao={sobreposicao}
+      direita={
+        folha && onMaisOpcoes ? (
+          <BotaoMaisOpcoes titulo={folha.titulo} onPress={onMaisOpcoes} />
+        ) : undefined
+      }
     >
       <EstadoDeTela
         estado={estado}
@@ -74,6 +84,7 @@ export function DetalheDoServico({
           </>
         )}
       </EstadoDeTela>
+      {folha ? <FolhaDeAcoesDoAnuncio {...folha} /> : null}
     </Rolavel>
   );
 }

@@ -10,6 +10,7 @@ export type VarianteDoSelo =
   | 'pendente'
   | 'aceita'
   | 'recusada'
+  | 'encerrado'
   | 'neutro';
 
 export type PropsDoSelo = {
@@ -23,6 +24,7 @@ const aparencia: Record<VarianteDoSelo, { cor: string; icone: NomeDeIcone }> = {
   pendente: { cor: cores.textoSecundario, icone: 'hourglass-outline' },
   aceita: { cor: cores.sucesso, icone: 'checkmark-circle' },
   recusada: { cor: cores.erro, icone: 'close-circle' },
+  encerrado: { cor: cores.textoSecundario, icone: 'lock-closed-outline' },
   neutro: { cor: cores.textoSecundario, icone: 'ellipse-outline' },
 };
 

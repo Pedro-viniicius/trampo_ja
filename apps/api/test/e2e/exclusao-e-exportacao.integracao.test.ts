@@ -11,7 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { criarConexao } from '../../src/compartilhado/banco/conexao.js';
-import type { Relogio } from '../../src/compartilhado/dominio/relogio.js';
+import {
+  type Relogio,
+  RelogioFixo,
+} from '../../src/compartilhado/dominio/relogio.js';
 import {
   type Aplicacao,
   montarAplicacao,
@@ -27,8 +30,10 @@ const TABELAS = [
   'trampos',
   'servicos',
   'perfis',
+  'tentativas_de_entrada',
   'sessoes',
   'contas',
+  'contas_excluidas',
 ];
 
 // O hash de produção (scrypt N=2^17) leva ~0,6 s por cadastro, entrada,
@@ -254,6 +259,7 @@ async function montarCenario(): Promise<Cenario> {
 const DONO_DA_LINHA: Readonly<Record<string, readonly string[]>> = {
   contas: ['id'],
   sessoes: ['conta_id'],
+  tentativas_de_entrada: ['conta_id'],
   perfis: ['conta_id'],
   trampos: ['autor_id'],
   servicos: ['autor_id'],
@@ -333,6 +339,7 @@ async function linhasDaConta(contaId: string): Promise<Record<string, number>> {
 const NADA = {
   contas: 0,
   sessoes: 0,
+  tentativas_de_entrada: 0,
   perfis: 0,
   trampos: 0,
   servicos: 0,
@@ -568,6 +575,8 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
       expect(antes).toEqual({
         contas: 1,
         sessoes: 2,
+        // O teto de entrada (D31) da Ana, gravado no login do 2º aparelho.
+        tentativas_de_entrada: 1,
         perfis: 1,
         trampos: 1,
         servicos: 1,
@@ -745,6 +754,104 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
         conversas: [],
       });
       expect(corpo.sessoes).toHaveLength(1);
+    },
+    TEMPO_LIMITE,
+  );
+});
+
+describe('CA47/CA48 — lápide e teto da exportação pela composição (L3)', () => {
+  async function idDaConta(email: string): Promise<string> {
+    const { rows } = await sql<{ id: string }>`
+      select id from contas where email = ${email}`.execute(bancoDeTeste());
+    const id = rows[0]?.id;
+    expect(id).toBeDefined();
+    return id ?? '';
+  }
+
+  async function lapides(): Promise<{ id: string; em: string }[]> {
+    const { rows } = await sql<{ id: string; em: Date }>`
+      select id, excluida_em as em from contas_excluidas order by id`.execute(
+      bancoDeTeste(),
+    );
+    return rows.map((r) => ({ id: r.id, em: r.em.toISOString() }));
+  }
+
+  it(
+    'CA47 — Dada a exclusão pela rota, então a lápide guarda o id e a hora do relógio da aplicação; a limpeza da aplicação a apaga só depois de 10 min',
+    async () => {
+      const relogio = new RelogioFixo(INSTANTE);
+      await montar({ relogio });
+      const token = await cadastrar(EMAIL_DA_ANA, SENHA_DA_ANA);
+      const contaId = await idDaConta(EMAIL_DA_ANA);
+
+      esperarStatus(
+        await pedir('POST', '/contas/eu/exclusao', token, {
+          senha: SENHA_DA_ANA,
+        }),
+        204,
+      );
+      expect(await lapides()).toEqual([{ id: contaId, em: INSTANTE }]);
+
+      relogio.avancar(10 * 60 * 1000 - 1);
+      expect(await aplicacao?.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 0,
+      });
+      expect(await lapides()).toHaveLength(1);
+
+      relogio.avancar(1);
+      expect(await aplicacao?.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 1,
+      });
+      expect(await lapides()).toEqual([]);
+    },
+    TEMPO_LIMITE,
+  );
+
+  it(
+    'CA48 — Dado um trampo cujo texto passa de 10 MiB, então a exportação responde 409 exportacao_grande com no-store; com o texto pequeno de novo, 200',
+    async () => {
+      await montar();
+      const token = await cadastrar(EMAIL_DA_ANA, SENHA_DA_ANA);
+      esperarStatus(
+        await pedir('PUT', '/perfis/eu', token, {
+          nome: 'Ana Exclusão',
+          cidade: 'Lavras',
+          habilidades: ['pintura'],
+        }),
+        200,
+      );
+      const trampoId = idDe(
+        await pedir('POST', '/trampos', token, {
+          titulo: 'Pintura do muro da Ana',
+          descricao: 'Muro de 10 metros.',
+          categoria: 'reformas',
+          cidade: 'Lavras',
+          valorCentavos: 35_000,
+        }),
+      );
+      // Direto no banco: a API não aceitaria um texto desse tamanho.
+      await sql`update trampos set descricao = repeat('a', ${10 * 1024 * 1024})
+        where id = ${trampoId}::uuid`.execute(bancoDeTeste());
+
+      const grande = await pedir('POST', '/contas/eu/exportacao', token, {
+        senha: SENHA_DA_ANA,
+      });
+      expect(grande.status).toBe(409);
+      expect(grande.texto).toBe('{"erro":"exportacao_grande"}');
+      expect(grande.cabecalhos['cache-control']).toBe('no-store');
+
+      await sql`update trampos set descricao = 'Muro de 10 metros.'
+        where id = ${trampoId}::uuid`.execute(bancoDeTeste());
+      const normal = await pedir('POST', '/contas/eu/exportacao', token, {
+        senha: SENHA_DA_ANA,
+      });
+      esperarStatus(normal, 200);
+      expect(normal.cabecalhos['content-type']).toBe(
+        'application/json; charset=utf-8',
+      );
+      expect((normal.corpo as { trampos: unknown[] }).trampos).toHaveLength(1);
     },
     TEMPO_LIMITE,
   );

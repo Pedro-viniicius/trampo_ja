@@ -5,7 +5,7 @@ import {
   ErroNaoEncontrado,
 } from '../../../compartilhado/dominio/erros.js';
 import { RelogioFixo } from '../../../compartilhado/dominio/relogio.js';
-import { type EntradaDeTrampo, Trampo } from './trampo.js';
+import { type EntradaDeTrampo, lerCamposDoTrampo, Trampo } from './trampo.js';
 
 const relogio = new RelogioFixo('2026-10-20T12:00:00.000Z');
 const AUTOR = 'autor-1';
@@ -307,5 +307,322 @@ describe('isolamento do agregado', () => {
     expect(resumo).not.toHaveProperty('candidaturas');
     expect(resumo).not.toHaveProperty('versao');
     expect(resumo.status).toBe('aberto');
+  });
+});
+
+/** Reconstitui o trampo como se lido do banco (base das alterações). */
+function lido(trampo: Trampo): Trampo {
+  return Trampo.reconstituir(trampo.dados());
+}
+
+function codigoDe(acao: () => unknown): string | undefined {
+  try {
+    acao();
+  } catch (erro) {
+    return (erro as { codigo?: string }).codigo;
+  }
+  return undefined;
+}
+
+describe('lerCamposDoTrampo', () => {
+  it('devolve só os seis campos, aparados, e prazo ausente vira null', () => {
+    expect(
+      lerCamposDoTrampo({
+        ...entradaValida,
+        titulo: '  Pintar a sala ',
+        versao: 3,
+        autorId: 'outro',
+      } as EntradaDeTrampo),
+    ).toEqual({
+      titulo: 'Pintar a sala',
+      descricao: entradaValida.descricao,
+      categoria: 'reformas',
+      cidade: 'São Paulo',
+      valorCentavos: 50000,
+      prazo: null,
+    });
+  });
+
+  it('aponta todos os campos inválidos num único erro, sem o valor', () => {
+    expect(() =>
+      lerCamposDoTrampo({ titulo: 'SEGREDO', valorCentavos: 0 }),
+    ).toThrow(
+      expect.objectContaining({
+        campos: [
+          { campo: 'descricao', motivo: 'obrigatorio' },
+          { campo: 'categoria', motivo: 'obrigatorio' },
+          { campo: 'cidade', motivo: 'obrigatorio' },
+          { campo: 'valorCentavos', motivo: 'invalido' },
+        ],
+      }),
+    );
+  });
+});
+
+describe('Trampo.editar (CA25)', () => {
+  const novaEntrada: EntradaDeTrampo = {
+    titulo: 'Trocar o piso',
+    descricao: 'Piso da COZINHA, 12 m².',
+    categoria: 'reformas',
+    cidade: 'Belo Horizonte',
+    valorCentavos: 90000,
+    prazo: '2026-12-01',
+  };
+
+  it('substitui os campos, recalcula a busca, sobe a versão e mantém id, autor e criadoEm', () => {
+    const trampo = lido(Trampo.criar(AUTOR, entradaValida, relogio));
+    const antes = trampo.dados();
+
+    trampo.editar(AUTOR, 1, novaEntrada);
+
+    expect(trampo.dados()).toEqual({
+      ...antes,
+      titulo: 'Trocar o piso',
+      descricao: 'Piso da COZINHA, 12 m².',
+      categoria: 'reformas',
+      cidade: 'Belo Horizonte',
+      cidadeNormalizada: 'belo horizonte',
+      textoBusca: 'trocar o piso piso da cozinha, 12 m².',
+      valorCentavos: 90000,
+      prazo: '2026-12-01',
+      versao: 2,
+    });
+  });
+
+  it('prazo ausente ou null remove o prazo', () => {
+    for (const prazo of [undefined, null]) {
+      const trampo = lido(
+        Trampo.criar(AUTOR, { ...entradaValida, prazo: '2026-12-31' }, relogio),
+      );
+      trampo.editar(AUTOR, 1, { ...novaEntrada, prazo });
+      expect(trampo.dados().prazo).toBeNull();
+    }
+  });
+
+  it('ordem: outra conta (404) antes da regra, regra antes da versão, versão antes dos campos', () => {
+    const comCandidatura = lido(Trampo.criar(AUTOR, entradaValida, relogio));
+    comCandidatura.candidatar('f1', candidatura(), relogio);
+    const aberto = lido(Trampo.criar(AUTOR, entradaValida, relogio));
+
+    expect(() => comCandidatura.editar('f1', 99, {})).toThrow(
+      ErroNaoEncontrado,
+    );
+    expect(codigoDe(() => comCandidatura.editar(AUTOR, 99, {}))).toBe(
+      'trampo_nao_editavel',
+    );
+    expect(codigoDe(() => aberto.editar(AUTOR, 2, {}))).toBe(
+      'conflito_de_versao',
+    );
+    expect(() => aberto.editar(AUTOR, 1, {})).toThrow(ErroDeValidacao);
+    expect(aberto.versao).toBe(1);
+  });
+
+  it('em andamento ou encerrado não é editável', () => {
+    const emAndamento = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c = emAndamento.candidatar('f1', candidatura(), relogio);
+    emAndamento.aceitar(c.id, AUTOR);
+    const encerrado = Trampo.criar(AUTOR, entradaValida, relogio);
+    encerrado.encerrar(AUTOR);
+
+    for (const trampo of [emAndamento, encerrado]) {
+      expect(
+        codigoDe(() => trampo.editar(AUTOR, trampo.versao, novaEntrada)),
+      ).toBe('trampo_nao_editavel');
+    }
+  });
+
+  it('campos inválidos não mudam nada', () => {
+    const trampo = lido(Trampo.criar(AUTOR, entradaValida, relogio));
+    const antes = trampo.dados();
+    expect(() =>
+      trampo.editar(AUTOR, 1, { ...novaEntrada, titulo: 'abc' }),
+    ).toThrow(ErroDeValidacao);
+    expect(trampo.dados()).toEqual(antes);
+  });
+});
+
+describe('Trampo.encerrar (CA27)', () => {
+  it('aberto: recusa as pendentes, passa a encerrado, sobe a versão e devolve true', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    trampo.candidatar('f1', candidatura(), relogio);
+    trampo.candidatar('f2', candidatura(), relogio);
+
+    expect(trampo.encerrar(AUTOR)).toBe(true);
+
+    expect(trampo.status).toBe('encerrado');
+    expect(trampo.versao).toBe(4);
+    expect(trampo.candidaturas.map((c) => c.status)).toEqual([
+      'recusada',
+      'recusada',
+    ]);
+  });
+
+  it('em andamento: a aceita fica aceita', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    trampo.candidatar('f2', candidatura(), relogio);
+    trampo.aceitar(c1.id, AUTOR);
+
+    expect(trampo.encerrar(AUTOR)).toBe(true);
+    expect(trampo.candidaturas.map((c) => c.status)).toEqual([
+      'aceita',
+      'recusada',
+    ]);
+  });
+
+  it('já encerrado: devolve false e não muda nada (D34)', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    trampo.encerrar(AUTOR);
+    const antes = trampo.dados();
+
+    expect(trampo.encerrar(AUTOR)).toBe(false);
+    expect(trampo.dados()).toEqual(antes);
+  });
+
+  it('quem não é o autor recebe ErroNaoEncontrado e nada muda', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    expect(() => trampo.encerrar('f1')).toThrow(ErroNaoEncontrado);
+    expect(trampo.status).toBe('aberto');
+  });
+
+  it('encerrado recusa candidatura e aceite com trampo_nao_aberto', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c = trampo.candidatar('f1', candidatura(), relogio);
+    trampo.encerrar(AUTOR);
+
+    expect(
+      codigoDe(() => trampo.candidatar('f2', candidatura(), relogio)),
+    ).toBe('trampo_nao_aberto');
+    expect(codigoDe(() => trampo.aceitar(c.id, AUTOR))).toBe(
+      'trampo_nao_aberto',
+    );
+  });
+});
+
+describe('Trampo.conferirExclusao (CA28)', () => {
+  it('só o autor e só trampo aberto', () => {
+    const aberto = Trampo.criar(AUTOR, entradaValida, relogio);
+    aberto.candidatar('f1', candidatura(), relogio);
+    expect(() => aberto.conferirExclusao(AUTOR)).not.toThrow();
+    expect(() => aberto.conferirExclusao('f1')).toThrow(ErroNaoEncontrado);
+
+    const encerrado = Trampo.criar(AUTOR, entradaValida, relogio);
+    encerrado.encerrar(AUTOR);
+    const emAndamento = Trampo.criar(AUTOR, entradaValida, relogio);
+    emAndamento.aceitar(
+      emAndamento.candidatar('f1', candidatura(), relogio).id,
+      AUTOR,
+    );
+    for (const trampo of [encerrado, emAndamento]) {
+      const versao = trampo.versao;
+      expect(codigoDe(() => trampo.conferirExclusao(AUTOR))).toBe(
+        'trampo_nao_aberto',
+      );
+      expect(trampo.versao).toBe(versao);
+    }
+  });
+});
+
+describe('Trampo.retirar (CA29)', () => {
+  it('tira a candidatura pendente do próprio freelancer e sobe a versão', () => {
+    const trampo = lido(Trampo.criar(AUTOR, entradaValida, relogio));
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    const c2 = trampo.candidatar('f2', candidatura(), relogio);
+    const relido = lido(trampo);
+
+    relido.retirar(c1.id, 'f1');
+
+    expect(relido.candidaturas.map((c) => c.id)).toEqual([c2.id]);
+    expect(relido.versao).toBe(4);
+    // Retirada, pode se candidatar de novo.
+    expect(() => relido.candidatar('f1', candidatura(), relogio)).not.toThrow();
+  });
+
+  it('de outra conta ou inexistente: ErroNaoEncontrado, antes do status', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    trampo.aceitar(c1.id, AUTOR);
+
+    expect(() => trampo.retirar(c1.id, 'f2')).toThrow(ErroNaoEncontrado);
+    expect(() => trampo.retirar(c1.id, AUTOR)).toThrow(ErroNaoEncontrado);
+    expect(() => trampo.retirar('nao-existe', 'f1')).toThrow(ErroNaoEncontrado);
+  });
+
+  it('aceita ou recusada: candidatura_nao_pendente e nada muda', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    const c2 = trampo.candidatar('f2', candidatura(), relogio);
+    trampo.aceitar(c1.id, AUTOR);
+    const antes = trampo.dados();
+
+    expect(codigoDe(() => trampo.retirar(c1.id, 'f1'))).toBe(
+      'candidatura_nao_pendente',
+    );
+    expect(codigoDe(() => trampo.retirar(c2.id, 'f2'))).toBe(
+      'candidatura_nao_pendente',
+    );
+    expect(trampo.dados()).toEqual(antes);
+  });
+});
+
+describe('alteracoesDasCandidaturas (ADR-006)', () => {
+  it('recém-lido: nada inserido nem removido, mesmo depois de mudar status', () => {
+    const base = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = base.candidatar('f1', candidatura(), relogio);
+    base.candidatar('f2', candidatura(), relogio);
+    const trampo = lido(base);
+
+    expect(trampo.alteracoesDasCandidaturas()).toEqual({
+      inseridas: [],
+      removidas: [],
+    });
+    trampo.aceitar(c1.id, AUTOR);
+    expect(trampo.alteracoesDasCandidaturas()).toEqual({
+      inseridas: [],
+      removidas: [],
+    });
+  });
+
+  it('candidatar insere só a nova; retirar remove só a retirada', () => {
+    const base = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = base.candidatar('f1', candidatura(), relogio);
+    const trampo = lido(base);
+
+    const nova = trampo.candidatar('f2', candidatura(), relogio);
+    expect(trampo.alteracoesDasCandidaturas()).toEqual({
+      inseridas: [nova],
+      removidas: [],
+    });
+
+    const outra = lido(base);
+    outra.retirar(c1.id, 'f1');
+    expect(outra.alteracoesDasCandidaturas()).toEqual({
+      inseridas: [],
+      removidas: [c1.id],
+    });
+  });
+
+  it('trampo novo: as candidaturas criadas antes da primeira gravação são inseridas', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    expect(trampo.alteracoesDasCandidaturas()).toEqual({
+      inseridas: [c1],
+      removidas: [],
+    });
+  });
+});
+
+describe('resumoDoAutor (D33)', () => {
+  it('traz a versão e a contagem de candidaturas em qualquer estado', () => {
+    const trampo = Trampo.criar(AUTOR, entradaValida, relogio);
+    const c1 = trampo.candidatar('f1', candidatura(), relogio);
+    trampo.candidatar('f2', candidatura(), relogio);
+    trampo.aceitar(c1.id, AUTOR);
+
+    expect(trampo.resumoDoAutor()).toEqual({
+      ...trampo.resumo(),
+      versao: 4,
+      candidaturasRecebidas: 2,
+    });
   });
 });

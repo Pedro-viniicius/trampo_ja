@@ -1,8 +1,19 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../api/erros';
 import type { Trampo } from '../../../api/tipos';
 import { Aviso, Toast } from '../../../componentes';
+import {
+  type AnuncioDaFolha,
+  acoesDoAnuncio,
+  type MotivoDaSaida,
+  useAcoesDoAnuncio,
+} from '../../../estado/acoes-do-anuncio';
+import {
+  avisarAoVoltar,
+  type ChaveDeAvisoDeRetorno,
+  useAvisoDeRetorno,
+} from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useConversar } from '../../../estado/consultas/abrir-conversa';
 import { useMeusTrampos, useTrampo } from '../../../estado/consultas/anuncios';
@@ -11,12 +22,13 @@ import {
   useCandidatar,
   useCandidaturasRecebidas,
   useMinhasCandidaturas,
+  useRetirarCandidatura,
 } from '../../../estado/consultas/candidaturas';
 import {
   useMeuPerfil,
   usePerfilPublico,
 } from '../../../estado/consultas/perfil';
-import { chaveDoErro } from '../../../estado/erros';
+import { chaveDoErro, textoDeErroDeAcao } from '../../../estado/erros';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
 import {
   centavosParaCampo,
@@ -25,21 +37,52 @@ import {
   lerValorEmCentavos,
   rotuloDaCategoria,
 } from '../../../estado/formatacao';
+import { useNavegarUmaVez } from '../../../estado/navegar-uma-vez';
 import { useAvisoDePerfil } from '../../../estado/perfil-incompleto';
 import {
   type ListaDoRodape,
   situacaoDoRodape,
 } from '../../../estado/rodape-do-trampo';
+import { useSessao } from '../../../estado/sessao';
 import { validarCandidatura } from '../../../estado/validacao';
 import {
   DetalheDoTrampo,
   type FolhaDeCandidatura,
+  type PropsDaFolhaDeAcoes,
   RodapeDoTrampo,
   type TrampoParaExibir,
 } from '../../../telas';
 import { type ChaveDeErro, textos } from '../../../textos/pt-BR';
 
 const CARREGANDO = { situacao: 'carregando' } as const;
+
+const SEM_ACAO = () => undefined;
+
+/**
+ * Folha fechada: o detalhe só mostra "Mais opções" com uma `folha` em mãos, e
+ * a do hook só existe depois do primeiro `abrir`.
+ */
+function folhaFechada(
+  anuncio: AnuncioDaFolha,
+  online: boolean,
+): PropsDaFolhaDeAcoes {
+  return {
+    visivel: false,
+    titulo: anuncio.titulo,
+    tipo: anuncio.tipo,
+    ...acoesDoAnuncio(anuncio, online),
+    processando: null,
+    onEditar: SEM_ACAO,
+    onEncerrar: SEM_ACAO,
+    onExcluir: SEM_ACAO,
+    onFechar: SEM_ACAO,
+  };
+}
+
+/** O aviso que o detalhe deixa à tela anterior quando o trampo some. */
+function avisoDaSaida(motivo: MotivoDaSaida): ChaveDeAvisoDeRetorno {
+  return motivo === 'excluido' ? 'trampo_excluido' : 'ja_nao_existe';
+}
 
 export default function RotaDoTrampo() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -112,32 +155,99 @@ function TrampoComAutor({
   onRecarregarTrampo: () => void;
 }) {
   const router = useRouter();
+  const { geracao } = useSessao();
+  const abrirEdicao = useNavegarUmaVez();
   const consultaDoAutor = usePerfilPublico(trampo.autorId);
   const autor = estadoDeConsulta(
     { ...consultaDoAutor, dados: consultaDoAutor.perfil },
     (perfil) => perfil,
   );
   const [toast, setToast] = useState<string | null>(null);
+
+  // "Mais opções" (CA33), só para o autor, decidido pela lista "meus". O
+  // status e a contagem de candidaturas que a folha precisa vêm do próprio
+  // detalhe, que os traz para o autor (a lista pode estar mais velha).
+  // Excluir não mostra o toast do hook: o aviso vai para a tela de destino, e
+  // esta para de ouvir antes de avisar (senão consumiria o próprio aviso).
+  const meusTrampos = useMeusTrampos();
+  const meu = meusTrampos.trampos?.find((m) => m.id === trampo.id);
+  const [saida, setSaida] = useState<MotivoDaSaida | null>(null);
+  const acoes = useAcoesDoAnuncio({
+    aoEditar: (anuncio) =>
+      abrirEdicao({
+        pathname: '/trampos/editar/[id]',
+        params: { id: anuncio.id },
+      }),
+    aoExcluir: (_anuncio, motivo) => setSaida(motivo),
+  });
+  const aviso = useAvisoDeRetorno(useIsFocused() && saida === null);
+  const saiu = useRef(false);
+  const voltarRef = useRef(onVoltar);
+  voltarRef.current = onVoltar;
+  useEffect(() => {
+    if (saida === null || saiu.current) {
+      return;
+    }
+    saiu.current = true;
+    avisarAoVoltar(avisoDaSaida(saida), geracao());
+    voltarRef.current();
+  }, [saida, geracao]);
+
+  const anuncio: AnuncioDaFolha | null =
+    meu === undefined
+      ? null
+      : {
+          tipo: 'trampo',
+          id: trampo.id,
+          titulo: trampo.titulo,
+          status: trampo.status,
+          ...(trampo.candidaturasRecebidas !== undefined && {
+            candidaturasRecebidas: trampo.candidaturasRecebidas,
+          }),
+        };
+  // Encerrar mostra o toast do hook aqui mesmo; excluir (ou o 404) sai da
+  // tela, e o aviso é da tela de destino.
+  const mensagem =
+    toast ?? (saida === null ? acoes.toast : null) ?? aviso.texto;
   return (
     <DetalheDoTrampo
       estado={estado}
       autor={autor}
+      // Excluído: a lista já não traz o trampo, e o rodapé não pisca antes de sair.
       rodape={
-        <RodapeDaRota
-          trampo={trampo}
-          semConexao={semConexao}
-          onEnviada={() => setToast(textos.candidatar.enviada)}
-          onRecarregarTrampo={onRecarregarTrampo}
-        />
+        saida === null ? (
+          <RodapeDaRota
+            trampo={trampo}
+            semConexao={semConexao}
+            onEnviada={() => setToast(textos.candidatar.enviada)}
+            onRetirada={() => setToast(textos.candidatura.retirada)}
+            onRecarregarTrampo={onRecarregarTrampo}
+          />
+        ) : undefined
       }
       sobreposicao={
         <Toast
-          visivel={toast !== null}
-          mensagem={toast ?? ''}
-          onFechar={() => setToast(null)}
+          visivel={mensagem !== null}
+          mensagem={mensagem ?? ''}
+          onFechar={() => {
+            setToast(null);
+            acoes.fecharToast();
+            aviso.limpar();
+          }}
           rotuloFechar={textos.gerais.toastFechar}
         />
       }
+      folha={
+        anuncio === null
+          ? undefined
+          : // O botão "Mais opções" fala do título de agora, não do da
+            // última abertura da folha.
+            {
+              ...(acoes.folha ?? folhaFechada(anuncio, !semConexao)),
+              titulo: anuncio.titulo,
+            }
+      }
+      onMaisOpcoes={anuncio === null ? undefined : () => acoes.abrir(anuncio)}
       semConexao={semConexao}
       onVoltar={onVoltar}
       onAbrirAutor={(contaId) =>
@@ -199,12 +309,15 @@ function RodapeDaRota({
   trampo,
   semConexao,
   onEnviada,
+  onRetirada,
   onRecarregarTrampo,
 }: {
   trampo: Trampo;
   semConexao: boolean;
   /** Candidatura criada: o detalhe mostra o toast. */
   onEnviada: () => void;
+  /** Candidatura retirada: o detalhe mostra o toast. */
+  onRetirada: () => void;
   onRecarregarTrampo: () => void;
 }) {
   const router = useRouter();
@@ -213,6 +326,7 @@ function RodapeDaRota({
   const meuPerfil = useMeuPerfil();
   const candidatar = useCandidatar(trampo.id);
   const conversa = useConversar(trampo.autorId, semConexao);
+  const retirar = useRetirarCandidatura();
 
   const listas = {
     trampo,
@@ -232,6 +346,7 @@ function RodapeDaRota({
     recebidas: ehAutor ? (recebidas.candidaturas ?? undefined) : undefined,
   });
 
+  const [avisoDaRetirada, setAvisoDaRetirada] = useState<string | undefined>();
   const [visivel, setVisivel] = useState(false);
   const [mensagem, setMensagem] = useState('');
   const [valor, setValor] = useState('');
@@ -241,6 +356,8 @@ function RodapeDaRota({
   // O `isPending` só chega à tela no próximo render: o toque duplo no
   // "Enviar" não pode disparar um segundo `POST`.
   const enviando = useRef(false);
+  // Mesmo cuidado no "Retirar candidatura": um `DELETE` só por toque duplo.
+  const retirando = useRef(false);
 
   const enviar = () => {
     if (enviando.current) {
@@ -299,6 +416,43 @@ function RodapeDaRota({
     );
   };
 
+  // A candidatura que o rodapé mostra: o id vem da lista "minha".
+  const idDaMinha = (minhasCandidaturas.candidaturas ?? []).find(
+    (candidatura) => candidatura.trampoId === trampo.id,
+  )?.id;
+
+  const aoRetirar = () => {
+    if (retirando.current || idDaMinha === undefined || semConexao) {
+      return;
+    }
+    retirando.current = true;
+    setAvisoDaRetirada(undefined);
+    retirar.mutate(idDaMinha, {
+      // A invalidação de Minhas candidaturas já terminou: o rodapé volta a
+      // "Candidatar-se" junto com o toast.
+      onSuccess: onRetirada,
+      onError: (erro) => {
+        if (ehErroDaApi(erro) && erro.status === 404) {
+          // Já não existe: a recarga leva o rodapé a "Candidatar-se".
+          void minhasCandidaturas.recarregar();
+          return;
+        }
+        if (codigoDoConflito(erro) === 'candidatura_nao_pendente') {
+          // Foi respondida antes: o rodapé troca para o selo novo.
+          setAvisoDaRetirada(textos.candidatura.respondida);
+          void minhasCandidaturas.recarregar();
+          return;
+        }
+        setAvisoDaRetirada(
+          textoDeErroDeAcao(erro, textos.candidatura.erroAoRetirar),
+        );
+      },
+      onSettled: () => {
+        retirando.current = false;
+      },
+    });
+  };
+
   const folha: FolhaDeCandidatura = {
     visivel,
     mensagem,
@@ -344,12 +498,20 @@ function RodapeDaRota({
   return (
     <>
       {conversa.falha ? <Aviso variante="erro" texto={conversa.falha} /> : null}
+      {avisoDaRetirada ? (
+        <Aviso variante="erro" texto={avisoDaRetirada} />
+      ) : null}
       <RodapeDoTrampo
         situacao={situacao}
         semConexao={semConexao}
         folha={folha}
         estadoDoConversar={conversa.estado}
         onConversar={conversa.conversar}
+        retirar={{
+          retirando: retirar.isPending,
+          motivo: semConexao ? textos.candidatura.semConexaoMotivo : null,
+          onRetirar: aoRetirar,
+        }}
         onCandidatar={() => {
           // O perfil pode ter sido completado em outro lugar desde o último
           // 409: a folha reaberta deixa tentar de novo.

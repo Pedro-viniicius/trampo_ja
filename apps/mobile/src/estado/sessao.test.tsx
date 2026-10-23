@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react-native';
 import { ErroDaApi } from '../api/erros';
+import { criarFetchFalso, type FetchFalso } from '../testes/fetch-falso';
 import {
   criarProvedores,
   type OpcoesDosProvedores,
@@ -9,10 +10,20 @@ import {
   type ArmazenamentoDeToken,
   criarArmazenamentoEmMemoria,
 } from './armazenamento-token';
-import { rotaDeRetornoSegura, useCliente, useSessao } from './sessao';
+import {
+  impressaoDaConta,
+  rotaDeRetornoSegura,
+  rotaParaAConta,
+  useCliente,
+  useSessao,
+} from './sessao';
 
 const TOKEN = 'token-secreto-123';
 const NOVO_TOKEN = 'token-novo-456';
+const EMAIL = 'maria.silva@exemplo.com';
+const OUTRO_EMAIL = 'joao.souza@exemplo.com';
+/** Impressão de `EMAIL`: toda sessão gravada por login traz a dela (D43). */
+const IMPRESSAO = impressaoDaConta(EMAIL);
 
 function useSessaoECliente() {
   return { sessao: useSessao(), cliente: useCliente() };
@@ -42,6 +53,23 @@ function adiada() {
     resolver = r;
   });
   return { promessa, resolver };
+}
+
+/**
+ * `fetch` que registra a requisição e só responde quando o teste soltar,
+ * como uma rede pendurada.
+ */
+function fetchPendurado(): FetchFalso & { soltar: () => void } {
+  const base = criarFetchFalso();
+  const pendencia = adiada();
+  return {
+    ...base,
+    fetch: (url, init) => {
+      const resposta = base.fetch(url, init);
+      return pendencia.promessa.then(() => resposta);
+    },
+    soltar: pendencia.resolver,
+  };
 }
 
 describe('SessaoProvider: carregamento', () => {
@@ -230,7 +258,7 @@ describe('SessaoProvider: sair (CA15)', () => {
 
 describe('SessaoProvider: expirar (CA14)', () => {
   it('apaga o token, limpa o cache e guarda rota e aviso', async () => {
-    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO);
     const provedores = await montar({ armazenamento });
     semearCache(provedores);
 
@@ -244,6 +272,7 @@ describe('SessaoProvider: expirar (CA14)', () => {
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/trampos/abc-123',
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
@@ -260,7 +289,7 @@ describe('SessaoProvider: expirar (CA14)', () => {
 
   it('guarda só o caminho, sem query nem fragmento', async () => {
     const provedores = await montar({
-      armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO),
     });
 
     await act(() =>
@@ -272,12 +301,13 @@ describe('SessaoProvider: expirar (CA14)', () => {
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/buscar',
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
-  it('sem rota válida, guarda só o aviso', async () => {
+  it('sem rota válida, guarda só o aviso e a conta', async () => {
     const provedores = await montar({
-      armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO),
     });
 
     await act(() =>
@@ -286,11 +316,12 @@ describe('SessaoProvider: expirar (CA14)', () => {
 
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
   it('chamado duas vezes em paralelo não quebra e mantém o primeiro retorno', async () => {
-    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO);
     const provedores = await montar({ armazenamento });
     semearCache(provedores);
 
@@ -308,6 +339,7 @@ describe('SessaoProvider: expirar (CA14)', () => {
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/perfil',
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
@@ -352,7 +384,7 @@ describe('SessaoProvider: expirar (CA14)', () => {
 
   it('entrar depois de expirar mantém a rota de retorno e descarta o aviso', async () => {
     const provedores = await montar({
-      armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO),
     });
 
     await act(() => provedores.result.current.sessao.expirar('/perfil'));
@@ -360,13 +392,14 @@ describe('SessaoProvider: expirar (CA14)', () => {
 
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/perfil',
+      conta: IMPRESSAO,
     });
   });
 });
 
 describe('SessaoProvider: 401 vindo do cliente (CA14)', () => {
   it('um 401 autenticado expira a sessão com a rota atual', async () => {
-    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO);
     const provedores = await montar({
       armazenamento,
       obterRotaAtual: () => '/perfis/abc?x=1',
@@ -393,11 +426,12 @@ describe('SessaoProvider: 401 vindo do cliente (CA14)', () => {
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/perfis/abc',
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
   it('vários 401 em paralelo expiram uma vez só, sem erro', async () => {
-    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN, IMPRESSAO);
     const provedores = await montar({
       armazenamento,
       obterRotaAtual: () => '/buscar',
@@ -427,6 +461,7 @@ describe('SessaoProvider: 401 vindo do cliente (CA14)', () => {
     expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
       rota: '/buscar',
       aviso: 'sessao_expirada',
+      conta: IMPRESSAO,
     });
   });
 
@@ -684,6 +719,316 @@ describe('SessaoProvider: encerrarPorExclusao (CA17)', () => {
   });
 });
 
+describe('SessaoProvider: sair sem esperar a rede (CA51)', () => {
+  it('com o fetch pendurado, termina, deixa token e cache vazios e o DELETE leva o token antigo', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(
+      TOKEN,
+      impressaoDaConta(EMAIL),
+    );
+    const fetch = fetchPendurado();
+    fetch.responder('DELETE /sessoes', { status: 204 });
+    const provedores = await montar({ armazenamento, fetch });
+    semearCache(provedores);
+
+    let terminou = false;
+    await act(async () => {
+      await provedores.result.current.sessao.sair();
+      terminou = true;
+    });
+
+    expect(terminou).toBe(true);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+    expect(armazenamento.atual()).toBeNull();
+    expect(armazenamento.contaAtual()).toBeNull();
+    expect(provedores.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(fetch.requisicoes).toHaveLength(1);
+    expect(fetch.ultima()).toMatchObject({
+      metodo: 'DELETE',
+      caminho: '/sessoes',
+      cabecalhos: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({});
+
+    await act(async () => fetch.soltar());
+  });
+
+  it('o 401 do DELETE em segundo plano não derruba um login feito depois', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const provedores = await montar({ armazenamento });
+    provedores.fetch.responder('DELETE /sessoes', {
+      status: 401,
+      corpo: { erro: 'nao_autenticado' },
+      demoraMs: 30,
+    });
+
+    await act(() => provedores.result.current.sessao.sair());
+    await act(() =>
+      provedores.result.current.sessao.entrar(NOVO_TOKEN, OUTRO_EMAIL),
+    );
+    const geracao = provedores.result.current.sessao.geracao();
+    semearCache(provedores);
+    await act(async () => {
+      await new Promise((resolver) => setTimeout(resolver, 60));
+    });
+
+    expect(
+      provedores.fetch.requisicoes.map((r) => r.cabecalhos.authorization),
+    ).toEqual([`Bearer ${TOKEN}`]);
+    expect(provedores.result.current.sessao.status).toBe('autenticado');
+    expect(armazenamento.atual()).toBe(NOVO_TOKEN);
+    expect(armazenamento.contaAtual()).toBe(impressaoDaConta(OUTRO_EMAIL));
+    expect(provedores.result.current.sessao.geracao()).toBe(geracao);
+    expect(provedores.queryClient.getQueryData(['meuPerfil'])).toBeDefined();
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({});
+  });
+
+  it('a falha do DELETE não aparece em lugar nenhum: sem rejeição nem console', async () => {
+    const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map(
+      (metodo) => jest.spyOn(console, metodo).mockImplementation(() => {}),
+    );
+    const naoTratadas: unknown[] = [];
+    const aoRejeitar = (motivo: unknown) => naoTratadas.push(motivo);
+    process.on('unhandledRejection', aoRejeitar);
+    try {
+      const provedores = await montar({
+        armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+      });
+      provedores.fetch.responder('DELETE /sessoes', [{ falhaDeRede: true }]);
+
+      await act(async () => {
+        await expect(
+          provedores.result.current.sessao.sair(),
+        ).resolves.toBeUndefined();
+      });
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 0));
+      });
+
+      expect(provedores.fetch.ultima().caminho).toBe('/sessoes');
+      expect(provedores.result.current.sessao.status).toBe('anonimo');
+      expect(provedores.result.current.sessao.consumirRetorno()).toEqual({});
+      for (const espiao of espioes) {
+        expect(espiao).not.toHaveBeenCalled();
+      }
+      expect(naoTratadas).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', aoRejeitar);
+      for (const espiao of espioes) {
+        espiao.mockRestore();
+      }
+    }
+  });
+
+  it('sem token na porta, sai sem chamar a rede', async () => {
+    const provedores = await montar();
+
+    await act(() => provedores.result.current.sessao.sair());
+
+    expect(provedores.fetch.requisicoes).toEqual([]);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+  });
+
+  it('com a porta ilegível, ainda apaga, limpa o cache e fica anônimo, sem rede', async () => {
+    const apagar = jest.fn(async () => undefined);
+    const armazenamento: ArmazenamentoDeToken = {
+      ler: jest
+        .fn<Promise<string | null>, []>()
+        .mockResolvedValueOnce(TOKEN)
+        .mockRejectedValue(new Error('ilegivel')),
+      gravar: async () => undefined,
+      apagar,
+    };
+    const provedores = await montar({ armazenamento });
+    semearCache(provedores);
+
+    await act(() => provedores.result.current.sessao.sair());
+
+    expect(apagar).toHaveBeenCalled();
+    expect(provedores.fetch.requisicoes).toEqual([]);
+    expect(provedores.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(provedores.result.current.sessao.status).toBe('anonimo');
+  });
+});
+
+describe('SessaoProvider: impressão da conta (CA50)', () => {
+  it('entrar com e-mail grava a impressão junto do token, sem o e-mail', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria();
+    const { result } = await montar({ armazenamento });
+
+    await act(() => result.current.sessao.entrar(TOKEN, `  ${EMAIL} `));
+
+    expect(armazenamento.atual()).toBe(TOKEN);
+    expect(armazenamento.contaAtual()).toBe(impressaoDaConta(EMAIL));
+    expect(armazenamento.contaAtual()).not.toContain('maria');
+  });
+
+  it('entrar sem e-mail não deixa a impressão de outra sessão', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(
+      TOKEN,
+      impressaoDaConta(EMAIL),
+    );
+    const { result } = await montar({ armazenamento });
+
+    await act(() => result.current.sessao.entrar(NOVO_TOKEN));
+
+    expect(armazenamento.atual()).toBe(NOVO_TOKEN);
+    expect(armazenamento.contaAtual()).toBeNull();
+  });
+
+  it('a sessão restaurada guarda a impressão da porta no retorno da expiração', async () => {
+    const provedores = await montar({
+      armazenamento: criarArmazenamentoEmMemoria(
+        TOKEN,
+        impressaoDaConta(EMAIL),
+      ),
+    });
+
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      rota: '/perfil',
+      aviso: 'sessao_expirada',
+      conta: impressaoDaConta(EMAIL),
+    });
+  });
+
+  it('o 401 de uma sessão aberta com e-mail guarda a impressão dela', async () => {
+    const provedores = await montar({ obterRotaAtual: () => '/conversas/c1' });
+    provedores.fetch.responder('GET /perfis/eu', { status: 401 });
+
+    await act(() => provedores.result.current.sessao.entrar(TOKEN, EMAIL));
+    await act(async () => {
+      await provedores.result.current.cliente
+        .get('/perfis/eu')
+        .catch(() => undefined);
+    });
+    await act(async () => {});
+
+    const retorno = provedores.result.current.sessao.consumirRetorno();
+    expect(retorno).toEqual({
+      rota: '/conversas/c1',
+      aviso: 'sessao_expirada',
+      conta: impressaoDaConta(EMAIL),
+    });
+    expect(rotaParaAConta(retorno, EMAIL)).toBe('/conversas/c1');
+    expect(rotaParaAConta(retorno, OUTRO_EMAIL)).toBeUndefined();
+  });
+
+  it('sessão restaurada com token e sem impressão: o retorno não volta à rota para login nenhum (R4, falha fechada)', async () => {
+    const armazenamento = criarArmazenamentoEmMemoria(TOKEN);
+    const lerConta = jest.spyOn(armazenamento, 'lerConta');
+    const provedores = await montar({ armazenamento });
+
+    expect(provedores.result.current.sessao.status).toBe('autenticado');
+    expect(lerConta).toHaveBeenCalledTimes(1);
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    const retorno = provedores.result.current.sessao.consumirRetorno();
+
+    expect(retorno).toMatchObject({
+      rota: '/perfil',
+      aviso: 'sessao_expirada',
+    });
+    expect(retorno.conta).toEqual(expect.any(String));
+    for (const email of [EMAIL, OUTRO_EMAIL, '']) {
+      expect(rotaParaAConta(retorno, email)).toBeUndefined();
+    }
+  });
+
+  it('sessão restaurada sem impressão e login novo: a rota de antes não volta nem para quem entra', async () => {
+    const provedores = await montar({
+      armazenamento: criarArmazenamentoEmMemoria(TOKEN),
+    });
+
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    await act(() => provedores.result.current.sessao.entrar(NOVO_TOKEN, EMAIL));
+    const retorno = provedores.result.current.sessao.consumirRetorno();
+
+    expect(retorno.rota).toBe('/perfil');
+    expect(rotaParaAConta(retorno, EMAIL)).toBeUndefined();
+  });
+
+  it('porta sem lerConta: a sessão restaurada segue sem conta, como antes', async () => {
+    const armazenamento: ArmazenamentoDeToken = {
+      ler: async () => TOKEN,
+      gravar: async () => undefined,
+      apagar: async () => undefined,
+    };
+    const provedores = await montar({ armazenamento });
+
+    expect(provedores.result.current.sessao.status).toBe('autenticado');
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    const retorno = provedores.result.current.sessao.consumirRetorno();
+
+    expect(retorno).toEqual({ rota: '/perfil', aviso: 'sessao_expirada' });
+    expect(rotaParaAConta(retorno, OUTRO_EMAIL)).toBe('/perfil');
+  });
+
+  it('com a impressão ilegível na porta, o retorno não volta à rota (falha fechada)', async () => {
+    const armazenamento: ArmazenamentoDeToken = {
+      ler: async () => TOKEN,
+      lerConta: async () => {
+        throw new Error('ilegivel');
+      },
+      gravar: async () => undefined,
+      apagar: async () => undefined,
+    };
+    const provedores = await montar({ armazenamento });
+
+    expect(provedores.result.current.sessao.status).toBe('autenticado');
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    const retorno = provedores.result.current.sessao.consumirRetorno();
+
+    expect(retorno.rota).toBe('/perfil');
+    expect(rotaParaAConta(retorno, EMAIL)).toBeUndefined();
+  });
+
+  it('entrar depois de expirar mantém a rota com a conta dela', async () => {
+    const provedores = await montar({
+      armazenamento: criarArmazenamentoEmMemoria(
+        TOKEN,
+        impressaoDaConta(EMAIL),
+      ),
+    });
+
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    await act(() =>
+      provedores.result.current.sessao.entrar(NOVO_TOKEN, OUTRO_EMAIL),
+    );
+
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      rota: '/perfil',
+      conta: impressaoDaConta(EMAIL),
+    });
+  });
+
+  it('sair e encerrarPorExclusao esquecem a conta: a expiração seguinte vai sem ela', async () => {
+    const provedores = await montar({
+      armazenamento: criarArmazenamentoEmMemoria(
+        TOKEN,
+        impressaoDaConta(EMAIL),
+      ),
+    });
+    provedores.fetch.responder('DELETE /sessoes', { status: 204 });
+
+    await act(() => provedores.result.current.sessao.sair());
+    await act(() => provedores.result.current.sessao.entrar(NOVO_TOKEN));
+    await act(() => provedores.result.current.sessao.expirar('/perfil'));
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      rota: '/perfil',
+      aviso: 'sessao_expirada',
+    });
+
+    await act(() => provedores.result.current.sessao.entrar(TOKEN, EMAIL));
+    await act(() => provedores.result.current.sessao.encerrarPorExclusao());
+    await act(() => provedores.result.current.sessao.entrar(NOVO_TOKEN));
+    await act(() => provedores.result.current.sessao.expirar('/buscar'));
+    expect(provedores.result.current.sessao.consumirRetorno()).toEqual({
+      rota: '/buscar',
+      aviso: 'sessao_expirada',
+    });
+  });
+});
+
 describe('SessaoProvider: o token não vaza (CA15)', () => {
   it('o estado exposto por useSessao() não contém o token', async () => {
     const provedores = await montar({
@@ -774,5 +1119,53 @@ describe('rotaDeRetornoSegura', () => {
     `/${'a'.repeat(200)}`,
   ])('recusa %j', (entrada) => {
     expect(rotaDeRetornoSegura(entrada)).toBeUndefined();
+  });
+});
+
+describe('impressaoDaConta (D43)', () => {
+  it('ignora espaços nas pontas e maiúsculas', () => {
+    expect(impressaoDaConta('  Maria.Silva@Exemplo.COM ')).toBe(
+      impressaoDaConta(EMAIL),
+    );
+  });
+
+  it('muda com o e-mail', () => {
+    expect(impressaoDaConta(OUTRO_EMAIL)).not.toBe(impressaoDaConta(EMAIL));
+    expect(impressaoDaConta('maria.silva@exemplo.co')).not.toBe(
+      impressaoDaConta(EMAIL),
+    );
+  });
+
+  it('é hexadecimal de tamanho fixo e não carrega o e-mail', () => {
+    for (const email of [EMAIL, OUTRO_EMAIL, 'a@b.c', '']) {
+      const impressao = impressaoDaConta(email);
+      expect(impressao).toMatch(/^[0-9a-f]{14}$/);
+      expect(impressao).not.toContain('@');
+    }
+  });
+});
+
+describe('rotaParaAConta (CA50)', () => {
+  const conta = impressaoDaConta(EMAIL);
+
+  it('mesma conta volta à rota, mesmo com o e-mail digitado diferente', () => {
+    expect(
+      rotaParaAConta({ rota: '/perfil', conta }, ' MARIA.silva@exemplo.com'),
+    ).toBe('/perfil');
+  });
+
+  it('outra conta não volta à rota', () => {
+    expect(
+      rotaParaAConta({ rota: '/perfil', conta }, OUTRO_EMAIL),
+    ).toBeUndefined();
+  });
+
+  it('retorno sem conta volta à rota', () => {
+    expect(rotaParaAConta({ rota: '/perfil' }, OUTRO_EMAIL)).toBe('/perfil');
+  });
+
+  it('sem rota, não há para onde voltar', () => {
+    expect(rotaParaAConta({ conta }, EMAIL)).toBeUndefined();
+    expect(rotaParaAConta({}, EMAIL)).toBeUndefined();
   });
 });

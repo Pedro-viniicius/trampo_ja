@@ -12,7 +12,7 @@ import {
 } from '../../estado/armazenamento-token';
 import { useMeuPerfil } from '../../estado/consultas/perfil';
 import { limparExportacoesAntigas } from '../../estado/exportacao';
-import { type Sessao, useSessao } from '../../estado/sessao';
+import { impressaoDaConta, type Sessao, useSessao } from '../../estado/sessao';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso } from '../fetch-falso';
 import { renderRouter } from '../render-router';
@@ -50,6 +50,7 @@ jest.mock('../../estado/exportacao', () => ({
 const EMAIL = 'maria.silva@exemplo.com';
 const SENHA = 'senha-secreta-123';
 const TOKEN_NOVO = 'token-recem-emitido';
+const OUTRO_EMAIL = 'joao.souza@exemplo.com';
 
 // --- Rotas stub da área autenticada (as reais são das etapas 11 e 12) ---
 
@@ -208,6 +209,8 @@ describe('Cadastro (CA1, CA2)', () => {
     expect(pedido?.metodo).toBe('POST');
     expect(pedido?.corpo).toEqual({ email: EMAIL, senha: SENHA });
     expect(armazenamento.atual()).toBe(TOKEN_NOVO);
+    // A impressão da conta (D43) vai junto do token, e o e-mail não.
+    expect(armazenamento.contaAtual()).toBe(impressaoDaConta(EMAIL));
     await waitFor(() => {
       const cache = cacheComoTexto(queryClient);
       expect(cache).not.toContain(SENHA);
@@ -357,11 +360,15 @@ describe('Entrar (CA1, CA14)', () => {
         { status: 404, corpo: { erro: 'nao_encontrado' } },
       ])
       .responder('POST /sessoes', { corpo: { token: TOKEN_NOVO } });
+    // Sessão restaurada da mesma conta que entra de novo (CA50).
     const { armazenamento, queryClient, getPathname } = await renderizarConta(
       '/trampos/t-42',
       {
         fetch,
-        armazenamento: criarArmazenamentoEmMemoria(TOKEN_DE_TESTE),
+        armazenamento: criarArmazenamentoEmMemoria(
+          TOKEN_DE_TESTE,
+          impressaoDaConta(EMAIL),
+        ),
       },
     );
 
@@ -382,6 +389,56 @@ describe('Entrar (CA1, CA14)', () => {
     expect(getPathname()).toBe('/trampos/t-42');
     expect(armazenamento.atual()).toBe(TOKEN_NOVO);
   });
+
+  it.each([
+    ['da mesma conta volta à rota de antes', EMAIL, '/trampos/t-42'],
+    [
+      'da mesma conta, com maiúsculas e espaços, volta à rota de antes',
+      `  ${EMAIL.toUpperCase()} `,
+      '/trampos/t-42',
+    ],
+    ['de outra conta vai ao Início', OUTRO_EMAIL, '/'],
+  ])(
+    'depois de um 401, o login %s (CA50)',
+    async (_nome, emailDigitado, destino) => {
+      const fetch = criarFetchFalso()
+        .responder('GET /perfis/eu', [
+          { status: 401, corpo: { erro: 'sessao_expirada' } },
+          { status: 404, corpo: { erro: 'nao_encontrado' } },
+        ])
+        .responder('POST /sessoes', { corpo: { token: TOKEN_NOVO } });
+      const { armazenamento, getPathname } = await renderizarConta(
+        '/trampos/t-42',
+        {
+          fetch,
+          armazenamento: criarArmazenamentoEmMemoria(
+            TOKEN_DE_TESTE,
+            impressaoDaConta(EMAIL),
+          ),
+        },
+      );
+      expect(
+        await screen.findByText(textos.erros.sessao_expirada),
+      ).toBeTruthy();
+      expect(armazenamento.contaAtual()).toBeNull();
+
+      await preencher(emailDigitado, SENHA);
+      await fireEvent.press(
+        screen.getByRole('button', { name: textos.entrar.entrar }),
+      );
+
+      await waitFor(() => expect(getPathname()).toBe(destino));
+      if (destino === '/') {
+        expect(await screen.findByText('stub: início')).toBeTruthy();
+      } else {
+        expect(
+          await screen.findByText('stub: trampo t-42, perfil ausente'),
+        ).toBeTruthy();
+      }
+      expect(armazenamento.atual()).toBe(TOKEN_NOVO);
+      expect(armazenamento.contaAtual()).toBe(impressaoDaConta(emailDigitado));
+    },
+  );
 
   it('o aviso de sessão expirada aparece uma vez só: "Voltar" e Entrar de novo não o mostram', async () => {
     const fetch = criarFetchFalso().responder('GET /perfis/eu', {

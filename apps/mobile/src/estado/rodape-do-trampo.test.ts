@@ -5,6 +5,7 @@ import { type EntradaDoRodape, situacaoDoRodape } from './rodape-do-trampo';
 
 const ABERTO = { id: 't1', status: 'aberto' as StatusDoTrampo };
 const EM_ANDAMENTO = { id: 't1', status: 'em_andamento' as StatusDoTrampo };
+const ENCERRADO = { id: 't1', status: 'encerrado' as StatusDoTrampo };
 
 const SEM_NADA = { dados: [] };
 const MEU_TRAMPO = { dados: [{ id: 'outro' }, { id: 't1' }] };
@@ -66,6 +67,26 @@ describe('situacaoDoRodape: ordem das situações', () => {
     expect(situacaoDoRodape(entrada({ trampo: EM_ANDAMENTO }))).toEqual({
       tipo: 'fechado',
     });
+  });
+
+  it('fechado: encerrado e sem papel', () => {
+    expect(situacaoDoRodape(entrada({ trampo: ENCERRADO }))).toEqual({
+      tipo: 'fechado',
+    });
+  });
+
+  it('encerrado: autor e candidatado vencem fechado', () => {
+    expect(
+      situacaoDoRodape(entrada({ trampo: ENCERRADO, meusTrampos: MEU_TRAMPO })),
+    ).toEqual({ tipo: 'autor', quantidade: null });
+    expect(
+      situacaoDoRodape(
+        entrada({
+          trampo: ENCERRADO,
+          minhasCandidaturas: CANDIDATURA('t1', 'recusada'),
+        }),
+      ),
+    ).toEqual({ tipo: 'candidatado', status: 'recusada' });
   });
 
   it('candidatado: devolve o status da minha candidatura', () => {

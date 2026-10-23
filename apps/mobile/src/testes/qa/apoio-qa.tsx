@@ -15,8 +15,10 @@ import RotaDeExcluirConta from '../../app/(app)/perfil/excluir';
 import RotaDeExportarDados from '../../app/(app)/perfil/exportar';
 import RotaDoPerfilPublico from '../../app/(app)/perfis/[contaId]';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
+import RotaDeEditarServico from '../../app/(app)/servicos/editar/[id]';
 import RotaDeNovoServico from '../../app/(app)/servicos/novo';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
+import RotaDeEditarTrampo from '../../app/(app)/trampos/editar/[id]';
 import RotaDeNovoTrampo from '../../app/(app)/trampos/novo';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
@@ -49,6 +51,8 @@ export const ROTAS_REAIS: MapaDeRotas = {
   '(app)/perfis/[contaId]': RotaDoPerfilPublico,
   '(app)/servicos/[id]': RotaDoServico,
   '(app)/trampos/[id]': RotaDoTrampo,
+  '(app)/trampos/editar/[id]': RotaDeEditarTrampo,
+  '(app)/servicos/editar/[id]': RotaDeEditarServico,
 };
 
 export const CATEGORIAS = [

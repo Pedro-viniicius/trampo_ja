@@ -25,6 +25,7 @@ const TABELAS = [
   'trampos',
   'servicos',
   'perfis',
+  'tentativas_de_entrada',
   'sessoes',
   'contas',
 ];
@@ -108,8 +109,9 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
 
       const protegidas = rotas.filter((rota) => !ehPublica(rota));
       // Sanidade: as rotas dos seis módulos foram coletadas (GET + HEAD),
-      // inclusive exclusão e exportação da conta (L1).
-      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(22);
+      // inclusive exclusão e exportação da conta (L1), editar e excluir
+      // serviço e editar, encerrar e excluir trampo e retirar candidatura (L2).
+      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(28);
 
       const cabecalhosInvalidos: (string | undefined)[] = [
         undefined,
@@ -141,13 +143,13 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
       const { rotas } = await montar();
       const token = await criarConta('valida@exemplo.com');
 
-      // `DELETE /sessoes` encerra a sessão: fica por último.
+      // `DELETE /sessoes` encerra a sessão: fica por último (depois também
+      // dos outros `DELETE`, como os de serviço, trampo e candidatura).
+      const ehSair = (rota: RotaRegistrada) =>
+        rota.metodo === 'DELETE' && rota.url === '/sessoes';
       const protegidas = rotas
         .filter((rota) => !ehPublica(rota))
-        .sort(
-          (a, b) =>
-            Number(a.metodo === 'DELETE') - Number(b.metodo === 'DELETE'),
-        );
+        .sort((a, b) => Number(ehSair(a)) - Number(ehSair(b)));
       for (const rota of protegidas) {
         const resposta = await chamar(rota, `Bearer ${token}`);
         expect(resposta.statusCode, `${rota.metodo} ${rota.url}`).not.toBe(401);

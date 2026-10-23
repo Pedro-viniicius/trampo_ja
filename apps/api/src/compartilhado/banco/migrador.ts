@@ -5,8 +5,15 @@
  *   (ex.: `0001_contas.ts`), e exportam `up(db)` e `down(db)`. Rodam em ordem
  *   alfabética; cada execução do migrador roda numa única transação
  *   (Postgres tem DDL transacional): se uma falha, nenhuma do lote fica aplicada.
- * - Regra do `down`: ele só remove tabela **vazia** e aborta se houver linhas, para
- *   que reverter nunca apague dados. Use `removerTabelaSeVazia` em todo `down`.
+ * - Regra do `down`: reverter nunca apaga nem converte dados; se não der para
+ *   desfazer sem isso, o `down` aborta antes de mudar qualquer coisa.
+ *   - Migração que cria tabela: use `removerTabelaSeVazia`, que só remove
+ *     tabela **vazia** e aborta se houver linhas.
+ *   - Migração que altera tabela (ex.: `0006_anuncios.ts`): trave a tabela e
+ *     aborte se houver linha que o esquema antigo não aceita ou cujo dado se
+ *     perderia, com um erro de `code` próprio e mensagem fixa, sem valor de
+ *     linha. Só derrube sem conferir a coluna que não guarda dado de pessoa
+ *     (ex.: o contador `servicos.versao`).
  * - Cada módulo cria só as próprias tabelas; não há FK entre módulos.
  * - Para reverter localmente a última migração: `pnpm --filter api migrar -- --baixar`.
  *

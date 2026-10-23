@@ -130,12 +130,15 @@ export function Rolavel({
   scrollRef,
   sobreposicao,
   aoMedirRodape,
+  direita,
 }: {
   titulo: string;
   onVoltar?: () => void;
   semConexao?: boolean;
   rodape?: ReactNode;
   children: ReactNode;
+  /** Ações à direita do cabeçalho (ex.: "Mais opções"). */
+  direita?: ReactNode;
   acima?: ReactNode;
   /** Ref da rolagem, para a tela rolar até um aviso. */
   scrollRef?: RefDaRolagem;
@@ -149,7 +152,7 @@ export function Rolavel({
   const [alturaDoRodape, setAlturaDoRodape] = useState(0);
   return (
     <Pagina>
-      <Cabecalho titulo={titulo} onVoltar={onVoltar} />
+      <Cabecalho titulo={titulo} onVoltar={onVoltar} direita={direita} />
       {semConexao ? <FaixaSemConexao /> : null}
       {acima}
       <ScrollView
@@ -293,6 +296,32 @@ export function useFocarPrimeiroErro(
     }
     rolarAteOAlvo(rolagem, alvo);
   }, [chave]);
+}
+
+/**
+ * Leva a rolagem ao topo quando `ativo` passa a valer (ou `tentativa` muda
+ * enquanto vale): avisos de topo, como conflito ou erro geral, ficam à vista.
+ */
+export function useRolarAoTopoQuando(ativo: boolean, tentativa?: number): void {
+  const rolagem = useContext(ContextoDeRolagem);
+  const chave = `${ativo}#${tentativa ?? 0}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `chave` resume `ativo` e `tentativa`; a rolagem é lida do contexto.
+  useEffect(() => {
+    if (!ativo) return;
+    rolagem?.current?.scrollTo?.({ y: 0, animated: false });
+  }, [chave]);
+}
+
+/** Montado dentro de `Formulario`/`Rolavel` (sob o contexto da rolagem). */
+export function RolarAoTopo({
+  quando,
+  tentativa,
+}: {
+  quando: boolean;
+  tentativa?: number;
+}) {
+  useRolarAoTopoQuando(quando, tentativa);
+  return null;
 }
 
 export function Titulo({ texto }: { texto: string }) {

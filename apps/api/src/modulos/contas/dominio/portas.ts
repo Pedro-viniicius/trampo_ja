@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Conta } from './conta.js';
 import type { Email } from './email.js';
+import type { OpcoesDeExecucao } from './semaforo.js';
 
 /** Identificador da conta (uuid). É o que a fachada expõe aos outros módulos. */
 export type ContaId = string;
@@ -17,9 +18,20 @@ export class ErroDeEmailDuplicado extends Error {
   }
 }
 
+/** Primeira sessão da conta, gravada junto com ela no cadastro (S7). */
+export interface SessaoInicial {
+  /** SHA-256 (hex) do token; o token em si nunca é gravado. */
+  readonly tokenHash: string;
+  readonly expiraEm: Date;
+}
+
 export interface RepositorioDeContas {
-  /** Grava a conta nova. Lança `ErroDeEmailDuplicado` se o e-mail já existir. */
-  salvar(conta: Conta): Promise<void>;
+  /**
+   * Grava a conta nova e, se vier, a primeira sessão dela, numa só transação:
+   * se a sessão falhar, a conta também não fica gravada (S7). Lança
+   * `ErroDeEmailDuplicado` se o e-mail já existir.
+   */
+  salvar(conta: Conta, sessaoInicial?: SessaoInicial): Promise<void>;
   buscarPorEmail(email: Email): Promise<Conta | null>;
   /** Conta pelo id; `null` se não existir ou se o id não for um uuid. */
   buscarPorId(id: ContaId): Promise<Conta | null>;
@@ -47,12 +59,85 @@ export interface RepositorioDeSessoes {
    * antiga para a mais nova. Id fora do formato devolve lista vazia.
    */
   listarDaConta(contaId: ContaId): Promise<SessaoDaConta[]>;
+  /**
+   * Quantas sessões a conta tem gravadas (inclusive as expiradas), sem ler as
+   * linhas: entra na medida da exportação. Id fora do formato devolve 0.
+   */
+  contarDaConta(contaId: ContaId): Promise<number>;
+  /**
+   * Apaga até `lote` sessões com `expiraEm <= agora` (as que
+   * `buscarContaIdPorTokenHash` já não aceita) e devolve quantas apagou. As
+   * válidas ficam intactas. Quem chama repete enquanto vier um lote cheio.
+   */
+  apagarExpiradas(agora: Date, lote: number): Promise<number>;
 }
 
+/**
+ * Lápides das contas excluídas (ADR-007): só o id e a data da exclusão, nada
+ * de dado pessoal. Gravadas na transação da exclusão; a limpeza periódica
+ * refaz a exclusão de cada uma depois de alguns minutos (para apagar o que
+ * uma escrita em voo gravou depois) e então a esquece.
+ */
+export interface RepositorioDeContasExcluidas {
+  /**
+   * Ids das lápides com `excluidaEm <= limite`, das mais antigas para as mais
+   * novas, no máximo `lote`.
+   */
+  listarAntesDe(limite: Date, lote: number): Promise<ContaId[]>;
+  /** Apaga a lápide; não falha se ela não existir. */
+  esquecer(id: ContaId): Promise<void>;
+}
+
+/** Situação do contador de uma conta logo depois de somar uma tentativa. */
+export interface ContagemDeTentativas {
+  /** Tentativas na janela atual, já com a que acabou de ser somada. */
+  readonly tentativas: number;
+  readonly inicioDaJanela: Date;
+}
+
+/**
+ * Teto de tentativas de entrada por conta (D31), guardado no banco: um
+ * contador por conta existente, numa janela fixa que começa na primeira
+ * tentativa. Não guarda e-mail nem IP. Por ficar fora da memória do
+ * processo, pedidos com e-mails de lixo não despejam o contador da vítima
+ * (achado S1 da rodada 1 da L3). A exclusão da conta apaga o contador junto
+ * (cascade no Postgres).
+ */
+export interface RepositorioDeTentativasDeEntrada {
+  /**
+   * Soma uma tentativa ao contador da conta, de forma atômica (pedidos
+   * simultâneos não perdem contagem). Se a janela venceu
+   * (`inicioDaJanela + janelaMs <= agora`) ou não havia contador, começa uma
+   * janela nova em `agora` com 1. Devolve `null`, sem gravar, se a conta não
+   * existe (ex.: excluída entre a busca e a contagem) ou se o id não é uuid.
+   */
+  registrar(
+    contaId: ContaId,
+    agora: Date,
+    janelaMs: number,
+  ): Promise<ContagemDeTentativas | null>;
+  /**
+   * Apaga os contadores com `inicioDaJanela <= limite` (as janelas vencidas,
+   * com `limite = agora - janela`) e devolve quantos apagou. Idempotente.
+   */
+  apagarVencidas(limite: Date): Promise<number>;
+}
+
+/**
+ * Gera e confere hashes de senha. Cada derivação espera vaga numa fila do
+ * processo; `fila` vai para ela (`Semaforo.executar`): com `esperaMaximaMs`, a
+ * espera esgotada rejeita com `EsperaEsgotada`; com `sinal` abortado antes da
+ * vaga, rejeita com `EsperaCancelada`. Nos dois casos nada é derivado. Sem
+ * `fila`, espera o quanto for preciso (ex.: o hash fictício da partida).
+ */
 export interface HasherDeSenha {
-  gerarHash(senha: string): Promise<string>;
+  gerarHash(senha: string, fila?: OpcoesDeExecucao): Promise<string>;
   /** `false` para senha errada ou hash malformado; nunca lança por formato. */
-  verificar(senha: string, hashArmazenado: string): Promise<boolean>;
+  verificar(
+    senha: string,
+    hashArmazenado: string,
+    fila?: OpcoesDeExecucao,
+  ): Promise<boolean>;
 }
 
 export interface GeradorDeToken {
@@ -161,10 +246,17 @@ export interface ExportacaoV1 extends PartesExportadas {
 export interface DadosDaConta {
   /**
    * Apaga, numa só transação, os dados da conta em todos os módulos e por
-   * último a própria conta e as sessões (D25). Idempotente: sem nada a
-   * apagar (ex.: um segundo pedido concorrente), resolve sem erro.
+   * último a própria conta e as sessões (D25), e grava a lápide da conta
+   * (ADR-007). Idempotente: sem nada a apagar (ex.: um segundo pedido
+   * concorrente ou a limpeza periódica), resolve sem erro.
    */
   excluirTudo(contaId: ContaId): Promise<void>;
   /** Junta as partes da exportação vindas dos outros módulos (D26). */
   coletarDosOutrosModulos(contaId: ContaId): Promise<PartesExportadas>;
+  /**
+   * Tamanho estimado, em bytes, das partes que `coletarDosOutrosModulos`
+   * devolveria, medido no banco sem carregar os textos (S1-R). Nunca menor
+   * que os bytes crus dos textos; só a própria conta entra na conta.
+   */
+  medirDosOutrosModulos(contaId: ContaId): Promise<number>;
 }

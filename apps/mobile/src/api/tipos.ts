@@ -102,7 +102,7 @@ export interface PaginaDaBusca {
   readonly proximoCursor: string | null;
 }
 
-export type StatusDoTrampo = 'aberto' | 'em_andamento';
+export type StatusDoTrampo = 'aberto' | 'em_andamento' | 'encerrado';
 
 /** `GET /trampos/:id`. */
 export interface Trampo {
@@ -118,6 +118,13 @@ export interface Trampo {
   readonly status: StatusDoTrampo;
   /** ISO 8601. */
   readonly criadoEm: string;
+  /**
+   * Só na visão do autor (`GET /trampos/meus` e o seu `GET /trampos/:id`):
+   * é a `versao` que `PUT /trampos/:id` devolve à API.
+   */
+  readonly versao?: number;
+  /** Só na visão do autor: quantas candidaturas o trampo recebeu. */
+  readonly candidaturasRecebidas?: number;
 }
 
 export type StatusDoServico = 'ativo';
@@ -135,6 +142,11 @@ export interface Servico {
   readonly status: StatusDoServico;
   /** ISO 8601. */
   readonly criadoEm: string;
+  /**
+   * Só na visão do autor (`GET /servicos/meus` e o seu `GET /servicos/:id`):
+   * é a `versao` que `PUT /servicos/:id` devolve à API.
+   */
+  readonly versao?: number;
 }
 
 /**

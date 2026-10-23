@@ -9,6 +9,7 @@ import { rotasDeTrampos } from './adaptadores/http/rotas.js';
 import {
   excluirDadosDaConta,
   exportarDadosDaConta,
+  medirExportacao,
   type ParteDeTramposNaExportacao,
   RepositorioDeTramposPostgres,
 } from './adaptadores/postgres/repositorio-postgres.js';
@@ -72,6 +73,12 @@ export interface ModuloDeTrampos {
   readonly exportarDadosDaConta: (
     contaId: string,
   ) => Promise<ParteDeTramposNaExportacao>;
+  /**
+   * Tamanho estimado, em bytes, da parte de `trampos` na exportação (CA48),
+   * medido no banco antes de coletar: os trampos da conta e as candidaturas
+   * que ela fez, sem o texto das recebidas. Id que não seja uuid: 0.
+   */
+  readonly medirExportacao: (contaId: string) => Promise<number>;
 }
 
 /** Fachada do módulo `trampos`: único ponto que outro módulo pode importar. */
@@ -93,5 +100,6 @@ export function criarModuloDeTrampos(
     buscarTrampos: (filtros) => casos.buscarTrampos(filtros),
     excluirDadosDaConta,
     exportarDadosDaConta: (contaId) => exportarDadosDaConta(deps.db, contaId),
+    medirExportacao: (contaId) => medirExportacao(deps.db, contaId),
   };
 }

@@ -33,6 +33,13 @@ const ROTAS_PROTEGIDAS = [
   { metodo: 'POST', url: '/contas/eu/exclusao' },
   { metodo: 'POST', url: '/contas/eu/exportacao' },
   { metodo: 'DELETE', url: '/sessoes' },
+  // Rotas da L2 (D36), com a url modelo como as etapas 4 e 9 registram.
+  { metodo: 'PUT', url: '/trampos/:id' },
+  { metodo: 'PUT', url: '/servicos/:id' },
+  { metodo: 'POST', url: '/trampos/:id/encerrar' },
+  { metodo: 'DELETE', url: '/trampos/:id' },
+  { metodo: 'DELETE', url: '/servicos/:id' },
+  { metodo: 'DELETE', url: '/candidaturas/:id' },
 ] as const;
 
 type Metodo = (typeof ROTAS_PROTEGIDAS)[number]['metodo'];
@@ -146,15 +153,41 @@ describe('grupoDaRota (D29)', () => {
       ['GET', '/conversas', 'leitura'],
       ['GET', '/conversas/:id/mensagens', 'leitura'],
       ['POST', '/conversas/:id/mensagens', 'mensagens'],
+      // L2 (D36): editar anúncio conta como publicar; encerrar, excluir e
+      // retirar são escrita.
+      ['PUT', '/trampos/:id', 'publicacao'],
+      ['PUT', '/servicos/:id', 'publicacao'],
+      ['POST', '/trampos/:id/encerrar', 'escrita'],
+      ['DELETE', '/trampos/:id', 'escrita'],
+      ['DELETE', '/servicos/:id', 'escrita'],
+      ['DELETE', '/candidaturas/:id', 'escrita'],
     ];
 
   it.each(TODAS_AS_ROTAS)('%s %s → %s', (metodo, url, grupo) => {
     expect(grupoDaRota(metodo, url)).toBe(grupo);
   });
 
-  it('cobre as 24 rotas (22 do MVP e as 2 da L1), sem repetição', () => {
+  it('cobre as 30 rotas (22 do MVP, 2 da L1 e 6 da L2), sem repetição', () => {
     const chaves = new Set(TODAS_AS_ROTAS.map(([m, u]) => `${m} ${u}`));
-    expect(chaves.size).toBe(24);
+    expect(chaves.size).toBe(30);
+  });
+
+  it('D36 — o grupo próprio vale só para o par método e url exato', () => {
+    // O encerrar é um POST fora da tabela: não herda o publicacao de
+    // POST /trampos nem o de POST /trampos/:id/candidaturas.
+    expect(grupoDaRota('POST', '/trampos/:id/encerrar')).toBe('escrita');
+    // O PUT de anúncio é publicacao; o PUT de perfil continua escrita.
+    expect(grupoDaRota('put', '/trampos/:id')).toBe('publicacao');
+    expect(grupoDaRota('PUT', '/perfis/eu')).toBe('escrita');
+    // Outro método na url de um PUT de anúncio não leva o grupo dele.
+    expect(grupoDaRota('POST', '/trampos/:id')).toBe('escrita');
+    expect(grupoDaRota('PATCH', '/servicos/:id')).toBe('escrita');
+    expect(grupoDaRota('DELETE', '/servicos/:id')).toBe('escrita');
+    // A url precisa ser o modelo registrado, não a url concreta nem outra
+    // grafia do parâmetro.
+    expect(grupoDaRota('PUT', '/trampos/123')).toBe('escrita');
+    expect(grupoDaRota('PUT', '/trampos/:id/')).toBe('escrita');
+    expect(grupoDaRota('PUT', '/servicos/:servicoId')).toBe('escrita');
   });
 
   it('HEAD é leitura e o método não diferencia maiúsculas', () => {
@@ -166,7 +199,7 @@ describe('grupoDaRota (D29)', () => {
   it('rota ou método que ninguém previu cai em escrita, nunca em leitura', () => {
     expect(grupoDaRota('POST', '/rota/nova')).toBe('escrita');
     expect(grupoDaRota('PATCH', '/perfis/eu')).toBe('escrita');
-    expect(grupoDaRota('DELETE', '/trampos/:id')).toBe('escrita');
+    expect(grupoDaRota('DELETE', '/rota/nova/:id')).toBe('escrita');
     expect(grupoDaRota('OPTIONS', '/trampos')).toBe('escrita');
     // O grupo próprio é só do POST: outro método na mesma URL é escrita.
     expect(grupoDaRota('PUT', '/trampos')).toBe('escrita');
@@ -215,6 +248,18 @@ describe('gruposDaRota (D29, S1 da L1)', () => {
     expect(gruposDaRota('POST', '/contas/eu/exportacao')).toEqual(['senha']);
     expect(gruposDaRota('GET', '/busca')).toEqual(['leitura']);
     expect(gruposDaRota('POST', '/rota/nova')).toEqual(['escrita']);
+  });
+
+  it.each([
+    ['PUT', '/trampos/:id', ['publicacao']],
+    ['PUT', '/servicos/:id', ['publicacao']],
+    ['PUT', '/perfis/eu', ['escrita']],
+    ['POST', '/trampos/:id/encerrar', ['escrita']],
+    ['DELETE', '/trampos/:id', ['escrita']],
+    ['DELETE', '/servicos/:id', ['escrita']],
+    ['DELETE', '/candidaturas/:id', ['escrita']],
+  ] as const)('D36 — %s %s → %j, sem teto somado', (metodo, url, grupos) => {
+    expect(gruposDaRota(metodo, url)).toEqual(grupos);
   });
 
   it('grupoDaRota nunca devolve o teto diário como grupo principal', () => {
@@ -314,6 +359,60 @@ describe('CA20 — criarLimitePorConta', () => {
     expect(
       (await pedir(servidor, 'POST', '/trampos', TOKEN_A)).statusCode,
     ).toBe(429);
+  });
+
+  it('D36 — editar trampo e serviço gasta o mesmo contador de publicacao da publicação', async () => {
+    const servidor = await montar({ limites: limitesCom({ publicacao: 3 }) });
+
+    expect(
+      (await pedir(servidor, 'PUT', '/trampos/t1', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'PUT', '/servicos/s1', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'POST', '/trampos', TOKEN_A)).statusCode,
+    ).toBe(200);
+    const bloqueada = await pedir(servidor, 'PUT', '/trampos/t2', TOKEN_A);
+    expect(bloqueada.statusCode).toBe(429);
+    expect(bloqueada.headers['retry-after']).toBe('60');
+    // Escrita e a outra conta seguem livres.
+    expect(
+      (await pedir(servidor, 'PUT', '/perfis/eu', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'PUT', '/servicos/s1', TOKEN_B)).statusCode,
+    ).toBe(200);
+  });
+
+  it('D36 — encerrar, os DELETE e o PUT de perfil somam em escrita e não tocam em publicacao', async () => {
+    const servidor = await montar({
+      limites: limitesCom({ escrita: 5, publicacao: 1 }),
+    });
+
+    for (const [metodo, url] of [
+      ['POST', '/trampos/t1/encerrar'],
+      ['DELETE', '/trampos/t1'],
+      ['DELETE', '/servicos/s1'],
+      ['DELETE', '/candidaturas/c1'],
+      ['PUT', '/perfis/eu'],
+    ] as const) {
+      expect(
+        (await pedir(servidor, metodo, url, TOKEN_A)).statusCode,
+        `${metodo} ${url}`,
+      ).toBe(200);
+    }
+    expect(
+      (await pedir(servidor, 'DELETE', '/candidaturas/c2', TOKEN_A)).statusCode,
+    ).toBe(429);
+    expect(
+      (await pedir(servidor, 'POST', '/trampos/t2/encerrar', TOKEN_A))
+        .statusCode,
+    ).toBe(429);
+    // A única vaga de publicacao ainda está livre.
+    expect(
+      await repetir(2, () => pedir(servidor, 'PUT', '/trampos/t1', TOKEN_A)),
+    ).toEqual([200, 429]);
   });
 
   it('sem contaId (rota pública), não limita', async () => {

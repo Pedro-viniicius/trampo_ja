@@ -8,6 +8,8 @@ import {
   ErroDeDominio,
   ErroDeRegra,
   ErroDeValidacao,
+  ErroIndisponivel,
+  ErroLimiteExcedido,
   ErroNaoEncontrado,
   ErroProibido,
   type MotivoDeCampo,
@@ -24,6 +26,10 @@ import {
  * - `ErroDeValidacao` → 400 `dados_invalidos` com campos;
  * - `ErroProibido` → 403; `ErroNaoEncontrado` → 404;
  * - `ErroDeRegra` → 409 (ex.: `perfil_incompleto`, `candidatura_duplicada`);
+ * - `ErroIndisponivel` → 503 com o código (ex.: `servico_ocupado`) e o
+ *   cabeçalho `retry-after` (D42);
+ * - `ErroLimiteExcedido` → 429 `muitas_requisicoes`, o mesmo corpo do rate
+ *   limit por IP, com o cabeçalho `retry-after` (teto de entrada, D31);
  * - outra subclasse de `ErroDeDominio` → 500: o código dela não passou pela
  *   validação de formato destas classes, então não sai na resposta.
  */
@@ -36,6 +42,8 @@ export interface CorpoDeErro {
 export interface RespostaDeErro {
   status: number;
   corpo: CorpoDeErro;
+  /** Só no 503 e no 429 de domínio: segundos para o `retry-after`. */
+  tentarDeNovoEmS?: number;
 }
 
 const INTERNO: RespostaDeErro = { status: 500, corpo: { erro: 'interno' } };
@@ -97,6 +105,20 @@ function respostaDeDominio(erro: ErroDeDominio): RespostaDeErro {
   }
   if (erro instanceof ErroDeRegra) {
     return { status: 409, corpo: { erro: erro.codigo } };
+  }
+  if (erro instanceof ErroIndisponivel) {
+    return {
+      status: 503,
+      corpo: { erro: erro.codigo },
+      tentarDeNovoEmS: erro.tentarDeNovoEmS,
+    };
+  }
+  if (erro instanceof ErroLimiteExcedido) {
+    return {
+      status: 429,
+      corpo: { erro: erro.codigo },
+      tentarDeNovoEmS: erro.tentarDeNovoEmS,
+    };
   }
   return INTERNO;
 }
@@ -191,17 +213,23 @@ function campoSeguro(
 /**
  * Tratador de erros do Fastify. Registra o erro pelo serializer seguro do logger
  * (nunca a mensagem como texto do log) e responde no formato da API.
+ * O 503 é falta de capacidade, não falha: vai como `warn`, não como `error`.
  */
 export function tratarErro(
   erro: unknown,
   requisicao: FastifyRequest,
   resposta: FastifyReply,
 ): FastifyReply {
-  const { status, corpo } = respostaParaErro(erro);
-  if (status >= 500) {
+  const { status, corpo, tentarDeNovoEmS } = respostaParaErro(erro);
+  if (status === 503) {
+    requisicao.log.warn({ err: erro, erro: corpo.erro }, 'serviço ocupado');
+  } else if (status >= 500) {
     requisicao.log.error({ err: erro }, 'erro interno não tratado');
   } else {
     requisicao.log.info({ err: erro, erro: corpo.erro }, 'requisição recusada');
+  }
+  if (tentarDeNovoEmS !== undefined) {
+    resposta.header('retry-after', String(tentarDeNovoEmS));
   }
   return resposta.code(status).send(corpo);
 }

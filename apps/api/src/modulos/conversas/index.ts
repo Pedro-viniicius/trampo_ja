@@ -14,6 +14,7 @@ import { criarRotasDeConversas } from './adaptadores/http/rotas.js';
 import {
   excluirDadosDaConta,
   exportarDadosDaConta,
+  medirExportacao,
   type ParteDeConversasNaExportacao,
   RepositorioDeConversasPostgres,
 } from './adaptadores/postgres/repositorio-postgres.js';
@@ -62,6 +63,12 @@ export interface ModuloDeConversas {
   readonly exportarDadosDaConta: (
     contaId: string,
   ) => Promise<ParteDeConversasNaExportacao>;
+  /**
+   * Tamanho estimado, em bytes, da parte de `conversas` na exportação
+   * (CA48), medido no banco antes de coletar: só as mensagens escritas pela
+   * conta. Id que não seja uuid: 0.
+   */
+  readonly medirExportacao: (contaId: string) => Promise<number>;
 }
 
 export function criarModuloDeConversas(
@@ -81,5 +88,6 @@ export function criarModuloDeConversas(
       },
     excluirDadosDaConta,
     exportarDadosDaConta: (contaId) => exportarDadosDaConta(opcoes.db, contaId),
+    medirExportacao: (contaId) => medirExportacao(opcoes.db, contaId),
   };
 }

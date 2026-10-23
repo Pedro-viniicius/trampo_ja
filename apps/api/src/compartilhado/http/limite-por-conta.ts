@@ -61,14 +61,23 @@ export const LIMITES_PADRAO_POR_CONTA: LimitesPorConta = {
   escrita: { max: 60, janelaMs: MINUTO_MS },
 };
 
-/** Rotas `POST` com grupo próprio; as demais escritas caem em `escrita`. */
-const GRUPO_DO_POST: ReadonlyMap<string, GrupoDeLimite> = new Map([
-  ['/conversas/:id/mensagens', 'mensagens'],
-  ['/trampos', 'publicacao'],
-  ['/servicos', 'publicacao'],
-  ['/trampos/:id/candidaturas', 'publicacao'],
-  ['/contas/eu/exclusao', 'senha'],
-  ['/contas/eu/exportacao', 'senha'],
+/**
+ * Rotas com grupo próprio, por `<MÉTODO> <url modelo>` (a url como o Fastify a
+ * registra, com `:id`). As escritas que não estão aqui caem em `escrita`,
+ * inclusive `PUT /perfis/eu`, `POST /trampos/:id/encerrar` e os `DELETE` de
+ * trampo, serviço e candidatura (D36). Os `PUT` de anúncio contam em
+ * `publicacao` como a publicação (D36): sem isso, editar um anúncio em laço
+ * seria um jeito de republicar fora do teto de 30/h.
+ */
+const GRUPO_PROPRIO: ReadonlyMap<string, GrupoDeLimite> = new Map([
+  ['POST /conversas/:id/mensagens', 'mensagens'],
+  ['POST /trampos', 'publicacao'],
+  ['POST /servicos', 'publicacao'],
+  ['POST /trampos/:id/candidaturas', 'publicacao'],
+  ['PUT /trampos/:id', 'publicacao'],
+  ['PUT /servicos/:id', 'publicacao'],
+  ['POST /contas/eu/exclusao', 'senha'],
+  ['POST /contas/eu/exportacao', 'senha'],
 ]);
 
 /**
@@ -90,26 +99,24 @@ const TETOS_DA_ROTA: ReadonlyMap<string, readonly GrupoDeLimite[]> = new Map([
  * Grupo de limite de uma rota, pelo método e pelo modelo da URL (o `url` do
  * `onRoute` ou `request.routeOptions.url`, ex.: `/conversas/:id/mensagens`).
  *
- * `GET` e `HEAD` são `leitura`; os `POST` da tabela têm grupo próprio; as
- * rotas de `ROTAS_SEM_LIMITE` dão `null` (sem limite por conta); todo o resto é
- * `escrita`, inclusive método ou rota que ninguém previu: na dúvida, o limite
- * apertado de escrita, nunca o de leitura nem nenhum.
+ * `GET` e `HEAD` são `leitura`; as rotas de `GRUPO_PROPRIO` têm grupo
+ * próprio; as de `ROTAS_SEM_LIMITE` dão `null` (sem limite por conta); todo o
+ * resto é `escrita`, inclusive método ou rota que ninguém previu: na dúvida, o
+ * limite apertado de escrita, nunca o de leitura nem nenhum.
  */
 export function grupoDaRota(
   metodo: string,
   urlModelo: string,
 ): GrupoDeLimite | null {
   const verbo = metodo.toUpperCase();
-  if (ROTAS_SEM_LIMITE.has(`${verbo} ${urlModelo}`)) {
+  const chave = `${verbo} ${urlModelo}`;
+  if (ROTAS_SEM_LIMITE.has(chave)) {
     return null;
   }
   if (verbo === 'GET' || verbo === 'HEAD') {
     return 'leitura';
   }
-  if (verbo === 'POST') {
-    return GRUPO_DO_POST.get(urlModelo) ?? 'escrita';
-  }
-  return 'escrita';
+  return GRUPO_PROPRIO.get(chave) ?? 'escrita';
 }
 
 /**

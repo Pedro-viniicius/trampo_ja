@@ -76,7 +76,7 @@ afterEach(async () => {
   await app.close();
 });
 
-type Metodo = 'GET' | 'POST';
+type Metodo = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 async function pedir(
   metodo: Metodo,
@@ -120,6 +120,10 @@ describe('CA14 — todas as rotas exigem token', () => {
     ['GET', `/trampos/${id}/candidaturas`],
     ['POST', `/trampos/${id}/candidaturas/${cid}/aceitar`],
     ['GET', '/candidaturas/minhas'],
+    ['PUT', `/trampos/${id}`, { ...trampoValido, versao: 1 }],
+    ['POST', `/trampos/${id}/encerrar`],
+    ['DELETE', `/trampos/${id}`],
+    ['DELETE', `/candidaturas/${cid}`],
   ];
 
   it('CA14 — Dado uma requisição sem token ou com token inválido, quando chama qualquer rota, então recebe 401 sem dados e nada muda', async () => {
@@ -241,8 +245,12 @@ describe('POST /trampos (CA4, CA5, D9)', () => {
       prazo: null,
       status: 'aberto',
       criadoEm: '2026-10-20T12:00:00.000Z',
-      textoBusca: 'segredo-interno',
+      // Campos da visão do autor (D33): o schema os aceita; quem decide se
+      // saem é o caso de uso (testes de CA31 abaixo).
       versao: 7,
+      candidaturasRecebidas: 2,
+      textoBusca: 'segredo-interno',
+      cidadeNormalizada: 'segredo-interno-2',
     };
     const candidatura = {
       id: 'c-1',
@@ -271,10 +279,11 @@ describe('POST /trampos (CA4, CA5, D9)', () => {
 
     expect(Object.keys(t.json()).sort()).toEqual(
       Object.keys(trampo)
-        .filter((k) => k !== 'textoBusca' && k !== 'versao')
+        .filter((k) => k !== 'textoBusca' && k !== 'cidadeNormalizada')
         .sort(),
     );
     expect(t.body).not.toContain('segredo-interno');
+    expect(t.json()).toMatchObject({ versao: 7, candidaturasRecebidas: 2 });
     expect(Object.keys(c.json()).sort()).toEqual(
       Object.keys(candidatura)
         .filter((k) => k !== 'email')
@@ -571,5 +580,310 @@ describe('GET /candidaturas/minhas', () => {
       status: 200,
       corpo: [],
     });
+  });
+});
+
+/** Corpo de terceiro: exatamente o de antes da L2 (sem versao nem contagem). */
+const CHAVES_DE_TERCEIRO = [
+  'autorId',
+  'categoria',
+  'cidade',
+  'criadoEm',
+  'descricao',
+  'id',
+  'prazo',
+  'status',
+  'titulo',
+  'valorCentavos',
+];
+
+const edicao = {
+  titulo: 'Trocar o piso',
+  descricao: 'Piso da cozinha, 12 m².',
+  categoria: 'reformas',
+  cidade: 'Belo Horizonte',
+  valorCentavos: 90000,
+  prazo: '2026-12-01',
+};
+
+describe('CA31 — visão do autor em GET /trampos/:id e /trampos/meus', () => {
+  it('CA31 — Dado o autor, quando lê, então vê versao e candidaturasRecebidas; terceiro e candidato recebem o corpo de antes', async () => {
+    const id = await publicar();
+    await candidatar(id, 'token-ana');
+
+    const doAutor = await pedir('GET', `/trampos/${id}`, 'token-empregador');
+    expect(doAutor.corpo).toMatchObject({
+      versao: 2,
+      candidaturasRecebidas: 1,
+    });
+    const meus = await pedir('GET', '/trampos/meus', 'token-empregador');
+    expect(meus.corpo).toEqual([doAutor.corpo]);
+
+    for (const token of ['token-ana', 'token-carla']) {
+      const visao = await pedir('GET', `/trampos/${id}`, token);
+      expect(visao.status).toBe(200);
+      expect(Object.keys(visao.corpo).sort()).toEqual(CHAVES_DE_TERCEIRO);
+      const { versao: _v, candidaturasRecebidas: _c, ...resto } = doAutor.corpo;
+      expect(visao.corpo).toEqual(resto);
+    }
+  });
+});
+
+describe('PUT /trampos/:id (CA25)', () => {
+  it('CA25 — Dado o autor com a versão lida, quando edita, então recebe 204 sem corpo e o detalhe traz os campos novos com o mesmo criadoEm', async () => {
+    const id = await publicar();
+
+    const resposta = await app.inject({
+      method: 'PUT',
+      url: `/trampos/${id}`,
+      headers: { authorization: 'Bearer token-empregador' },
+      payload: { ...edicao, versao: 1 },
+    });
+
+    expect(resposta.statusCode).toBe(204);
+    expect(resposta.body).toBe('');
+    expect((await pedir('GET', `/trampos/${id}`, 'token-ana')).corpo).toEqual({
+      id,
+      autorId: EMPREGADOR,
+      ...edicao,
+      status: 'aberto',
+      criadoEm: '2026-10-20T12:00:00.000Z',
+    });
+  });
+
+  it('CA25 — Dado chaves extras (autor, status, data, id), quando edita, então recebe 400 e nada muda', async () => {
+    const id = await publicar();
+    const antes = (await repositorio.buscarPorId(id))?.dados();
+
+    for (const extra of [
+      { autorId: ANA },
+      { status: 'encerrado' },
+      { criadoEm: '2020-01-01T00:00:00.000Z' },
+      { id: 'outro-id' },
+      { candidaturasRecebidas: 0 },
+    ]) {
+      const resposta = await pedir(
+        'PUT',
+        `/trampos/${id}`,
+        'token-empregador',
+        {
+          ...edicao,
+          versao: 1,
+          ...extra,
+        },
+      );
+      expect(resposta.status, Object.keys(extra)[0]).toBe(400);
+      expect(resposta.corpo.erro).toBe('dados_invalidos');
+    }
+    expect((await repositorio.buscarPorId(id))?.dados()).toEqual(antes);
+  });
+
+  it('CA25 — Dado versão ausente, nula, zero ou texto, quando edita um trampo que nem existe, então recebe 400 em versao (antes do 404)', async () => {
+    for (const versao of [undefined, null]) {
+      expect(
+        await pedir('PUT', '/trampos/nao-existe', 'token-carla', {
+          ...edicao,
+          versao,
+        }),
+      ).toEqual({
+        status: 400,
+        corpo: {
+          erro: 'dados_invalidos',
+          campos: [{ campo: 'versao', motivo: 'obrigatorio' }],
+        },
+      });
+    }
+    for (const versao of [0, '1', 1.5]) {
+      const resposta = await pedir(
+        'PUT',
+        '/trampos/nao-existe',
+        'token-carla',
+        {
+          ...edicao,
+          versao,
+        },
+      );
+      expect(resposta.status, String(versao)).toBe(400);
+      expect(resposta.corpo.erro).toBe('dados_invalidos');
+    }
+  });
+
+  it('CA25 — Dado outra conta, id inexistente ou fora do formato, quando edita, então recebe 404', async () => {
+    const id = await publicar();
+    for (const [url, token] of [
+      [`/trampos/${id}`, 'token-ana'],
+      ['/trampos/nao-existe', 'token-empregador'],
+      ['/trampos/00000000-0000-4000-8000-000000000000', 'token-empregador'],
+    ] as const) {
+      expect(await pedir('PUT', url, token, { ...edicao, versao: 1 })).toEqual({
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      });
+    }
+  });
+
+  it('CA25 — Dado um trampo com candidatura, quando o autor edita, então recebe 409 trampo_nao_editavel; com versão velha, 409 conflito_de_versao', async () => {
+    const comCandidatura = await publicar();
+    await candidatar(comCandidatura, 'token-ana');
+    const semCandidatura = await publicar();
+
+    expect(
+      await pedir('PUT', `/trampos/${comCandidatura}`, 'token-empregador', {
+        ...edicao,
+        versao: 2,
+      }),
+    ).toEqual({ status: 409, corpo: { erro: 'trampo_nao_editavel' } });
+    expect(
+      await pedir('PUT', `/trampos/${semCandidatura}`, 'token-empregador', {
+        ...edicao,
+        versao: 7,
+      }),
+    ).toEqual({ status: 409, corpo: { erro: 'conflito_de_versao' } });
+  });
+
+  it('CA25 e CA5 — Dado campos inválidos, quando o autor edita, então recebe 400 apontando os campos, sem ecoar o valor', async () => {
+    const id = await publicar();
+
+    const resposta = await pedir('PUT', `/trampos/${id}`, 'token-empregador', {
+      ...edicao,
+      titulo: 'SEG',
+      cidade: null,
+      versao: 1,
+    });
+
+    expect(resposta).toEqual({
+      status: 400,
+      corpo: {
+        erro: 'dados_invalidos',
+        campos: [
+          { campo: 'titulo', motivo: 'tamanho' },
+          { campo: 'cidade', motivo: 'obrigatorio' },
+        ],
+      },
+    });
+  });
+});
+
+describe('POST /trampos/:id/encerrar (CA27)', () => {
+  it('CA27 — Dado o autor, quando encerra, então 204; de novo, 204; candidatar e aceitar dão 409 trampo_nao_aberto', async () => {
+    const id = await publicar();
+    const ana = await candidatar(id, 'token-ana');
+
+    for (let vez = 1; vez <= 2; vez += 1) {
+      expect(
+        await pedir('POST', `/trampos/${id}/encerrar`, 'token-empregador'),
+        `vez ${vez}`,
+      ).toEqual({ status: 204, corpo: undefined });
+    }
+    expect(
+      (await pedir('GET', `/trampos/${id}`, 'token-ana')).corpo.status,
+    ).toBe('encerrado');
+    expect(await candidatar(id, 'token-carla')).toEqual({
+      status: 409,
+      corpo: { erro: 'trampo_nao_aberto' },
+    });
+    expect(
+      await pedir(
+        'POST',
+        `/trampos/${id}/candidaturas/${ana.corpo.id}/aceitar`,
+        'token-empregador',
+      ),
+    ).toEqual({ status: 409, corpo: { erro: 'trampo_nao_aberto' } });
+    expect(
+      (await pedir('GET', '/candidaturas/minhas', 'token-ana')).corpo[0].status,
+    ).toBe('recusada');
+  });
+
+  it('CA27 — Dado outra conta ou trampo inexistente, quando encerra, então 404 e nada muda', async () => {
+    const id = await publicar();
+    for (const [url, token] of [
+      [`/trampos/${id}/encerrar`, 'token-ana'],
+      ['/trampos/nao-existe/encerrar', 'token-empregador'],
+    ] as const) {
+      expect(await pedir('POST', url, token)).toEqual({
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      });
+    }
+    expect((await repositorio.buscarPorId(id))?.status).toBe('aberto');
+  });
+});
+
+describe('DELETE /trampos/:id (CA28)', () => {
+  it('CA28 — Dado o autor e um trampo aberto com candidatura, quando exclui, então 204 e o detalhe passa a dar 404', async () => {
+    const id = await publicar();
+    await candidatar(id, 'token-ana');
+
+    expect(await pedir('DELETE', `/trampos/${id}`, 'token-empregador')).toEqual(
+      { status: 204, corpo: undefined },
+    );
+    expect(await pedir('GET', `/trampos/${id}`, 'token-empregador')).toEqual({
+      status: 404,
+      corpo: { erro: 'nao_encontrado' },
+    });
+    expect(await pedir('GET', '/candidaturas/minhas', 'token-ana')).toEqual({
+      status: 200,
+      corpo: [],
+    });
+  });
+
+  it('CA28 — Dado um trampo encerrado, quando o autor exclui, então 409 trampo_nao_aberto; de outra conta ou inexistente, 404', async () => {
+    const id = await publicar();
+    await pedir('POST', `/trampos/${id}/encerrar`, 'token-empregador');
+
+    expect(await pedir('DELETE', `/trampos/${id}`, 'token-empregador')).toEqual(
+      { status: 409, corpo: { erro: 'trampo_nao_aberto' } },
+    );
+    const aberto = await publicar();
+    for (const [url, token] of [
+      [`/trampos/${aberto}`, 'token-ana'],
+      ['/trampos/nao-existe', 'token-empregador'],
+    ] as const) {
+      expect(await pedir('DELETE', url, token)).toEqual({
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      });
+    }
+    expect(await repositorio.buscarPorId(aberto)).not.toBeNull();
+  });
+});
+
+describe('DELETE /candidaturas/:id (CA29)', () => {
+  it('CA29 — Dado a candidatura pendente do próprio freelancer, quando retira, então 204 e ele pode se candidatar de novo', async () => {
+    const id = await publicar();
+    const ana = await candidatar(id, 'token-ana');
+
+    expect(
+      await pedir('DELETE', `/candidaturas/${ana.corpo.id}`, 'token-ana'),
+    ).toEqual({ status: 204, corpo: undefined });
+    expect(await pedir('GET', '/candidaturas/minhas', 'token-ana')).toEqual({
+      status: 200,
+      corpo: [],
+    });
+    expect((await candidatar(id, 'token-ana')).status).toBe(201);
+  });
+
+  it('CA29 — Dado candidatura aceita, 409 candidatura_nao_pendente; de outra conta ou inexistente, 404', async () => {
+    const id = await publicar();
+    const ana = await candidatar(id, 'token-ana');
+    await pedir(
+      'POST',
+      `/trampos/${id}/candidaturas/${ana.corpo.id}/aceitar`,
+      'token-empregador',
+    );
+
+    expect(
+      await pedir('DELETE', `/candidaturas/${ana.corpo.id}`, 'token-ana'),
+    ).toEqual({ status: 409, corpo: { erro: 'candidatura_nao_pendente' } });
+    for (const [url, token] of [
+      [`/candidaturas/${ana.corpo.id}`, 'token-empregador'],
+      [`/candidaturas/${ana.corpo.id}`, 'token-bruno'],
+      ['/candidaturas/nao-existe', 'token-ana'],
+    ] as const) {
+      expect(await pedir('DELETE', url, token)).toEqual({
+        status: 404,
+        corpo: { erro: 'nao_encontrado' },
+      });
+    }
   });
 });

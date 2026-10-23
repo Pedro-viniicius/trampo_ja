@@ -6,6 +6,7 @@ import {
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import * as Sharing from 'expo-sharing';
 import { ErroDaApi, ErroDeRede } from '../../api/erros';
+import { criarFetchFalso, type FetchFalso } from '../../testes/fetch-falso';
 import {
   criarProvedores as criarProvedoresBase,
   type OpcoesDosProvedores,
@@ -15,12 +16,15 @@ import {
   criarArmazenamentoEmMemoria,
 } from '../armazenamento-token';
 import { chaveDoErro } from '../erros';
-import { useSessao } from '../sessao';
+import { impressaoDaConta, useSessao } from '../sessao';
 import { chaves } from './chaves';
 import {
   type ResultadoDaExportacao,
+  useCadastrar,
+  useEntrar,
   useExcluirConta,
   useExportarDados,
+  useSair,
 } from './conta';
 
 // Disco falso: uri -> conteúdo. `mock*` pode ser lido dentro do `jest.mock`.
@@ -154,6 +158,75 @@ async function esperarCacheDeMutacoesVazio(provedores: Provedores) {
     expect(provedores.queryClient.getMutationCache().getAll()).toHaveLength(0),
   );
 }
+
+describe('useEntrar e useCadastrar: impressão da conta (CA50)', () => {
+  const EMAIL = 'maria.silva@exemplo.com';
+
+  it.each([
+    ['useEntrar', useEntrar, 'POST /sessoes'],
+    ['useCadastrar', useCadastrar, 'POST /contas'],
+  ] as const)(
+    '%s grava a impressão do e-mail enviado junto do token',
+    async (_nome, hook, rota) => {
+      const armazenamento = criarArmazenamentoEmMemoria();
+      const provedores = criarProvedoresBase({
+        queryClient: criarQueryClient(),
+        armazenamento,
+      });
+      provedores.fetch.responder(rota, { corpo: { token: TOKEN_NOVO } });
+      const { result } = await renderHook(
+        () => ({ sessao: useSessao(), dados: hook() }),
+        { wrapper: provedores.wrapper },
+      );
+      await waitFor(() => expect(result.current.sessao.status).toBe('anonimo'));
+
+      await act(async () => {
+        await result.current.dados.mutateAsync({ email: EMAIL, senha: SENHA });
+      });
+
+      expect(result.current.sessao.status).toBe('autenticado');
+      expect(armazenamento.atual()).toBe(TOKEN_NOVO);
+      expect(armazenamento.contaAtual()).toBe(impressaoDaConta(EMAIL));
+      expect(armazenamento.contaAtual()).not.toContain(EMAIL);
+    },
+  );
+});
+
+describe('useSair sem esperar a rede (CA51)', () => {
+  it('com o DELETE pendurado, a mutação termina, a saída local já aconteceu e o DELETE levou o token antigo', async () => {
+    const base = criarFetchFalso().responder('DELETE /sessoes', {
+      status: 204,
+    });
+    let soltar: () => void = () => undefined;
+    const pendencia = new Promise<void>((resolver) => {
+      soltar = resolver;
+    });
+    // Registra a requisição na hora, mas só responde quando o teste soltar.
+    const fetch: FetchFalso = {
+      ...base,
+      fetch: (url, init) => {
+        const resposta = base.fetch(url, init);
+        return pendencia.then(() => resposta);
+      },
+    };
+    const provedores = autenticado({ fetch });
+    const { result } = await montar(useSair, provedores);
+
+    await act(async () => {
+      await result.current.dados.mutateAsync();
+    });
+
+    expect(result.current.sessao.status).toBe('anonimo');
+    expect(provedores.armazenamento.atual()).toBeNull();
+    expect(provedores.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(base.ultima()).toMatchObject({
+      metodo: 'DELETE',
+      caminho: '/sessoes',
+      cabecalhos: { authorization: `Bearer ${TOKEN}` },
+    });
+    await act(async () => soltar());
+  });
+});
 
 describe('useExcluirConta (CA17)', () => {
   it('faz o POST só com a senha e encerra a sessão sem DELETE /sessoes', async () => {

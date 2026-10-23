@@ -37,6 +37,11 @@ export {
   FaixaSemConexao,
   type PropsDaFaixaSemConexao,
 } from './FaixaSemConexao';
+export {
+  BotaoMaisOpcoes,
+  FolhaDeAcoesDoAnuncio,
+  type PropsDoBotaoMaisOpcoes,
+} from './FolhaDeAcoesDoAnuncio';
 export { FolhaInferior, type PropsDaFolhaInferior } from './FolhaInferior';
 export {
   LinhaDeConfiguracao,

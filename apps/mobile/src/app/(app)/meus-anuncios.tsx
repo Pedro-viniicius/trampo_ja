@@ -1,5 +1,10 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Categoria, Servico, Trampo } from '../../api/tipos';
+import {
+  type AnuncioDaFolha,
+  useAcoesDoAnuncio,
+} from '../../estado/acoes-do-anuncio';
+import { useAvisoDeRetorno } from '../../estado/aviso-de-retorno';
 import { useConexao } from '../../estado/conexao';
 import {
   useMeusServicos,
@@ -8,6 +13,7 @@ import {
 import { useCategorias } from '../../estado/consultas/busca';
 import { estadoDeConsulta } from '../../estado/estado-de-bloco';
 import { meuAnuncioParaExibir } from '../../estado/item-para-exibir';
+import { useNavegarUmaVez } from '../../estado/navegar-uma-vez';
 import {
   type MeuAnuncioParaExibir,
   MeusAnuncios,
@@ -60,6 +66,43 @@ function useAcoes(tipo: TipoDeAnuncio) {
   };
 }
 
+/**
+ * "Mais opções" de Meus anúncios (CA33): a folha, o toast do resultado e o
+ * aviso que a edição deixou ao voltar ("Alterações salvas."). `paraFolha`
+ * monta o anúncio da folha a partir do dado cru da lista "minha" (só ele traz
+ * o status e a contagem de candidaturas); `null` se o item já saiu da lista.
+ */
+function useMaisOpcoes(
+  paraFolha: (id: string, titulo: string) => AnuncioDaFolha | null,
+) {
+  const abrirEdicao = useNavegarUmaVez();
+  const acoes = useAcoesDoAnuncio({
+    aoEditar: (anuncio) =>
+      abrirEdicao(
+        anuncio.tipo === 'trampo'
+          ? { pathname: '/trampos/editar/[id]', params: { id: anuncio.id } }
+          : { pathname: '/servicos/editar/[id]', params: { id: anuncio.id } },
+      ),
+  });
+  const aviso = useAvisoDeRetorno(useIsFocused());
+  const { abrir, fecharToast } = acoes;
+  const { limpar } = aviso;
+  return {
+    folha: acoes.folha,
+    onMaisOpcoes: (item: MeuAnuncioParaExibir) => {
+      const anuncio = paraFolha(item.id, item.titulo);
+      if (anuncio !== null) {
+        abrir(anuncio);
+      }
+    },
+    toast: acoes.toast ?? aviso.texto,
+    onFecharToast: () => {
+      fecharToast();
+      limpar();
+    },
+  };
+}
+
 function paraExibir(
   anuncios: readonly (Trampo | Servico)[],
   categorias: readonly Categoria[],
@@ -72,6 +115,20 @@ function paraExibir(
 function MeusTrampos() {
   const acoes = useAcoes('trampo');
   const consulta = useMeusTrampos();
+  const opcoes = useMaisOpcoes((id, titulo) => {
+    const trampo = consulta.trampos?.find((t) => t.id === id);
+    return trampo === undefined
+      ? null
+      : {
+          tipo: 'trampo',
+          id,
+          titulo,
+          status: trampo.status,
+          ...(trampo.candidaturasRecebidas !== undefined && {
+            candidaturasRecebidas: trampo.candidaturasRecebidas,
+          }),
+        };
+  });
   const lista = estadoDeConsulta(
     {
       dados: consulta.trampos,
@@ -88,6 +145,10 @@ function MeusTrampos() {
       onAbrirItem={acoes.abrir}
       onPublicar={acoes.publicar}
       onVoltar={acoes.voltar}
+      folha={opcoes.folha}
+      onMaisOpcoes={opcoes.onMaisOpcoes}
+      toast={opcoes.toast}
+      onFecharToast={opcoes.onFecharToast}
     />
   );
 }
@@ -95,6 +156,11 @@ function MeusTrampos() {
 function MeusServicos() {
   const acoes = useAcoes('servico');
   const consulta = useMeusServicos();
+  const opcoes = useMaisOpcoes((id, titulo) =>
+    consulta.servicos?.some((s) => s.id === id)
+      ? { tipo: 'servico', id, titulo }
+      : null,
+  );
   const lista = estadoDeConsulta(
     {
       dados: consulta.servicos,
@@ -111,6 +177,10 @@ function MeusServicos() {
       onAbrirItem={acoes.abrir}
       onPublicar={acoes.publicar}
       onVoltar={acoes.voltar}
+      folha={opcoes.folha}
+      onMaisOpcoes={opcoes.onMaisOpcoes}
+      toast={opcoes.toast}
+      onFecharToast={opcoes.onFecharToast}
     />
   );
 }

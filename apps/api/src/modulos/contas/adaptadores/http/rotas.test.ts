@@ -1,3 +1,5 @@
+import { request as pedirHttp } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RelogioFixo } from '../../../../compartilhado/dominio/relogio.js';
@@ -6,6 +8,8 @@ import { criarServidor } from '../../../../compartilhado/http/servidor.js';
 import {
   type CasosDeUsoDeContas,
   criarCasosDeUsoDeContas,
+  ESPERA_MAXIMA_NA_FILA_MS,
+  TETO_DA_EXPORTACAO_BYTES,
 } from '../../aplicacao/casos-de-uso.js';
 import { Email } from '../../dominio/email.js';
 import { HasherScrypt } from '../../dominio/hasher.js';
@@ -13,10 +17,13 @@ import type {
   PartesExportadas,
   RepositorioDeContas,
 } from '../../dominio/portas.js';
+import { Semaforo } from '../../dominio/semaforo.js';
 import {
   DadosDaContaEmMemoria,
   RepositorioDeContasEmMemoria,
+  RepositorioDeContasExcluidasEmMemoria,
   RepositorioDeSessoesEmMemoria,
+  RepositorioDeTentativasDeEntradaEmMemoria,
 } from '../memoria/repositorios-memoria.js';
 import {
   criarRotasDeContas,
@@ -42,27 +49,42 @@ interface OpcoesDaMontagem {
   readonly contasSubstitutas?: RepositorioDeContas;
   readonly partes?: PartesExportadas;
   readonly rotas?: OpcoesDasRotasDeContas;
+  /** Fila do scrypt; padrão, a do processo. */
+  readonly semaforoDoScrypt?: Semaforo;
+  /** Fila da coleta da exportação; padrão, a do processo. */
+  readonly semaforoDaExportacao?: Semaforo;
 }
 
 const AGORA = '2026-10-20T12:00:00.000Z';
 
 function montar(opcoes: OpcoesDaMontagem = {}): Montagem {
   const relogio = new RelogioFixo(AGORA);
-  const contas = new RepositorioDeContasEmMemoria();
   const sessoes = new RepositorioDeSessoesEmMemoria(relogio);
+  const contas = new RepositorioDeContasEmMemoria(sessoes);
+  const lapides = new RepositorioDeContasExcluidasEmMemoria();
   const dados = new DadosDaContaEmMemoria({
     contas,
     sessoes,
+    lapides,
+    relogio,
     ...(opcoes.partes ? { partes: opcoes.partes } : {}),
   });
   // Hasher real com custo baixo, para os testes rodarem rápido.
-  const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 });
+  const hasher = new HasherScrypt(
+    { N: 2 ** 4, r: 8, p: 1 },
+    opcoes.semaforoDoScrypt ? { semaforo: opcoes.semaforoDoScrypt } : {},
+  );
   const casos = criarCasosDeUsoDeContas({
     contas: opcoes.contasSubstitutas ?? contas,
     sessoes,
+    contasExcluidas: lapides,
+    tentativasDeEntrada: new RepositorioDeTentativasDeEntradaEmMemoria(),
     hasher,
     relogio,
     dadosDaConta: dados,
+    ...(opcoes.semaforoDaExportacao
+      ? { semaforoDaExportacao: opcoes.semaforoDaExportacao }
+      : {}),
   });
   const linhasDoLog: string[] = [];
   const app = criarServidor({
@@ -592,7 +614,12 @@ describe('rotas de contas (HTTP)', () => {
 
       expect(resposta.statusCode).toBe(200);
       expect(resposta.headers['cache-control']).toBe('no-store');
-      expect(resposta.headers['content-type']).toMatch(/^application\/json/);
+      // A string pronta do serializador sai como está: JSON de objeto, não
+      // uma string JSON serializada de novo.
+      expect(resposta.headers['content-type']).toBe(
+        'application/json; charset=utf-8',
+      );
+      expect(resposta.body.startsWith('{"formato":')).toBe(true);
       const expiraEm = new Date(
         Date.parse(AGORA) + 30 * 24 * 60 * 60 * 1000,
       ).toISOString();
@@ -688,6 +715,35 @@ describe('rotas de contas (HTTP)', () => {
 
       expect(resposta.statusCode).toBe(500);
       expect(resposta.json()).toEqual({ erro: 'interno' });
+    });
+
+    it('CA48 — medida acima do teto: 409 exportacao_grande com no-store, só o código no corpo, sem coletar', async () => {
+      const { token } = (await cadastrar()).json();
+      m.dados.medida = TETO_DA_EXPORTACAO_BYTES;
+
+      const resposta = await exportar(token, { senha: SENHA });
+
+      expect(resposta.statusCode).toBe(409);
+      expect(resposta.json()).toStrictEqual({ erro: 'exportacao_grande' });
+      expect(resposta.headers['cache-control']).toBe('no-store');
+      expect(m.dados.medicoes).toHaveLength(1);
+      expect(m.dados.coletas).toEqual([]);
+      const log = m.linhasDoLog.join('\n');
+      expect(log).not.toContain(String(TETO_DA_EXPORTACAO_BYTES));
+      expect(log).not.toContain(EMAIL);
+      expect(log).not.toContain(SENHA);
+    });
+
+    it('CA48 — a serialização é a do schema da rota, feita no caso de uso: o corpo é exatamente o que o serializador devolveu', async () => {
+      const { token } = (await cadastrar()).json();
+      const exportarDados = vi.spyOn(m.casos, 'exportarDados');
+
+      const resposta = await exportar(token, { senha: SENHA });
+
+      expect(resposta.statusCode).toBe(200);
+      const texto = await exportarDados.mock.results[0]?.value;
+      expect(resposta.body).toBe(texto);
+      expect(JSON.parse(resposta.body).formato).toBe('trampo-ja.exportacao.v1');
     });
 
     it('senha errada: 403 senha_incorreta com no-store, sem coletar nada', async () => {
@@ -871,6 +927,260 @@ describe('rotas de contas (HTTP)', () => {
       expect(log).toContain('erro interno não tratado');
       expect(log).not.toContain(EMAIL);
       expect(log).not.toContain(SENHA);
+    });
+  });
+});
+
+describe('CA45 — fila do scrypt e da exportação (HTTP)', () => {
+  let m: Montagem;
+  let scrypt: SemaforoContado;
+  let exportacao: SemaforoContado;
+  let token: string;
+
+  /** Semáforo de 1 vaga que conta as tarefas que de fato rodaram. */
+  class SemaforoContado extends Semaforo {
+    rodaram = 0;
+
+    override executar<T>(
+      tarefa: () => Promise<T>,
+      opcoes?: Parameters<Semaforo['executar']>[1],
+    ): Promise<T> {
+      return super.executar(() => {
+        this.rodaram += 1;
+        return tarefa();
+      }, opcoes);
+    }
+  }
+
+  /** Ocupa a única vaga até `liberar()` (a ocupação conta em `rodaram`). */
+  function ocupar(semaforo: Semaforo) {
+    let liberar = () => {};
+    const ocupacao = semaforo.executar(
+      () =>
+        new Promise<void>((resolver) => {
+          liberar = resolver;
+        }),
+    );
+    return { liberar: () => liberar(), ocupacao };
+  }
+
+  /** Sem `vi.waitFor`: com timers falsos, ele avançaria o relógio. */
+  async function esperarFila(semaforo: Semaforo, quantos: number) {
+    const limite = Date.now() + 4_000;
+    while (semaforo.naFila !== quantos && Date.now() < limite) {
+      await new Promise((resolver) => setImmediate(resolver));
+    }
+    expect(semaforo.naFila).toBe(quantos);
+  }
+
+  beforeEach(async () => {
+    scrypt = new SemaforoContado(1);
+    exportacao = new SemaforoContado(1);
+    m = montar({ semaforoDoScrypt: scrypt, semaforoDaExportacao: exportacao });
+    const cadastro = await m.app.inject({
+      method: 'POST',
+      url: '/contas',
+      payload: { email: EMAIL, senha: SENHA },
+    });
+    token = cadastro.json().token;
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await m.app.close();
+  });
+
+  const ROTAS_COM_SENHA = [
+    {
+      url: '/contas',
+      payload: { email: 'joao@exemplo.com', senha: SENHA },
+      autenticada: false,
+    },
+    {
+      url: '/sessoes',
+      payload: { email: EMAIL, senha: SENHA },
+      autenticada: false,
+    },
+    {
+      url: '/contas/eu/exclusao',
+      payload: { senha: SENHA },
+      autenticada: true,
+    },
+    {
+      url: '/contas/eu/exportacao',
+      payload: { senha: SENHA },
+      autenticada: true,
+    },
+  ];
+
+  it.each(ROTAS_COM_SENHA)(
+    'POST $url com a fila do scrypt cheia por 10 s: 503 servico_ocupado com retry-after 10, sem derivar e sem dado pessoal no log',
+    async ({ url, payload, autenticada }) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const antes = scrypt.rodaram + 1;
+      const vaga = ocupar(scrypt);
+
+      const pedido = m.app.inject({
+        method: 'POST',
+        url,
+        payload,
+        headers: autenticada ? bearer(token) : {},
+      });
+      await esperarFila(scrypt, 1);
+      await vi.advanceTimersByTimeAsync(ESPERA_MAXIMA_NA_FILA_MS);
+      const resposta = await pedido;
+
+      expect(resposta.statusCode).toBe(503);
+      expect(resposta.json()).toEqual({ erro: 'servico_ocupado' });
+      expect(resposta.headers['retry-after']).toBe('10');
+      vaga.liberar();
+      await vaga.ocupacao;
+      expect(scrypt.rodaram).toBe(antes);
+      expect(m.contas.quantidade).toBe(1);
+      expect(m.dados.exclusoes).toEqual([]);
+      expect(m.dados.coletas).toEqual([]);
+      const log = m.linhasDoLog.join('\n');
+      expect(log).toContain('serviço ocupado');
+      expect(log).not.toContain(EMAIL);
+      expect(log).not.toContain('joao@exemplo.com');
+      expect(log).not.toContain(SENHA);
+      expect(log).not.toContain(token);
+    },
+  );
+
+  it('POST /contas/eu/exportacao com a fila da coleta cheia por 10 s: 503 com retry-after e no-store, sem coletar', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const vaga = ocupar(exportacao);
+
+    const pedido = m.app.inject({
+      method: 'POST',
+      url: '/contas/eu/exportacao',
+      payload: { senha: SENHA },
+      headers: bearer(token),
+    });
+    await esperarFila(exportacao, 1);
+    await vi.advanceTimersByTimeAsync(ESPERA_MAXIMA_NA_FILA_MS);
+    const resposta = await pedido;
+
+    expect(resposta.statusCode).toBe(503);
+    expect(resposta.json()).toEqual({ erro: 'servico_ocupado' });
+    expect(resposta.headers['retry-after']).toBe('10');
+    expect(resposta.headers['cache-control']).toBe('no-store');
+    vaga.liberar();
+    await vaga.ocupacao;
+    expect(exportacao.rodaram).toBe(1);
+    expect(m.dados.coletas).toEqual([]);
+  });
+
+  describe('socket fechado na fila (servidor real na porta 0)', () => {
+    async function escutar(): Promise<number> {
+      await m.app.listen({ port: 0, host: '127.0.0.1' });
+      return (m.app.server.address() as AddressInfo).port;
+    }
+
+    /** Abre o pedido HTTP e devolve como derrubar a conexão. */
+    function pedirDeVerdade(
+      porta: number,
+      url: string,
+      payload: object,
+      headers: Record<string, string>,
+    ) {
+      const corpo = JSON.stringify(payload);
+      const cliente = pedirHttp({
+        host: '127.0.0.1',
+        port: porta,
+        method: 'POST',
+        path: url,
+        headers: {
+          ...headers,
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(corpo)),
+        },
+      });
+      cliente.on('error', () => {});
+      cliente.end(corpo);
+      return { derrubar: () => cliente.destroy() };
+    }
+
+    it.each(ROTAS_COM_SENHA)(
+      'POST $url: a conexão cai com o pedido na fila do scrypt, ele sai da fila na hora e nada é derivado, gravado, excluído ou coletado',
+      async ({ url, payload, autenticada }) => {
+        const porta = await escutar();
+        const antes = scrypt.rodaram + 1;
+        const vaga = ocupar(scrypt);
+
+        const pedido = pedirDeVerdade(
+          porta,
+          url,
+          payload,
+          autenticada ? bearer(token) : {},
+        );
+        await esperarFila(scrypt, 1);
+        pedido.derrubar();
+        // Sai da fila com a vaga ainda ocupada: foi o sinal, não a vez.
+        await esperarFila(scrypt, 0);
+        vaga.liberar();
+        await vaga.ocupacao;
+
+        expect(scrypt.rodaram).toBe(antes);
+        expect(m.contas.quantidade).toBe(1);
+        expect(m.sessoes.hashesGravados()).toHaveLength(1);
+        expect(m.dados.exclusoes).toEqual([]);
+        expect(m.dados.coletas).toEqual([]);
+      },
+    );
+
+    it('POST /contas/eu/exportacao: a conexão cai com o pedido na fila da coleta, ele sai da fila e nada é coletado', async () => {
+      const porta = await escutar();
+      const vaga = ocupar(exportacao);
+
+      const pedido = pedirDeVerdade(
+        porta,
+        '/contas/eu/exportacao',
+        { senha: SENHA },
+        bearer(token),
+      );
+      await esperarFila(exportacao, 1);
+      pedido.derrubar();
+      await esperarFila(exportacao, 0);
+      vaga.liberar();
+      await vaga.ocupacao;
+
+      expect(exportacao.rodaram).toBe(1);
+      expect(m.dados.coletas).toEqual([]);
+    });
+
+    it('com o cliente conectado, o pedido na fila espera a vaga e é atendido (o sinal não aborta à toa)', async () => {
+      const porta = await escutar();
+      const vaga = ocupar(scrypt);
+      const corpo = JSON.stringify({ email: EMAIL, senha: SENHA });
+
+      const status = new Promise<number>((resolver, rejeitar) => {
+        const cliente = pedirHttp(
+          {
+            host: '127.0.0.1',
+            port: porta,
+            method: 'POST',
+            path: '/sessoes',
+            headers: {
+              'content-type': 'application/json',
+              'content-length': String(Buffer.byteLength(corpo)),
+            },
+          },
+          (res) => {
+            res.resume();
+            res.on('end', () => resolver(res.statusCode ?? 0));
+          },
+        );
+        cliente.on('error', rejeitar);
+        cliente.end(corpo);
+      });
+      await esperarFila(scrypt, 1);
+      await new Promise((resolver) => setTimeout(resolver, 30));
+      expect(scrypt.naFila).toBe(1);
+      vaga.liberar();
+
+      expect(await status).toBe(200);
     });
   });
 });

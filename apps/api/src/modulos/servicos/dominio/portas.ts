@@ -29,7 +29,20 @@ export interface FiltrosDeBusca {
 
 /** Porta de saída de persistência dos serviços. */
 export interface RepositorioDeServicos {
+  /** Insere um serviço novo (versão 1). */
   salvar(servico: Servico): Promise<void>;
+  /**
+   * Grava o serviço editado (ADR-006): o `servico` chega com a `versao` lida
+   * mais 1 e só é gravado se a linha tiver o mesmo id, o mesmo autor e ainda
+   * a versão lida (`servico.versao - 1`). Devolve `false` se nenhuma linha
+   * mudou: o serviço sumiu, é de outro autor ou outra edição venceu.
+   */
+  atualizar(servico: Servico): Promise<boolean>;
+  /**
+   * Apaga o serviço `id` se `autorId` for o autor. Devolve `false` se não
+   * havia linha assim (inexistente, de outra conta ou id fora do formato).
+   */
+  excluir(id: string, autorId: string): Promise<boolean>;
   buscarPorId(id: string): Promise<Servico | null>;
   /** Todos os serviços do autor, mais recentes primeiro. */
   listarDoAutor(autorId: string): Promise<readonly Servico[]>;

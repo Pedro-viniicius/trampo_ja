@@ -33,6 +33,13 @@ export interface OpcoesDaRequisicao {
   readonly query?: Query;
   /** Manda `Authorization: Bearer` quando há token. Padrão: `true`. */
   readonly autenticar?: boolean;
+  /**
+   * Token desta requisição, no lugar do `obterToken`. Serve para quem já
+   * apagou a sessão local e ainda precisa falar em nome dela (o `sair`
+   * revoga em segundo plano com o token capturado antes de apagar). Vazio
+   * vai sem `Authorization`. Ignorado com `autenticar: false`.
+   */
+  readonly token?: string;
 }
 
 export type OpcoesSemCorpo = Omit<OpcoesDaRequisicao, 'corpo'>;
@@ -178,7 +185,8 @@ function lerCampos(campos: unknown): CampoInvalido[] {
 /**
  * Cliente HTTP da API (contrato no plano `mvp-trampo-ja-app`, "Decisão").
  *
- * - `Authorization: Bearer <token>` quando `autenticar` (padrão) e há token.
+ * - `Authorization: Bearer <token>` quando `autenticar` (padrão) e há token;
+ *   o `token` da requisição, se veio, tem prioridade sobre `obterToken`.
  * - Timeout com `AbortController` (15 s), que vale até o corpo ser lido.
  * - 401 de requisição que levou token, fora das rotas de entrada: chama
  *   `aoExpirar(tokenUsado)` e lança `ErroDaApi(401, 'sessao_expirada')`.
@@ -195,12 +203,20 @@ export function criarCliente({
   async function requisitar<T>(
     metodo: MetodoHttp,
     caminho: string,
-    { corpo, query, autenticar = true }: OpcoesDaRequisicao = {},
+    {
+      corpo,
+      query,
+      autenticar = true,
+      token: tokenDaRequisicao,
+    }: OpcoesDaRequisicao = {},
   ): Promise<T> {
     const cabecalhos: Record<string, string> = { Accept: 'application/json' };
     let tokenUsado: string | undefined;
     if (autenticar) {
-      const token = await obterToken();
+      const token =
+        tokenDaRequisicao !== undefined
+          ? tokenDaRequisicao
+          : await obterToken();
       if (token) {
         cabecalhos.Authorization = `Bearer ${token}`;
         tokenUsado = token;

@@ -11,19 +11,24 @@
  * - `trampos.buscarTrampos` e `servicos.buscarServicos` → `busca` (CA7);
  * - `contas.validarSessao` → hook de autenticação de todas as rotas, exceto
  *   `POST /contas` e `POST /sessoes` (CA14);
- * - `excluirDadosDaConta` e `exportarDadosDaConta` de cada módulo →
- *   `DadosDaConta` de `contas` (D25, D26), com a exclusão numa transação só;
+ * - `excluirDadosDaConta`, `exportarDadosDaConta` e `medirExportacao` de cada
+ *   módulo → `DadosDaConta` de `contas` (D25, D26, D41), com a exclusão numa
+ *   transação só, que grava também a lápide da conta (ADR-007);
+ * - `contas.limparRegistrosVencidos` → `Aplicacao.limparRegistrosVencidos`,
+ *   que o entrypoint agenda (D40);
+ * - limite de entrada (D31) → `preValidation` de `POST /sessoes`, com o
+ *   contador por e-mail+IP em memória (`limite-de-entrada.ts`); o teto por
+ *   conta é contado no banco pelo módulo `contas` (`limitePorEmail` →
+ *   `tetoDeTentativas`);
  * - limite por conta (D29) → `preHandler` de toda rota autenticada, menos
  *   `DELETE /sessoes`, que passa sem contar (S8).
  *
  * Não abre nem fecha a conexão com o banco: quem cria a conexão (o entrypoint
  * `src/servidor.ts` ou o teste) é quem a fecha.
  */
-import { createHash } from 'node:crypto';
 import rateLimit from '@fastify/rate-limit';
 import type {
   FastifyInstance,
-  FastifyRequest,
   preHandlerHookHandler,
   preValidationHookHandler,
   RouteOptions,
@@ -31,7 +36,15 @@ import type {
 import { Kysely } from 'kysely';
 import type { BancoBase } from './compartilhado/banco/conexao.js';
 import { travarContaComExclusividade } from './compartilhado/banco/travas-de-conta.js';
-import type { Relogio } from './compartilhado/dominio/relogio.js';
+import {
+  type Relogio,
+  relogioDoSistema,
+} from './compartilhado/dominio/relogio.js';
+import {
+  criarLimiteDeEntrada,
+  LIMITE_PADRAO_POR_EMAIL_E_IP,
+  type LimiteDeTentativas,
+} from './compartilhado/http/limite-de-entrada.js';
 import {
   criarLimitePorConta,
   LIMITES_PADRAO_POR_CONTA,
@@ -45,6 +58,8 @@ import {
   type DadosDaConta,
   type ModuloDeContas,
   type OpcoesDoModuloDeContas,
+  type ResultadoDaLimpeza,
+  type TetoDeTentativas,
 } from './modulos/contas/index.js';
 import {
   criarModuloDeConversas,
@@ -84,42 +99,22 @@ export const LIMITE_PADRAO_DAS_ROTAS_PUBLICAS: LimiteDeRequisicoes = {
 };
 
 /**
- * S1: segundo freio do login, por conta. O limite por IP não segura quem tenta
- * senhas de uma mesma conta a partir de muitos IPs; este conta as tentativas
- * de `POST /sessoes` por e-mail, venham de onde vierem.
+ * A rota de entrada, que além do limite por IP tem o limite de entrada por
+ * e-mail+IP (D31).
  */
-export const LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL: LimiteDeRequisicoes = {
-  max: 10,
-  janelaMs: 15 * 60_000,
-};
-
-/** A rota de entrada, que além do limite por IP tem o limite por e-mail. */
 const ROTA_DE_ENTRADA = { metodo: 'POST', url: '/sessoes' } as const;
 
-// Maior e-mail que faz sentido contar (RFC 5321); acima disso, vale o IP.
-const TAMANHO_MAXIMO_DO_EMAIL = 320;
-
 /**
- * Chave do limite por e-mail. O e-mail é normalizado como no cadastro
- * (aparado e em minúsculas) e guardado só como SHA-256, para que o contador em
- * memória nunca tenha o e-mail. Corpo sem e-mail utilizável cai na chave do
- * IP, que não dá para contornar trocando o texto do e-mail.
+ * Tamanho do LRU do limite por IP da rota de entrada (o padrão do plugin é
+ * 5000). O IPv6 conta por /64, e quem tem um /48 tem 65 536 prefixos. O LRU
+ * grande só evita que o despejo zere os contadores que já existem (com 5000
+ * chaves, trocar de prefixo apagaria o contador; achado S1 da rodada 1 da L3).
+ * Ele não limita quem tem um /48: são 65 536 prefixos de 10 pedidos por
+ * minuto cada. A barreira contra força bruta numa conta é o teto por conta no
+ * banco (D31); contra *password spraying* (uma senha em muitas contas), vale
+ * só o limite por IP (D2). São bytes por chave, poucos MiB no pior caso.
  */
-export function chaveDoLimitePorEmail(requisicao: FastifyRequest): string {
-  const corpo = requisicao.body;
-  const bruto =
-    typeof corpo === 'object' && corpo !== null && !Array.isArray(corpo)
-      ? (corpo as Record<string, unknown>).email
-      : undefined;
-  if (typeof bruto === 'string') {
-    const email = bruto.trim().toLowerCase();
-    if (email !== '' && email.length <= TAMANHO_MAXIMO_DO_EMAIL) {
-      const hash = createHash('sha256').update(email, 'utf8').digest('hex');
-      return `email:${hash}`;
-    }
-  }
-  return `ip:${requisicao.ip}`;
-}
+export const CHAVES_DO_LIMITE_POR_IP_NA_ENTRADA = 100_000;
 
 export interface RotaRegistrada {
   readonly metodo: string;
@@ -141,15 +136,25 @@ export interface OpcoesDaAplicacao {
   readonly relogio?: Relogio;
   /**
    * Rate limit de `POST /contas` e `POST /sessoes`, por IP. Padrão:
-   * `LIMITE_PADRAO_DAS_ROTAS_PUBLICAS`; `false` desliga este e o limite por
-   * e-mail (testes que não são sobre o limite).
+   * `LIMITE_PADRAO_DAS_ROTAS_PUBLICAS`; `false` desliga este e o limite de
+   * entrada por e-mail+IP (testes que não são sobre o limite). O teto por
+   * conta (`limitePorEmail`) continua.
    */
   readonly rateLimit?: LimiteDeRequisicoes | false;
   /**
-   * Limite de `POST /sessoes` por e-mail (S1). Padrão:
-   * `LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL`. Ignorado com `rateLimit: false`.
+   * Limite de `POST /sessoes` por e-mail+IP (D31), em memória, no
+   * `preValidation`. Padrão: `LIMITE_PADRAO_POR_EMAIL_E_IP` (10 a cada
+   * 15 min). Ignorado com `rateLimit: false`.
    */
-  readonly limitePorEmail?: LimiteDeRequisicoes;
+  readonly limitePorEmailEIp?: LimiteDeTentativas;
+  /**
+   * Teto de entrada por conta, de qualquer IP (D31), contado no banco pelo
+   * caso de uso `entrar` de `contas`, antes do scrypt; a recusa do limite por
+   * e-mail+IP não chega lá. Padrão: `TETO_PADRAO_POR_EMAIL` (100 por hora).
+   * É regra do caso de uso: `rateLimit: false` não o desliga. Inválido (não
+   * inteiro positivo, janela acima de um dia), recusa a montagem.
+   */
+  readonly limitePorEmail?: TetoDeTentativas;
   /**
    * Limite por conta de cada grupo de rotas autenticadas (D29). Padrão:
    * `LIMITES_PADRAO_POR_CONTA`; `false` desliga. `rateLimit: false` também
@@ -165,6 +170,12 @@ export interface Aplicacao {
   readonly app: FastifyInstance;
   /** Método e caminho de cada rota registrada, na ordem de registro. */
   readonly rotas: readonly RotaRegistrada[];
+  /**
+   * Uma rodada da limpeza periódica (D40, ADR-007): sessões expiradas e
+   * contas excluídas há 10 min ou mais. Idempotente; quem agenda é o
+   * entrypoint. Rejeita com o primeiro erro da rodada.
+   */
+  limparRegistrosVencidos(): Promise<ResultadoDaLimpeza>;
   /** Fecha o servidor HTTP. A conexão com o banco fica com quem a criou. */
   fechar(): Promise<void>;
 }
@@ -182,19 +193,27 @@ function visaoDoModulo<TabelasDoModulo>(
   return db as unknown as TabelasDoModulo;
 }
 
+/**
+ * Teto da parte de `perfis` na medida da exportação (D41): o perfil tem
+ * tamanho limitado (nome e cidade até 80, descrição até 300 e até 10
+ * habilidades de 30 caracteres, até 4 bytes cada em UTF-8), bem abaixo disso.
+ * Por isso não é medido no banco.
+ */
+export const BYTES_DO_PERFIL_NA_MEDIDA = 8 * 1024;
+
 /** Fachadas que guardam dados da conta fora de `contas`, mais a de `contas`. */
 interface ModulosComDadosDaConta {
   readonly conversas: Pick<
     ModuloDeConversas,
-    'excluirDadosDaConta' | 'exportarDadosDaConta'
+    'excluirDadosDaConta' | 'exportarDadosDaConta' | 'medirExportacao'
   >;
   readonly trampos: Pick<
     ModuloDeTrampos,
-    'excluirDadosDaConta' | 'exportarDadosDaConta'
+    'excluirDadosDaConta' | 'exportarDadosDaConta' | 'medirExportacao'
   >;
   readonly servicos: Pick<
     ModuloDeServicos,
-    'excluirDadosDaConta' | 'exportarDadosDaConta'
+    'excluirDadosDaConta' | 'exportarDadosDaConta' | 'medirExportacao'
   >;
   readonly perfis: Pick<
     ModuloDePerfis,
@@ -225,15 +244,18 @@ function transacaoDoKysely(transacao: unknown): Kysely<BancoBase> {
  * a trava exclusiva da conta (`travas-de-conta.ts`): a abertura de conversa
  * com ela, que pega a compartilhada, ou já terminou ou espera esta transação
  * (Q1). Depois vêm as travas (`for update`) de conversas e trampos, e as
- * sessões caem por último, junto com a conta. Qualquer falha desfaz tudo;
- * repetir é seguro.
+ * sessões caem por último, junto com a conta e a gravação da lápide com a
+ * hora do `relogio` (ADR-007). Qualquer falha desfaz tudo; repetir é seguro
+ * (é o que a limpeza periódica faz com cada lápide).
  *
  * A exportação (D26) junta as partes de cada módulo campo a campo, para nada
- * além do contrato v1 sair daqui.
+ * além do contrato v1 sair daqui. A medida (D41) soma a de conversas, trampos
+ * e serviços, feita no banco, e o teto fixo do perfil.
  */
 function criarDadosDaConta(
   db: Kysely<BancoBase>,
   modulos: ModulosComDadosDaConta,
+  relogio: Relogio,
 ): DadosDaConta {
   const { conversas, trampos, servicos, perfis, contas } = modulos;
   return {
@@ -259,6 +281,7 @@ function criarDadosDaConta(
         await contas.excluirRegistrosDaConta(
           visaoDoModulo<OpcoesDoModuloDeContas['db']>(trx),
           contaId,
+          relogio.agora(),
         );
       }),
     coletarDosOutrosModulos: async (contaId) => {
@@ -275,6 +298,17 @@ function criarDadosDaConta(
         candidaturas: deTrampos.candidaturas,
         conversas: deConversas.conversas,
       };
+    },
+    medirDosOutrosModulos: async (contaId) => {
+      const medidas = await Promise.all([
+        conversas.medirExportacao(contaId),
+        trampos.medirExportacao(contaId),
+        servicos.medirExportacao(contaId),
+      ]);
+      return (
+        medidas.reduce((soma, bytes) => soma + bytes, 0) +
+        BYTES_DO_PERFIL_NA_MEDIDA
+      );
     },
   };
 }
@@ -294,32 +328,6 @@ function paraLista<T>(valor: T | T[] | undefined): T[] {
     return [];
   }
   return Array.isArray(valor) ? [...valor] : [valor];
-}
-
-/**
- * Hook do limite por e-mail (S1), com contador próprio no store em memória do
- * `@fastify/rate-limit` (chave: hash do e-mail, nunca o e-mail). Acima do
- * limite, 429 genérico pelo tratador compartilhado; nem o e-mail nem o hash
- * entram na resposta ou no log.
- */
-function criarLimitePorEmail(
-  app: FastifyInstance,
-  limite: LimiteDeRequisicoes,
-): preValidationHookHandler {
-  const verificar = app.createRateLimit({
-    max: limite.max,
-    timeWindow: limite.janelaMs,
-    keyGenerator: chaveDoLimitePorEmail,
-  });
-  return async function limitarEntradaPorEmail(requisicao, resposta) {
-    const resultado = await verificar(requisicao);
-    if (!resultado.isAllowed && resultado.isExceeded) {
-      resposta.header('retry-after', resultado.ttlInSeconds);
-      throw Object.assign(new Error('limite de entradas por conta'), {
-        statusCode: 429,
-      });
-    }
-  };
 }
 
 /** Monta a API inteira: módulos, portas entre eles, rate limit e rotas. */
@@ -373,18 +381,25 @@ export async function montarAplicacao(
   const contas = criarModuloDeContas({
     db: visaoDoModulo<OpcoesDoModuloDeContas['db']>(db),
     relogio,
-    dadosDaConta: criarDadosDaConta(db, {
-      conversas,
-      trampos,
-      servicos,
-      perfis,
-      // Função pura da fachada (não usa o estado do módulo); a referência é
-      // resolvida só na hora da exclusão, quando `contas` já existe.
-      contas: {
-        excluirRegistrosDaConta: (trx, contaId) =>
-          contas.excluirRegistrosDaConta(trx, contaId),
+    ...(opcoes.limitePorEmail !== undefined
+      ? { tetoDeTentativas: opcoes.limitePorEmail }
+      : {}),
+    dadosDaConta: criarDadosDaConta(
+      db,
+      {
+        conversas,
+        trampos,
+        servicos,
+        perfis,
+        // Função pura da fachada (não usa o estado do módulo); a referência
+        // é resolvida só na hora da exclusão, quando `contas` já existe.
+        contas: {
+          excluirRegistrosDaConta: (trx, contaId, agora) =>
+            contas.excluirRegistrosDaConta(trx, contaId, agora),
+        },
       },
-    }),
+      relogio ?? relogioDoSistema,
+    ),
   });
   const busca = criarModuloDeBusca({ trampos, servicos });
 
@@ -396,7 +411,7 @@ export async function montarAplicacao(
   });
   const rotas: RotaRegistrada[] = [];
   // Criados depois do registro do `@fastify/rate-limit`, antes das rotas.
-  let limitarPorEmail: preValidationHookHandler | undefined;
+  let limitarEntrada: preValidationHookHandler | undefined;
   let limitarPorConta: preHandlerHookHandler | undefined;
 
   // Registrado antes de qualquer plugin, este `onRoute` roda antes do
@@ -406,23 +421,26 @@ export async function montarAplicacao(
     for (const metodo of metodosDa(rota)) {
       rotas.push({ metodo, url: rota.url });
     }
+    const ehEntrada =
+      rota.url === ROTA_DE_ENTRADA.url &&
+      metodosDa(rota).includes(ROTA_DE_ENTRADA.metodo);
     if (
       limite !== false &&
       metodosDa(rota).some((metodo) => ehRotaPublica(metodo, rota.url))
     ) {
       rota.config = {
         ...rota.config,
-        rateLimit: { max: limite.max, timeWindow: limite.janelaMs },
+        rateLimit: {
+          max: limite.max,
+          timeWindow: limite.janelaMs,
+          ...(ehEntrada ? { cache: CHAVES_DO_LIMITE_POR_IP_NA_ENTRADA } : {}),
+        },
       };
     }
-    if (
-      limitarPorEmail !== undefined &&
-      rota.url === ROTA_DE_ENTRADA.url &&
-      metodosDa(rota).includes(ROTA_DE_ENTRADA.metodo)
-    ) {
+    if (limitarEntrada !== undefined && ehEntrada) {
       // `preValidation`: o corpo já foi lido (o e-mail está nele) e o
       // schema ainda não rodou, então corpo inválido também conta.
-      rota.preValidation = [...paraLista(rota.preValidation), limitarPorEmail];
+      rota.preValidation = [...paraLista(rota.preValidation), limitarEntrada];
     }
     if (
       limitarPorConta !== undefined &&
@@ -443,22 +461,21 @@ export async function montarAplicacao(
 
   if (limite !== false) {
     // `global: false`: só as rotas com `config.rateLimit` são limitadas por
-    // IP, cada uma com o próprio contador. Os limites por e-mail e por conta
+    // IP, cada uma com o próprio contador. Os limites de entrada e por conta
     // usam contadores próprios (`createRateLimit`) no mesmo store. O 429 sai
     // como `{"erro":"muitas_requisicoes"}` pelo tratador compartilhado.
     await app.register(rateLimit, { global: false });
-    limitarPorEmail = criarLimitePorEmail(
-      app,
-      opcoes.limitePorEmail ?? LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL,
-    );
-    if (limitesPorConta !== false) {
-      try {
-        // Lança se algum limite não for inteiro positivo.
+    try {
+      // Os dois lançam se algum limite não for inteiro positivo.
+      limitarEntrada = criarLimiteDeEntrada(app, {
+        porEmailEIp: opcoes.limitePorEmailEIp ?? LIMITE_PADRAO_POR_EMAIL_E_IP,
+      });
+      if (limitesPorConta !== false) {
         limitarPorConta = criarLimitePorConta(app, limitesPorConta);
-      } catch (erro) {
-        await app.close();
-        throw erro;
       }
+    } catch (erro) {
+      await app.close();
+      throw erro;
     }
   }
 
@@ -489,6 +506,7 @@ export async function montarAplicacao(
   return {
     app,
     rotas,
+    limparRegistrosVencidos: () => contas.limparRegistrosVencidos(),
     fechar: () => app.close(),
   };
 }

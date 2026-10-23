@@ -112,3 +112,64 @@ export class ErroProibido extends ErroDeDominio {
     this.codigo = codigo;
   }
 }
+
+// `retry-after` em segundos: de 1 s a um dia.
+const TENTAR_DE_NOVO_MAXIMO_S = 86_400;
+
+function tentarDeNovoValido(segundos: number): boolean {
+  return (
+    Number.isSafeInteger(segundos) &&
+    segundos >= 1 &&
+    segundos <= TENTAR_DE_NOVO_MAXIMO_S
+  );
+}
+
+/**
+ * Serviço sem capacidade agora (ex.: a fila do scrypt ou da exportação passou
+ * da espera máxima, D42). A API responde 503 com o código e o cabeçalho
+ * `retry-after: <tentarDeNovoEmS>`. O tempo é fixo de quem lança: nunca o
+ * tamanho da fila nem a espera de fato.
+ */
+export class ErroIndisponivel extends ErroDeDominio {
+  readonly codigo: string;
+  readonly tentarDeNovoEmS: number;
+
+  constructor(codigo: string, tentarDeNovoEmS: number) {
+    if (!FORMATO_CODIGO.test(codigo)) {
+      throw new TypeError(
+        'ErroIndisponivel: código fora do formato snake_case',
+      );
+    }
+    if (!tentarDeNovoValido(tentarDeNovoEmS)) {
+      throw new TypeError(
+        'ErroIndisponivel: tentarDeNovoEmS precisa ser um inteiro de 1 a 86400',
+      );
+    }
+    super(codigo);
+    this.name = 'ErroIndisponivel';
+    this.codigo = codigo;
+    this.tentarDeNovoEmS = tentarDeNovoEmS;
+  }
+}
+
+/**
+ * Limite de tentativas esgotado (ex.: o teto de entrada por conta, D31). A
+ * API responde 429 `muitas_requisicoes`, o mesmo corpo do rate limit por IP,
+ * com o cabeçalho `retry-after: <tentarDeNovoEmS>`. Não carrega a chave do
+ * contador (conta, e-mail, IP) nem a contagem: só o tempo de espera.
+ */
+export class ErroLimiteExcedido extends ErroDeDominio {
+  readonly codigo = 'muitas_requisicoes';
+  readonly tentarDeNovoEmS: number;
+
+  constructor(tentarDeNovoEmS: number) {
+    if (!tentarDeNovoValido(tentarDeNovoEmS)) {
+      throw new TypeError(
+        'ErroLimiteExcedido: tentarDeNovoEmS precisa ser um inteiro de 1 a 86400',
+      );
+    }
+    super('muitas_requisicoes');
+    this.name = 'ErroLimiteExcedido';
+    this.tentarDeNovoEmS = tentarDeNovoEmS;
+  }
+}

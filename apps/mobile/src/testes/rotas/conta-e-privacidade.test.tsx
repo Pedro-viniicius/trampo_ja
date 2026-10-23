@@ -550,6 +550,11 @@ describe('Exportar dados (CA19)', () => {
       { status: 429, corpo: { erro: 'muitas_requisicoes' } },
       textos.erros.muitas_tentativas_acao,
     ],
+    [
+      '409 exportação grande demais (CA48)',
+      { status: 409, corpo: { erro: 'exportacao_grande' } },
+      textos.erros.exportacao_grande,
+    ],
     ['queda de rede', { falhaDeRede: true }, textos.erros.sem_conexao],
     [
       '500',

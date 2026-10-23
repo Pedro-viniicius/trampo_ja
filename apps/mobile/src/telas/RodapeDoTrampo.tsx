@@ -1,10 +1,11 @@
 import type { ComponentRef } from 'react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { ScrollView, type TextInput, View } from 'react-native';
 import {
   Aviso,
   Botao,
   CampoDeTexto,
+  DialogoDeConfirmacao,
   Esqueleto,
   FolhaInferior,
   Motivo,
@@ -28,7 +29,10 @@ export function RodapeDoTrampo({
   onVerCandidaturas,
   onConversar,
   estadoDoConversar,
+  retirar,
 }: PropsDoRodapeDoTrampo) {
+  const [confirmando, setConfirmando] = useState(false);
+  const retirarVisivel = situacao.tipo === 'candidatado' && retirar;
   return (
     <>
       <View style={{ gap: espaco[2] }}>
@@ -86,9 +90,37 @@ export function RodapeDoTrampo({
                 onConversar={onConversar}
               />
             ) : null}
+            {situacao.status === 'pendente' && retirar ? (
+              <>
+                <Botao
+                  texto={textos.candidatura.retirar}
+                  textoCarregando={textos.candidatura.retirando}
+                  variante="texto"
+                  carregando={retirar.retirando}
+                  desabilitado={Boolean(retirar.motivo)}
+                  onPress={() => setConfirmando(true)}
+                />
+                {retirar.motivo ? <Motivo texto={retirar.motivo} /> : null}
+              </>
+            ) : null}
           </>
         ) : null}
       </View>
+      {retirarVisivel ? (
+        <DialogoDeConfirmacao
+          visivel={confirmando}
+          titulo={textos.candidatura.retirarTitulo}
+          mensagem={textos.candidatura.retirarTexto}
+          textoConfirmar={textos.candidatura.retirar}
+          textoCancelar={textos.candidatura.manter}
+          destrutivo
+          onCancelar={() => setConfirmando(false)}
+          onConfirmar={() => {
+            setConfirmando(false);
+            retirar.onRetirar();
+          }}
+        />
+      ) : null}
       <FolhaDeCandidaturaView folha={folha} semConexao={semConexao} />
     </>
   );

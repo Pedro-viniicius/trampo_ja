@@ -4,6 +4,7 @@ import {
   HasherScrypt,
   PARAMETROS_SCRYPT_PADRAO,
 } from './hasher.js';
+import { EsperaCancelada, EsperaEsgotada, Semaforo } from './semaforo.js';
 
 type RetornoDoScrypt = (erro: Error | null, chave?: Buffer) => void;
 interface Derivacao {
@@ -320,5 +321,138 @@ describe('HasherScrypt (limite de derivações simultâneas, CA23)', () => {
     espiao.interceptar = null;
     const hash = await rapido.gerarHash('segredo-123');
     expect(await rapido.verificar('segredo-123', hash)).toBe(true);
+  });
+});
+
+describe('HasherScrypt (fila com espera máxima e cancelamento, CA45)', () => {
+  const esvaziar = () =>
+    new Promise<void>((resolver) => setImmediate(resolver));
+
+  /** Semáforo de 1 vaga, já ocupado até `liberar()`. */
+  function semaforoOcupado() {
+    const semaforo = new Semaforo(1);
+    let liberar = () => {};
+    const ocupacao = semaforo.executar(
+      () =>
+        new Promise<void>((resolver) => {
+          liberar = resolver;
+        }),
+    );
+    return { semaforo, liberar: () => liberar(), ocupacao };
+  }
+
+  /** Conta as chamadas que chegam ao scrypt (concluídas com chave falsa). */
+  function contarDerivacoes() {
+    const contagem = { chamadas: 0 };
+    espiao.interceptar = (derivacao) => {
+      contagem.chamadas += 1;
+      derivacao.concluir(null, Buffer.alloc(derivacao.tamanho));
+    };
+    return contagem;
+  }
+
+  afterEach(() => {
+    espiao.interceptar = null;
+    vi.useRealTimers();
+  });
+
+  it('usa o semáforo injetado, e não o do processo', async () => {
+    const { semaforo, liberar, ocupacao } = semaforoOcupado();
+    const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 }, { semaforo });
+
+    const hash = hasher.gerarHash('segredo-123');
+    await esvaziar();
+    expect(semaforo.naFila).toBe(1);
+    // O semáforo do processo continua livre para os outros hashers.
+    expect(
+      await rapido.verificar(
+        'segredo-123',
+        await rapido.gerarHash('segredo-123'),
+      ),
+    ).toBe(true);
+
+    liberar();
+    await ocupacao;
+    expect(await hasher.verificar('segredo-123', await hash)).toBe(true);
+  });
+
+  it('com a fila cheia além de esperaMaximaMs, gerarHash e verificar rejeitam com EsperaEsgotada sem chegar ao scrypt', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { semaforo, liberar, ocupacao } = semaforoOcupado();
+    const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 }, { semaforo });
+    const armazenado = await rapido.gerarHash('segredo-123');
+    const derivacoes = contarDerivacoes();
+
+    const pedidos = Promise.allSettled([
+      hasher.gerarHash('segredo-123', { esperaMaximaMs: 10_000 }),
+      hasher.verificar('segredo-123', armazenado, { esperaMaximaMs: 10_000 }),
+    ]);
+    await esvaziar();
+    expect(semaforo.naFila).toBe(2);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(semaforo.naFila).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const resultados = await pedidos;
+    for (const resultado of resultados) {
+      expect((resultado as PromiseRejectedResult).reason).toBeInstanceOf(
+        EsperaEsgotada,
+      );
+    }
+    liberar();
+    await ocupacao;
+    expect(derivacoes.chamadas).toBe(0);
+  });
+
+  it('com o sinal abortado na fila, gerarHash e verificar rejeitam com EsperaCancelada sem chegar ao scrypt', async () => {
+    const { semaforo, liberar, ocupacao } = semaforoOcupado();
+    const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 }, { semaforo });
+    const armazenado = await rapido.gerarHash('segredo-123');
+    const derivacoes = contarDerivacoes();
+    const conexao = new AbortController();
+
+    const pedidos = Promise.allSettled([
+      hasher.gerarHash('segredo-123', { sinal: conexao.signal }),
+      hasher.verificar('segredo-123', armazenado, { sinal: conexao.signal }),
+    ]);
+    await esvaziar();
+    expect(semaforo.naFila).toBe(2);
+    conexao.abort();
+
+    for (const resultado of await pedidos) {
+      expect((resultado as PromiseRejectedResult).reason).toBeInstanceOf(
+        EsperaCancelada,
+      );
+    }
+    expect(semaforo.naFila).toBe(0);
+    liberar();
+    await ocupacao;
+    expect(derivacoes.chamadas).toBe(0);
+  });
+
+  it('sem opções de fila, espera o quanto for preciso (o hash fictício da partida)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { semaforo, liberar, ocupacao } = semaforoOcupado();
+    const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 }, { semaforo });
+
+    const hash = hasher.gerarHash('segredo-123');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(semaforo.naFila).toBe(1);
+
+    liberar();
+    await ocupacao;
+    expect(await hash).toMatch(/^scrypt\$16\$8\$1\$/);
+  });
+
+  it('hash malformado devolve false sem entrar na fila, mesmo cheia', async () => {
+    const { semaforo, liberar, ocupacao } = semaforoOcupado();
+    const hasher = new HasherScrypt({ N: 2 ** 4, r: 8, p: 1 }, { semaforo });
+
+    await expect(
+      hasher.verificar('segredo-123', 'x', { esperaMaximaMs: 0 }),
+    ).resolves.toBe(false);
+    expect(semaforo.naFila).toBe(0);
+    liberar();
+    await ocupacao;
   });
 });

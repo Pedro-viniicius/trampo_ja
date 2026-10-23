@@ -7,6 +7,7 @@ import {
 } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BancoBase } from './compartilhado/banco/conexao.js';
+import { LIMITE_PADRAO_POR_EMAIL_E_IP } from './compartilhado/http/limite-de-entrada.js';
 import {
   type GrupoDeLimite,
   grupoDaRota,
@@ -15,12 +16,13 @@ import {
 import { criarLogger } from './compartilhado/http/logger.js';
 import {
   type Aplicacao,
+  CHAVES_DO_LIMITE_POR_IP_NA_ENTRADA,
   LIMITE_PADRAO_DAS_ROTAS_PUBLICAS,
-  LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL,
   montarAplicacao,
   type OpcoesDaAplicacao,
   ROTAS_PUBLICAS,
 } from './composicao.js';
+import { TETO_PADRAO_POR_EMAIL } from './modulos/contas/index.js';
 
 /*
  * Composição sem banco: o `DummyDriver` do Kysely responde a toda consulta com
@@ -103,13 +105,19 @@ describe('montarAplicacao — rotas', () => {
         'POST /trampos',
         'GET /trampos/meus',
         'GET /trampos/:id',
+        'PUT /trampos/:id',
+        'POST /trampos/:id/encerrar',
+        'DELETE /trampos/:id',
         'POST /trampos/:id/candidaturas',
         'GET /trampos/:id/candidaturas',
         'POST /trampos/:id/candidaturas/:cid/aceitar',
         'GET /candidaturas/minhas',
+        'DELETE /candidaturas/:id',
         'POST /servicos',
         'GET /servicos/meus',
         'GET /servicos/:id',
+        'PUT /servicos/:id',
+        'DELETE /servicos/:id',
         'GET /busca',
         'GET /categorias',
         'POST /conversas',
@@ -135,13 +143,22 @@ describe('montarAplicacao — rotas', () => {
       'POST /trampos': ['publicacao'],
       'GET /trampos/meus': ['leitura'],
       'GET /trampos/:id': ['leitura'],
+      // D36: editar conta junto com publicar; encerrar e excluir são escrita.
+      'PUT /trampos/:id': ['publicacao'],
+      'POST /trampos/:id/encerrar': ['escrita'],
+      'DELETE /trampos/:id': ['escrita'],
       'POST /trampos/:id/candidaturas': ['publicacao'],
       'GET /trampos/:id/candidaturas': ['leitura'],
       'POST /trampos/:id/candidaturas/:cid/aceitar': ['escrita'],
       'GET /candidaturas/minhas': ['leitura'],
+      // D36: retirar é escrita (candidatar de novo gasta `publicacao`).
+      'DELETE /candidaturas/:id': ['escrita'],
       'POST /servicos': ['publicacao'],
       'GET /servicos/meus': ['leitura'],
       'GET /servicos/:id': ['leitura'],
+      // D36: editar conta junto com publicar; excluir é escrita.
+      'PUT /servicos/:id': ['publicacao'],
+      'DELETE /servicos/:id': ['escrita'],
       'GET /busca': ['leitura'],
       'GET /categorias': ['leitura'],
       'POST /conversas': ['escrita'],
@@ -305,7 +322,14 @@ describe('D2 — rate limit no cadastro e no login', () => {
   });
 });
 
-describe('S1 — limite de entradas por e-mail em POST /sessoes', () => {
+describe('S1 (D31, CA42) — limite de entrada em POST /sessoes', () => {
+  /*
+   * Aqui só o contador por e-mail+IP, que fica na borda HTTP. O teto por
+   * conta é contado no banco pelo caso de uso `entrar`, depois de achar a
+   * conta: com o `DummyDriver` nenhuma conta existe, e os cenários dele
+   * ficam no BDD de `contas` e em `test/e2e/endurecimento-l3`.
+   */
+
   // Corpo recusado pelo schema (chave extra): conta para o limite, sem banco.
   function tentativa(email: unknown) {
     return { email, senha: 'senha-errada-123', extra: true };
@@ -313,99 +337,128 @@ describe('S1 — limite de entradas por e-mail em POST /sessoes', () => {
 
   /** IP diferente a cada tentativa: o limite por IP nunca é atingido. */
   function ipDaVez(i: number): string {
-    return `198.51.100.${i + 1}`;
+    return `198.51.${Math.floor(i / 250)}.${(i % 250) + 1}`;
   }
 
-  it('o padrão é 10 tentativas por 15 minutos', () => {
-    expect(LIMITE_PADRAO_DE_ENTRADAS_POR_EMAIL).toEqual({
+  /** Status de cada tentativa, em sequência. */
+  async function tentar(
+    quantas: number,
+    email: unknown,
+    ip: (i: number) => string,
+  ): Promise<number[]> {
+    const status: number[] = [];
+    for (let i = 0; i < quantas; i++) {
+      const resposta = await pedir('POST', '/sessoes', {
+        corpo: tentativa(email),
+        ip: ip(i),
+      });
+      status.push(resposta.statusCode);
+    }
+    return status;
+  }
+
+  // Limite por IP (D2) alto: estes testes são sobre os contadores da D31.
+  const SEM_LIMITE_POR_IP = { max: 10_000, janelaMs: 60_000 };
+
+  it('os padrões ligados são os da D31: 10 por e-mail+IP a cada 15 min e, no caso de uso, 100 por conta a cada hora', async () => {
+    expect(LIMITE_PADRAO_POR_EMAIL_E_IP).toEqual({
       max: 10,
       janelaMs: 15 * 60_000,
     });
-  });
+    expect(TETO_PADRAO_POR_EMAIL).toEqual({ max: 100, janelaMs: 60 * 60_000 });
+    await montar({ rateLimit: SEM_LIMITE_POR_IP });
 
-  it('Dado N tentativas no mesmo e-mail vindas de IPs diferentes, então a seguinte dá 429 genérico, sem o e-mail', async () => {
-    await montar({
-      rateLimit: { max: 100, janelaMs: 60_000 },
-      limitePorEmail: { max: 3, janelaMs: 60_000 },
-    });
-
-    for (let i = 0; i < 3; i++) {
-      const resposta = await pedir('POST', '/sessoes', {
-        corpo: tentativa(EMAIL),
-        ip: ipDaVez(i),
-      });
-      expect(resposta.statusCode).toBe(400);
-    }
+    // 10 do mesmo e-mail+IP passam; a 11ª dá 429 com a janela de 15 min.
+    expect(await tentar(10, EMAIL, () => IP_A)).toEqual(Array(10).fill(400));
     const bloqueada = await pedir('POST', '/sessoes', {
       corpo: tentativa(EMAIL),
-      ip: ipDaVez(3),
+      ip: IP_A,
+    });
+    expect(bloqueada.statusCode).toBe(429);
+    expect(bloqueada.headers['retry-after']).toBe('900');
+    expect(bloqueada.body).toBe('{"erro":"muitas_requisicoes"}');
+  });
+
+  it('S1 — a borda HTTP não tem teto só por e-mail: 150 tentativas do e-mail vindas de IPs variados passam por ela (o teto é por conta, no banco)', async () => {
+    await montar({ rateLimit: SEM_LIMITE_POR_IP });
+
+    expect(await tentar(150, EMAIL, ipDaVez)).toEqual(Array(150).fill(400));
+  });
+
+  it('Dado N tentativas do mesmo e-mail+IP, então a seguinte dá 429 genérico, sem o e-mail, e outro IP segue passando', async () => {
+    await montar({
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 3, janelaMs: 60_000 },
+    });
+
+    expect(await tentar(3, EMAIL, () => IP_A)).toEqual([400, 400, 400]);
+    const bloqueada = await pedir('POST', '/sessoes', {
+      corpo: tentativa(EMAIL),
+      ip: IP_A,
     });
 
     expect(bloqueada.statusCode).toBe(429);
     expect(bloqueada.body).toBe('{"erro":"muitas_requisicoes"}');
     expect(bloqueada.headers['retry-after']).toBe('60');
     expect(JSON.stringify(bloqueada.headers)).not.toContain(EMAIL);
+    expect(
+      (await pedir('POST', '/sessoes', { corpo: tentativa(EMAIL), ip: IP_B }))
+        .statusCode,
+    ).toBe(400);
   });
 
   it('o e-mail com caixa e espaços diferentes conta junto', async () => {
     await montar({
-      rateLimit: { max: 100, janelaMs: 60_000 },
-      limitePorEmail: { max: 3, janelaMs: 60_000 },
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 3, janelaMs: 60_000 },
     });
 
     const variantes = [EMAIL, EMAIL.toUpperCase(), `  ${EMAIL}  `];
-    for (const [i, email] of variantes.entries()) {
+    for (const email of variantes) {
       expect(
-        (
-          await pedir('POST', '/sessoes', {
-            corpo: tentativa(email),
-            ip: ipDaVez(i),
-          })
-        ).statusCode,
+        (await pedir('POST', '/sessoes', { corpo: tentativa(email) }))
+          .statusCode,
       ).toBe(400);
     }
     expect(
       (
         await pedir('POST', '/sessoes', {
           corpo: tentativa('Maria.Silva@Exemplo.com'),
-          ip: ipDaVez(9),
         })
       ).statusCode,
     ).toBe(429);
   });
 
-  it('outro e-mail do mesmo IP segue passando até o limite por IP', async () => {
+  it('no IPv6, o mesmo /64 conta junto e outro /64 tem contador próprio', async () => {
     await montar({
-      rateLimit: { max: 5, janelaMs: 60_000 },
-      limitePorEmail: { max: 2, janelaMs: 60_000 },
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 3, janelaMs: 60_000 },
     });
 
-    for (let i = 0; i < 2; i++) {
-      await pedir('POST', '/sessoes', { corpo: tentativa(EMAIL) });
-    }
+    const noMesmo64 = (i: number) => `2001:db8:a:b::${(i + 1).toString(16)}`;
+    expect(await tentar(3, EMAIL, noMesmo64)).toEqual([400, 400, 400]);
     expect(
-      (await pedir('POST', '/sessoes', { corpo: tentativa(EMAIL) })).statusCode,
+      (
+        await pedir('POST', '/sessoes', {
+          corpo: tentativa(EMAIL),
+          ip: '2001:db8:a:b:ffff:ffff:ffff:ffff',
+        })
+      ).statusCode,
     ).toBe(429);
-
-    // 4ª e 5ª do mesmo IP, com outros e-mails: dentro do limite por IP.
-    for (const outro of ['joao@exemplo.com', 'ana@exemplo.com']) {
-      expect(
-        (await pedir('POST', '/sessoes', { corpo: tentativa(outro) }))
-          .statusCode,
-      ).toBe(400);
-    }
-    // 6ª do mesmo IP: o limite por IP (5) barra.
-    const porIp = await pedir('POST', '/sessoes', {
-      corpo: tentativa('carla@exemplo.com'),
-    });
-    expect(porIp.statusCode).toBe(429);
-    expect(porIp.headers['x-ratelimit-limit']).toBe('5');
+    expect(
+      (
+        await pedir('POST', '/sessoes', {
+          corpo: tentativa(EMAIL),
+          ip: '2001:db8:a:c::1',
+        })
+      ).statusCode,
+    ).toBe(400);
   });
 
   it('corpo sem e-mail utilizável cai na chave do IP: trocar o lixo não contorna o limite', async () => {
     await montar({
-      rateLimit: { max: 100, janelaMs: 60_000 },
-      limitePorEmail: { max: 3, janelaMs: 60_000 },
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 3, janelaMs: 60_000 },
     });
 
     for (const email of [undefined, 42, '   ']) {
@@ -425,58 +478,108 @@ describe('S1 — limite de entradas por e-mail em POST /sessoes', () => {
     ).toBe(400);
   });
 
+  it('outro e-mail do mesmo IP segue passando até o limite por IP (D2)', async () => {
+    await montar({
+      rateLimit: { max: 5, janelaMs: 60_000 },
+      limitePorEmailEIp: { max: 2, janelaMs: 60_000 },
+    });
+
+    expect(await tentar(3, EMAIL, () => IP_A)).toEqual([400, 400, 429]);
+    // 4ª e 5ª do mesmo IP, com outros e-mails: dentro do limite por IP.
+    for (const outro of ['joao@exemplo.com', 'ana@exemplo.com']) {
+      expect(
+        (await pedir('POST', '/sessoes', { corpo: tentativa(outro) }))
+          .statusCode,
+      ).toBe(400);
+    }
+    // 6ª do mesmo IP: o limite por IP (5) barra.
+    const porIp = await pedir('POST', '/sessoes', {
+      corpo: tentativa('carla@exemplo.com'),
+    });
+    expect(porIp.statusCode).toBe(429);
+    expect(porIp.headers['x-ratelimit-limit']).toBe('5');
+  });
+
+  it('S1 — o limite por IP de POST /sessoes guarda mais chaves que um /48 tem de /64 (o padrão do plugin, 5000, seria despejado trocando de prefixo)', async () => {
+    expect(CHAVES_DO_LIMITE_POR_IP_NA_ENTRADA).toBeGreaterThan(2 ** 16);
+    await montar({ rateLimit: { max: 1, janelaMs: 60_000 } });
+    // Cada pedido de um /64 diferente do mesmo /48.
+    const do48 = (i: number) => `2001:db8:77:${i.toString(16)}::1`;
+
+    expect(
+      (await pedir('POST', '/sessoes', { corpo: CORPO_VAZIO, ip: do48(0) }))
+        .statusCode,
+    ).toBe(400);
+    for (let i = 1; i <= 5001; i++) {
+      await pedir('POST', '/sessoes', { corpo: CORPO_VAZIO, ip: do48(i) });
+    }
+
+    // Com o LRU de 5000, o /64 do primeiro teria sido esquecido.
+    expect(
+      (await pedir('POST', '/sessoes', { corpo: CORPO_VAZIO, ip: do48(0) }))
+        .statusCode,
+    ).toBe(429);
+  }, 30_000);
+
   it('não vale para POST /contas e é desligado com rateLimit: false', async () => {
     await montar({
-      rateLimit: { max: 100, janelaMs: 60_000 },
-      limitePorEmail: { max: 1, janelaMs: 60_000 },
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 1, janelaMs: 60_000 },
     });
     for (let i = 0; i < 3; i++) {
       expect(
-        (
-          await pedir('POST', '/contas', {
-            corpo: tentativa(EMAIL),
-            ip: ipDaVez(i),
-          })
-        ).statusCode,
+        (await pedir('POST', '/contas', { corpo: tentativa(EMAIL) }))
+          .statusCode,
       ).toBe(400);
     }
     await aplicacao?.fechar();
 
     await montar({ rateLimit: false });
-    for (let i = 0; i < 12; i++) {
-      expect(
-        (
-          await pedir('POST', '/sessoes', {
-            corpo: tentativa(EMAIL),
-            ip: ipDaVez(i),
-          })
-        ).statusCode,
-      ).toBe(400);
-    }
+    expect(await tentar(12, EMAIL, () => IP_A)).toEqual(Array(12).fill(400));
   });
 
-  it('CA15 — o 429 por e-mail é registrado no log sem o e-mail nem o hash dele', async () => {
+  it('limite de entrada ou teto inválido recusa a montagem, em vez de cair num padrão', async () => {
+    await expect(
+      montarAplicacao({
+        db: bancoFicticio(),
+        limitePorEmailEIp: { max: 0, janelaMs: 60_000 },
+      }),
+    ).rejects.toThrow('limite de entrada inválido: max de porEmailEIp');
+    await expect(
+      montarAplicacao({
+        db: bancoFicticio(),
+        limitePorEmail: { max: 10, janelaMs: 1.5 },
+      }),
+    ).rejects.toThrow('teto de tentativas de entrada inválido: janelaMs');
+    // O teto é do caso de uso: `rateLimit: false` não o desliga.
+    await expect(
+      montarAplicacao({
+        db: bancoFicticio(),
+        rateLimit: false,
+        limitePorEmail: { max: 0, janelaMs: 60_000 },
+      }),
+    ).rejects.toThrow('teto de tentativas de entrada inválido: max');
+  });
+
+  it('CA42 — o 429 do limite por e-mail+IP é registrado no log sem o e-mail, o hash dele nem a senha', async () => {
     const linhas: string[] = [];
     await montar({
-      rateLimit: { max: 100, janelaMs: 60_000 },
-      limitePorEmail: { max: 1, janelaMs: 60_000 },
+      rateLimit: SEM_LIMITE_POR_IP,
+      limitePorEmailEIp: { max: 1, janelaMs: 60_000 },
       logger: criarLogger({
         nivel: 'trace',
         destino: { write: (linha) => void linhas.push(linha) },
       }),
     });
 
-    await pedir('POST', '/sessoes', { corpo: tentativa(EMAIL), ip: IP_A });
-    const bloqueada = await pedir('POST', '/sessoes', {
-      corpo: tentativa(EMAIL),
-      ip: IP_B,
-    });
+    // 2ª do IP_A: recusada por e-mail+IP; a do IP_B passa.
+    expect(await tentar(2, EMAIL, () => IP_A)).toEqual([400, 429]);
+    expect(await tentar(1, EMAIL, () => IP_B)).toEqual([400]);
 
-    expect(bloqueada.statusCode).toBe(429);
     const { createHash } = await import('node:crypto');
     const hash = createHash('sha256').update(EMAIL).digest('hex');
     const log = linhas.join('');
-    expect(log).toContain('muitas_requisicoes');
+    expect(log.match(/muitas_requisicoes/g)).toHaveLength(1);
     expect(log).not.toContain(EMAIL);
     expect(log).not.toContain(hash);
     expect(log).not.toContain('senha-errada-123');

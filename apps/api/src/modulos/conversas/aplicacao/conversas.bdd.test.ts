@@ -201,22 +201,26 @@ describe('CA13 — sem vínculo, sem conversa', () => {
     expect(await casos.listarConversas(EMPREGADOR)).toEqual([]);
   });
 
-  it('CA13 — o vínculo vale nos dois sentidos e é checado a cada abertura', async () => {
+  it('CA13 — o vínculo vale nos dois sentidos e é checado a cada abertura de conversa nova', async () => {
+    // O vínculo foi gravado como (freelancer, empregador); abre pelo outro lado.
     expect((await casos.abrirConversa(EMPREGADOR, FREELANCER)).nova).toBe(true);
-    verificador.desvincular(EMPREGADOR, FREELANCER);
+    verificador.vincular(ESTRANHO, EMPREGADOR);
+    verificador.desvincular(EMPREGADOR, ESTRANHO);
 
-    expect(
-      await erroDe(casos.abrirConversa(FREELANCER, EMPREGADOR)),
-    ).toBeInstanceOf(ErroProibido);
+    const erro = await erroDe(casos.abrirConversa(ESTRANHO, EMPREGADOR));
+    expect(erro).toBeInstanceOf(ErroProibido);
+    expect((erro as ErroProibido).codigo).toBe('sem_vinculo');
   });
 
-  it('conversa consigo mesmo é recusada antes de consultar o vínculo', async () => {
+  it('conversa consigo mesmo é recusada antes de consultar o vínculo e de procurar a conversa', async () => {
     const consulta = vi.spyOn(verificador, 'existeVinculoEntre');
+    const busca = vi.spyOn(repositorio, 'buscarConversaDoPar');
     const erro = await erroDe(casos.abrirConversa(EMPREGADOR, EMPREGADOR));
 
     expect(erro).toBeInstanceOf(ErroDeRegra);
     expect((erro as ErroDeRegra).codigo).toBe('conversa_consigo_mesmo');
     expect(consulta).not.toHaveBeenCalled();
+    expect(busca).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -227,12 +231,14 @@ describe('CA13 — sem vínculo, sem conversa', () => {
   ] as const)(
     'outroUsuarioId %j → dados_invalidos (%s)',
     async (outro, motivo) => {
+      const busca = vi.spyOn(repositorio, 'buscarConversaDoPar');
       const erro = await erroDe(casos.abrirConversa(EMPREGADOR, outro));
 
       expect(erro).toBeInstanceOf(ErroDeValidacao);
       expect((erro as ErroDeValidacao).campos).toEqual([
         { campo: 'outroUsuarioId', motivo },
       ]);
+      expect(busca).not.toHaveBeenCalled();
     },
   );
 
@@ -247,6 +253,49 @@ describe('CA13 — sem vínculo, sem conversa', () => {
     expect(
       await erroDe(casos.abrirConversa(a, a.toUpperCase())),
     ).toBeInstanceOf(ErroDeRegra);
+  });
+});
+
+describe('D35 — a conversa aberta sobrevive ao vínculo', () => {
+  it('Q1 (L2) — Dado uma conversa aberta, quando o vínculo some (candidatura retirada ou trampo excluído), então abrir de novo pelos dois lados devolve a existente (nova: false) sem consultar o vínculo nem gravar', async () => {
+    const { conversaId } = await casos.abrirConversa(FREELANCER, EMPREGADOR);
+    verificador.desvincular(FREELANCER, EMPREGADOR);
+    const consulta = vi.spyOn(verificador, 'existeVinculoEntre');
+    const inserir = vi.spyOn(repositorio, 'inserirConversa');
+
+    expect(await casos.abrirConversa(FREELANCER, EMPREGADOR)).toEqual({
+      conversaId,
+      nova: false,
+    });
+    expect(await casos.abrirConversa(EMPREGADOR, FREELANCER)).toEqual({
+      conversaId,
+      nova: false,
+    });
+    expect(consulta).not.toHaveBeenCalled();
+    expect(inserir).not.toHaveBeenCalled();
+    expect(await casos.listarConversas(EMPREGADOR)).toHaveLength(1);
+  });
+
+  it('Q1 (L2) — Dado uma conversa aberta com outra pessoa, quando alguém sem vínculo nem conversa tenta abrir, então continua recusado com sem_vinculo e nada é gravado', async () => {
+    await casos.abrirConversa(FREELANCER, EMPREGADOR);
+    const inserir = vi.spyOn(repositorio, 'inserirConversa');
+
+    const erro = await erroDe(casos.abrirConversa(ESTRANHO, EMPREGADOR));
+
+    expect(erro).toBeInstanceOf(ErroProibido);
+    expect((erro as ErroProibido).codigo).toBe('sem_vinculo');
+    expect(inserir).not.toHaveBeenCalled();
+    expect(await casos.listarConversas(ESTRANHO)).toEqual([]);
+  });
+
+  it('Q1 (L2) — conversa nova confere o vínculo de novo dentro da inserção', async () => {
+    const consulta = vi.spyOn(verificador, 'existeVinculoEntre');
+
+    expect((await casos.abrirConversa(FREELANCER, EMPREGADOR)).nova).toBe(true);
+    expect(consulta.mock.calls).toEqual([
+      [FREELANCER, EMPREGADOR],
+      [FREELANCER, EMPREGADOR, undefined],
+    ]);
   });
 });
 

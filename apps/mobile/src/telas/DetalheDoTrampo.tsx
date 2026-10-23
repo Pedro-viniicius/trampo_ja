@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { Selo } from '../componentes';
+import { BotaoMaisOpcoes, FolhaDeAcoesDoAnuncio, Selo } from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
@@ -19,6 +19,8 @@ export function DetalheDoTrampo({
   rodape,
   sobreposicao,
   semConexao,
+  onMaisOpcoes,
+  folha,
   onVoltar,
   onAbrirAutor,
 }: PropsDoDetalheDoTrampo) {
@@ -28,6 +30,11 @@ export function DetalheDoTrampo({
       onVoltar={onVoltar}
       semConexao={semConexao}
       rodape={rodape}
+      direita={
+        folha && onMaisOpcoes ? (
+          <BotaoMaisOpcoes titulo={folha.titulo} onPress={onMaisOpcoes} />
+        ) : undefined
+      }
       sobreposicao={sobreposicao}
     >
       <EstadoDeTela
@@ -41,7 +48,9 @@ export function DetalheDoTrampo({
               texto={
                 trampo.status === 'aberto'
                   ? textos.detalheTrampo.seloAberto
-                  : textos.detalheTrampo.seloEmAndamento
+                  : trampo.status === 'encerrado'
+                    ? textos.detalheTrampo.seloEncerrado
+                    : textos.detalheTrampo.seloEmAndamento
               }
             />
             <Text
@@ -87,6 +96,7 @@ export function DetalheDoTrampo({
           </>
         )}
       </EstadoDeTela>
+      {folha ? <FolhaDeAcoesDoAnuncio {...folha} /> : null}
     </Rolavel>
   );
 }

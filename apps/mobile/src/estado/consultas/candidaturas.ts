@@ -12,6 +12,7 @@ import {
   candidatar,
   listarCandidaturasDoTrampo,
   listarMinhasCandidaturas,
+  retirarCandidatura,
 } from '../../api/trampos';
 import { useCliente, useSessao } from '../sessao';
 import { useMutacaoComInvalidacao } from './anuncios';
@@ -112,4 +113,17 @@ export function useAceitarCandidatura(trampoId: string) {
       ],
     },
   );
+}
+
+/**
+ * `DELETE /candidaturas/:id` (CA34); a entrada do `mutate` é o id da
+ * candidatura. No sucesso recarrega Minhas candidaturas antes de resolver: a
+ * linha sai da lista e o rodapé do trampo volta a "Candidatar-se". 409
+ * `candidatura_nao_pendente` e 404 sobem como `ErroDaApi`; a rota recarrega a
+ * lista. Ver `useMutacaoComInvalidacao`.
+ */
+export function useRetirarCandidatura() {
+  return useMutacaoComInvalidacao<void, string>(retirarCandidatura, {
+    essenciais: [chaves.minhasCandidaturas()],
+  });
 }
