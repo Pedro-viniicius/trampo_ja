@@ -11,6 +11,7 @@ import type {
 import type {
   FiltrosDeBusca,
   GravacaoSobTrava,
+  PaginaDoAutor,
   RepositorioDeTrampos,
 } from '../../dominio/portas.js';
 import {
@@ -326,8 +327,8 @@ async function apagarTrampo(
 /**
  * Repositório do agregado `Trampo` no Postgres (tabelas da migração
  * `0002_trampos.ts`). Grava o agregado inteiro numa transação, com trava
- * otimista pela coluna `versao`; encerrar e excluir usam a trava pessimista
- * de `alterarSobTrava`.
+ * otimista pela coluna `versao`; encerrar, excluir e retirar (D49) usam a
+ * trava pessimista de `alterarSobTrava`.
  */
 export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
   readonly #db: Conexao;
@@ -354,13 +355,14 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
   }
 
   /**
-   * Encerrar e excluir (D33, S1). Numa transação, `select … for update` na
-   * linha do trampo, sem filtro de versão: uma escrita que já gravou é vista
-   * na leitura; uma que chega depois espera a trava no `UPDATE … WHERE
-   * versao` e, depois do commit, não acha mais a versão que leu (ou a linha):
-   * relê e recebe 404 ou `trampo_nao_aberto`. As candidaturas são lidas sob a
-   * trava do trampo. `decidir` roda dentro da transação; se lançar, nada é
-   * gravado. Id fora do formato uuid: `false`, como trampo inexistente.
+   * Encerrar e excluir (D33, S1) e retirar (D49). Numa transação, `select …
+   * for update` na linha do trampo, sem filtro de versão: uma escrita que já
+   * gravou é vista na leitura; uma que chega depois espera a trava no
+   * `UPDATE … WHERE versao` e, depois do commit, não acha mais a versão que
+   * leu (ou a linha): relê e recebe 404 ou `trampo_nao_aberto`. As
+   * candidaturas são lidas sob a trava do trampo. `decidir` roda dentro da
+   * transação; se lançar, nada é gravado. Id fora do formato uuid: `false`,
+   * como trampo inexistente.
    */
   async alterarSobTrava(
     id: string,
@@ -413,12 +415,24 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
       .execute((trx) => lerAgregado(trx, id, false));
   }
 
-  /** Visão do autor (D33): com a versão e a contagem de candidaturas. */
-  async listarDoAutor(autorId: string): Promise<TrampoDoAutor[]> {
+  /**
+   * Visão do autor (D33): com a versão e a contagem de candidaturas. Página
+   * por `(criado_em, id) < (…)` e `limit`, como a busca (D47). Autor fora do
+   * formato uuid: lista vazia; cursor com id fora do formato: `antesDe`
+   * inválido (o caso de uso já recusa antes).
+   */
+  async listarDoAutor(
+    autorId: string,
+    pagina: PaginaDoAutor,
+  ): Promise<TrampoDoAutor[]> {
+    const { limite, antesDe } = pagina;
+    if (antesDe !== undefined && !ehUuid(antesDe.id)) {
+      throw ErroDeValidacao.doCampo('antesDe', 'invalido');
+    }
     if (!ehUuid(autorId)) {
       return [];
     }
-    const linhas = await colunasDoResumo(this.#db)
+    let consulta = colunasDoResumo(this.#db)
       .select((eb) =>
         eb
           .selectFrom('candidaturas')
@@ -426,9 +440,20 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
           .whereRef('candidaturas.trampo_id', '=', 'trampos.id')
           .as('candidaturas_recebidas'),
       )
-      .where('autor_id', '=', autorId)
+      .where('autor_id', '=', autorId);
+    if (antesDe !== undefined) {
+      consulta = consulta.where(({ eb, refTuple, tuple }) =>
+        eb(
+          refTuple('criado_em', 'id'),
+          '<',
+          tuple(antesDe.criadoEm, antesDe.id),
+        ),
+      );
+    }
+    const linhas = await consulta
       .orderBy('criado_em', 'desc')
       .orderBy('id', 'desc')
+      .limit(limite)
       .execute();
     return linhas.map((linha) => ({
       ...paraResumo(linha),

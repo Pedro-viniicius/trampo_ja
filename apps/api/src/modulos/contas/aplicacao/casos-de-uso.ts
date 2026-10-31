@@ -88,12 +88,16 @@ export const BYTES_DA_CONTA_NA_MEDIDA = 1024;
  * Limpeza periódica (D40, ADR-007). Sessões expiradas saem em lotes de
  * `SESSOES_POR_LOTE`, até `LOTES_DE_SESSOES_POR_RODADA` por rodada (o resto
  * fica para a próxima). Cada lápide com pelo menos `ESPERA_DA_LAPIDE_MS` de
- * idade tem a exclusão refeita e é esquecida, até `LAPIDES_POR_RODADA`.
+ * idade tem a exclusão refeita e é esquecida, até `LAPIDES_POR_RODADA`
+ * tentativas por rodada. A lápide cuja exclusão falha fica em espera no
+ * processo por `ESPERA_APOS_FALHA_MS` (S5, CA67): as rodadas seguintes a
+ * pulam, e ela não segura as outras.
  */
 export const SESSOES_POR_LOTE = 1000;
 export const LOTES_DE_SESSOES_POR_RODADA = 20;
 export const ESPERA_DA_LAPIDE_MS = 10 * 60 * 1000;
 export const LAPIDES_POR_RODADA = 100;
+export const ESPERA_APOS_FALHA_MS = 6 * 60 * 60 * 1000;
 
 /** Quantas tentativas cabem numa janela de tempo. */
 export interface TetoDeTentativas {
@@ -229,8 +233,10 @@ export interface CasosDeUsoDeContas {
    * com `ESPERA_DA_LAPIDE_MS` ou mais, refaz a exclusão da conta (o que uma
    * escrita em voo gravou depois some) e esquece a lápide.
    * Idempotente: pode rodar em várias réplicas. Uma falha não impede o resto
-   * da rodada; a primeira sobe no fim, e a lápide que falhou fica para a
-   * próxima.
+   * da rodada; a primeira sobe no fim, como veio (sem o id da conta). A
+   * lápide que falhou não é esquecida: fica em espera neste processo por
+   * `ESPERA_APOS_FALHA_MS` e só então volta a ser tentada (S5, CA67).
+   * Reiniciar o processo zera a espera, sem perder a lápide.
    */
   limparRegistrosVencidos(): Promise<ResultadoDaLimpeza>;
 }
@@ -608,6 +614,58 @@ export function criarCasosDeUsoDeContas(
     return apagadas;
   }
 
+  // S5 (CA67): lápides cuja exclusão falhou neste processo, com o instante
+  // da falha em ms. Guarda só o id; reiniciar o processo zera o mapa, e a
+  // lápide, que continua no banco, volta a ser tentada.
+  const lapidesEmEspera = new Map<ContaId, number>();
+
+  /**
+   * Refaz a exclusão das lápides vencidas, das mais antigas para as mais
+   * novas, com até `LAPIDES_POR_RODADA` tentativas. Antes, solta as esperas
+   * de `ESPERA_APOS_FALHA_MS` ou mais; depois, pede o lote mais as que ainda
+   * esperam, para pulá-las sem encurtar a rodada. A falha de uma lápide põe
+   * a lápide em espera, vai para `falhas` e a rodada segue com as outras.
+   * Devolve quantas foram revarridas e esquecidas.
+   */
+  async function revarrerLapides(
+    agora: Date,
+    falhas: unknown[],
+  ): Promise<number> {
+    const agoraMs = agora.getTime();
+    for (const [id, falhouEm] of lapidesEmEspera) {
+      if (agoraMs - falhouEm >= ESPERA_APOS_FALHA_MS) {
+        lapidesEmEspera.delete(id);
+      }
+    }
+    const vencidas = await contasExcluidas.listarAntesDe(
+      new Date(agoraMs - ESPERA_DA_LAPIDE_MS),
+      LAPIDES_POR_RODADA + lapidesEmEspera.size,
+    );
+    let tentadas = 0;
+    let revarridas = 0;
+    for (const id of vencidas) {
+      if (lapidesEmEspera.has(id)) {
+        continue;
+      }
+      if (tentadas === LAPIDES_POR_RODADA) {
+        break;
+      }
+      tentadas += 1;
+      try {
+        // Refaz a exclusão inteira (mesma transação e trava do ADR-005):
+        // apaga o que uma escrita em voo gravou depois. Só então esquece a
+        // lápide; se algo falhar, ela fica no banco e em espera.
+        await dadosDaConta.excluirTudo(id);
+        await contasExcluidas.esquecer(id);
+        revarridas += 1;
+      } catch (erro) {
+        lapidesEmEspera.set(id, agoraMs);
+        falhas.push(erro);
+      }
+    }
+    return revarridas;
+  }
+
   async function limparRegistrosVencidos(): Promise<ResultadoDaLimpeza> {
     const agora = relogio.agora();
     const falhas: unknown[] = [];
@@ -629,22 +687,7 @@ export function criarCasosDeUsoDeContas(
     }
     let contasRevarridas = 0;
     try {
-      const vencidas = await contasExcluidas.listarAntesDe(
-        new Date(agora.getTime() - ESPERA_DA_LAPIDE_MS),
-        LAPIDES_POR_RODADA,
-      );
-      for (const id of vencidas) {
-        try {
-          // Refaz a exclusão inteira (mesma transação e trava do ADR-005):
-          // apaga o que uma escrita em voo gravou depois. Só então esquece a
-          // lápide; se algo falhar, ela fica para a próxima rodada.
-          await dadosDaConta.excluirTudo(id);
-          await contasExcluidas.esquecer(id);
-          contasRevarridas += 1;
-        } catch (erro) {
-          falhas.push(erro);
-        }
-      }
+      contasRevarridas = await revarrerLapides(agora, falhas);
     } catch (erro) {
       falhas.push(erro);
     }

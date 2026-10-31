@@ -523,7 +523,6 @@ describe('rodapé do trampo: retirar (CA34)', () => {
       .responder('GET /trampos/t1', () => ({
         corpo: trampo('t1', 'Pintar a sala', status()),
       }))
-      .responder('GET /trampos/meus', { corpo: [] })
       .responder('GET /candidaturas/minhas', () => ({ corpo: minhas() }));
   }
 
@@ -652,6 +651,47 @@ describe('rodapé do trampo: retirar (CA34)', () => {
     expect(screen.queryByText(textos.candidatura.retirada)).toBeNull();
     expect(requisicoes(fetch, 'GET', '/candidaturas/minhas')).toHaveLength(2);
     semTextoCruDeErro();
+  });
+
+  it('409 candidatura_nao_pendente relê o trampo e o selo do cabeçalho mostra o status novo (CA64)', async () => {
+    // A aceitação da candidatura tirou o trampo de "Aberto".
+    let respondida = false;
+    const fetch = criarFakeDoDetalhe(
+      () => (respondida ? [minha('m1', 't1', 'aceita')] : PENDENTE),
+      () => (respondida ? 'em_andamento' : 'aberto'),
+    ).responder('DELETE /candidaturas/m1', () => {
+      respondida = true;
+      return { status: 409, corpo: { erro: 'candidatura_nao_pendente' } };
+    });
+    await abrirDetalhe(fetch);
+    expect(
+      await screen.findByText(textos.detalheTrampo.seloAberto),
+    ).toBeOnTheScreen();
+
+    await retirar();
+
+    expect(
+      await screen.findByText(textos.detalheTrampo.seloEmAndamento),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(textos.detalheTrampo.seloAberto)).toBeNull();
+    expect(await screen.findByText(textos.selos.aceita)).toBeOnTheScreen();
+    expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(2);
+  });
+
+  it('retirada com sucesso não relê o trampo', async () => {
+    let retirada = false;
+    const fetch = criarFakeDoDetalhe(() =>
+      retirada ? [] : PENDENTE,
+    ).responder('DELETE /candidaturas/m1', () => {
+      retirada = true;
+      return { status: 204 };
+    });
+    await abrirDetalhe(fetch);
+    await retirar();
+    await screen.findByText(textos.candidatura.retirada);
+    await avancar();
+
+    expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(1);
   });
 
   it('404: recarrega e o rodapé volta a "Candidatar-se", sem aviso', async () => {

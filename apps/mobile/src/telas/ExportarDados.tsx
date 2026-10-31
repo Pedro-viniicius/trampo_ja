@@ -3,7 +3,7 @@ import { Text, type TextInput, View } from 'react-native';
 import { Aviso, Botao, CampoDeTexto, Motivo } from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { Paragrafo, Rolavel, Titulo, useFocarPrimeiroErro } from './base';
+import { FocarPrimeiroErro, Paragrafo, Rolavel, Titulo } from './base';
 import type { PropsDeExportarDados } from './tipos';
 
 export function ExportarDados({
@@ -18,8 +18,6 @@ export function ExportarDados({
 }: PropsDeExportarDados) {
   const t = textos.exportarDados;
   const refSenha = useRef<ComponentRef<typeof TextInput>>(null);
-  useFocarPrimeiroErro([{ ref: refSenha, erro: erroDaSenha }]);
-
   const gerando = situacao === 'gerando';
   const semSenha = senha.length === 0;
   const bloqueado = semSenha || Boolean(semConexao) || gerando;
@@ -31,6 +29,7 @@ export function ExportarDados({
 
   return (
     <Rolavel titulo={t.titulo} onVoltar={onVoltar} semConexao={semConexao}>
+      <FocarPrimeiroErro campos={[{ ref: refSenha, erro: erroDaSenha }]} />
       <Paragrafo texto={t.intro} />
       <Titulo texto={t.oQueVem} />
       <View style={{ gap: espaco[2] }}>

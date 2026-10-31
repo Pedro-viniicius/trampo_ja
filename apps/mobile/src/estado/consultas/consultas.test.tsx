@@ -480,6 +480,44 @@ describe('useSalvarPerfil (CA3)', () => {
     );
   });
 
+  it('sem conexão falha na hora com ErroDeRede e nada é salvo quando a rede volta (CA58)', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder('PUT /perfis/eu', { falhaDeRede: true });
+    provedores.queryClient.setQueryData(chaves.meuPerfil(), PERFIL);
+    const { result } = await montar(useSalvarPerfil, provedores);
+    await act(async () => onlineManager.setOnline(false));
+    try {
+      let pedido: Promise<unknown> = Promise.resolve();
+      await act(async () => {
+        pedido = result.current.dados
+          .mutateAsync({ ...PERFIL, nome: 'Nome Novo' })
+          .catch(() => undefined);
+      });
+
+      await waitFor(() =>
+        expect(result.current.dados.error).toBeInstanceOf(ErroDeRede),
+      );
+      expect(result.current.dados.isPaused).toBe(false);
+      expect(
+        provedores.fetch.requisicoes.filter((r) => r.metodo === 'PUT'),
+      ).toHaveLength(1);
+
+      await act(async () => onlineManager.setOnline(true));
+      await act(async () => {
+        await pedido;
+      });
+
+      expect(
+        provedores.fetch.requisicoes.filter((r) => r.metodo === 'PUT'),
+      ).toHaveLength(1);
+      expect(provedores.queryClient.getQueryData(chaves.meuPerfil())).toEqual(
+        PERFIL,
+      );
+    } finally {
+      await act(async () => onlineManager.setOnline(true));
+    }
+  });
+
   it('erro de validação sobe como ErroDaApi com os campos', async () => {
     const provedores = autenticado();
     provedores.fetch.responder('PUT /perfis/eu', {

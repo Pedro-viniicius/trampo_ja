@@ -48,6 +48,10 @@ interface ContextoDoSalvar {
  * tela já mostra o dado novo) e invalida a chave para a próxima leitura vir
  * do servidor. Se a sessão mudou enquanto o `PUT` estava no ar (saída,
  * expiração ou outra conta), a resposta não entra no cache.
+ *
+ * Sem conexão falha na hora com `ErroDeRede` (`networkMode: 'always'`, CA58):
+ * pausada, a mutação guardaria o perfil e o enviaria sozinha quando a rede
+ * voltasse, talvez depois de a pessoa ter saído da tela.
  */
 export function useSalvarPerfil() {
   const cliente = useCliente();
@@ -55,6 +59,7 @@ export function useSalvarPerfil() {
   const queryClient = useQueryClient();
   return useMutation<MeuPerfil, Error, EntradaDePerfil, ContextoDoSalvar>({
     mutationFn: (entrada) => salvarMeuPerfil(cliente, entrada),
+    networkMode: 'always',
     onMutate: () => ({ geracao: sessao.geracao() }),
     onSuccess: (perfil, _entrada, contexto) => {
       if (contexto.geracao !== sessao.geracao()) {

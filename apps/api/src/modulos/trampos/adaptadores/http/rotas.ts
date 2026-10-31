@@ -82,6 +82,46 @@ const corpoDaCandidatura = {
   },
 } as const;
 
+const CAMPOS_DA_LISTA_DO_AUTOR = [
+  'limite',
+  'antesDeCriadoEm',
+  'antesDeId',
+] as const;
+
+/**
+ * Querystring de `GET /trampos/meus` (D47): só os tipos, fechada como os
+ * corpos (`propertyNames`), então chave extra dá 400 antes do limite por
+ * conta. Com `coerceTypes: false`, chave repetida (array) também dá 400.
+ * Valores, faixa e o par do cursor são regra do caso de uso.
+ */
+const QUERY_DA_LISTA_DO_AUTOR = {
+  type: 'object',
+  additionalProperties: false,
+  propertyNames: { enum: CAMPOS_DA_LISTA_DO_AUTOR },
+  properties: {
+    limite: { type: 'string' },
+    antesDeCriadoEm: { type: 'string' },
+    antesDeId: { type: 'string' },
+  },
+} as const;
+
+interface QueryDaListaDoAutor {
+  limite?: string;
+  antesDeCriadoEm?: string;
+  antesDeId?: string;
+}
+
+/**
+ * `limite` da querystring como na busca: texto de 1 a 3 dígitos vira número;
+ * qualquer outro texto vira `NaN`, que o caso de uso recusa.
+ */
+function lerLimite(limite: string | undefined): number | undefined {
+  if (limite === undefined) {
+    return undefined;
+  }
+  return /^\d{1,3}$/.test(limite) ? Number(limite) : Number.NaN;
+}
+
 /*
  * Schemas de resposta: o `fast-json-stringify` só serializa as chaves
  * listadas, então uma coluna interna (`textoBusca`, `cidadeNormalizada`) nunca
@@ -212,6 +252,10 @@ function minhaCandidaturaParaResposta(candidatura: CandidaturaDoFreelancer) {
  * (CA14): o hook roda no `onRequest`, antes de ler o corpo. Os erros de
  * domínio viram 400/404/409 no tratador compartilhado.
  *
+ * `GET /trampos/meus?limite&antesDeCriadoEm&antesDeId` (D47, CA66): uma
+ * página dos trampos da conta da sessão, na visão do autor; 400 para página
+ * inválida ou chave extra.
+ *
  * Rotas da L2 (CA25, CA27 a CA29), todas com 204 no sucesso:
  * - `PUT /trampos/:id` → 400; 404; 409 `trampo_nao_editavel`,
  *   `conflito_de_versao`;
@@ -250,15 +294,21 @@ export function rotasDeTrampos(
     );
 
     // Antes de `/trampos/:id`, para "meus" não ser lido como id.
-    app.get(
+    app.get<{ Querystring: QueryDaListaDoAutor }>(
       '/trampos/meus',
       {
         schema: {
+          querystring: QUERY_DA_LISTA_DO_AUTOR,
           response: { 200: { type: 'array', items: TRAMPO_PUBLICO } },
         },
       },
       async (requisicao) => {
-        const trampos = await casos.listarMeusTrampos(requisicao.contaId);
+        const { limite, ...cursor } = requisicao.query;
+        const limiteNumerico = lerLimite(limite);
+        const trampos = await casos.listarMeusTrampos(requisicao.contaId, {
+          ...cursor,
+          ...(limiteNumerico !== undefined && { limite: limiteNumerico }),
+        });
         return trampos.map(trampoParaResposta);
       },
     );

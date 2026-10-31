@@ -309,7 +309,8 @@ describe('"Mais opções": só para o autor (CA33)', () => {
   it('o detalhe do trampo tem o botão para o autor e não para um terceiro', async () => {
     const { servidor } = await abrir('/trampos/t1');
     expect(await botaoMaisOpcoes('Pintar a sala')).toBeOnTheScreen();
-    expect(requisicoes(servidor.fetch, 'GET', '/trampos/meus')).toHaveLength(1);
+    // D46: o autor vem do próprio trampo, sem a lista "meus".
+    expect(requisicoes(servidor.fetch, 'GET', '/trampos/meus')).toHaveLength(0);
 
     await act(async () => {
       router.replace('/trampos/t9');

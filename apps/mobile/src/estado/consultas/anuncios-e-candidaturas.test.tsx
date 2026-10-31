@@ -1,4 +1,5 @@
 import {
+  type InfiniteData,
   notifyManager,
   onlineManager,
   QueryClient,
@@ -17,7 +18,7 @@ import type {
   Servico,
   Trampo,
 } from '../../api/tipos';
-import type { RespostaFalsa } from '../../testes/fetch-falso';
+import type { RequisicaoFeita, RespostaFalsa } from '../../testes/fetch-falso';
 import {
   criarProvedores as criarProvedoresBase,
   type OpcoesDosProvedores,
@@ -30,6 +31,7 @@ import { TEMPO_FRESCO_MS } from '../cliente-de-consultas';
 import { useSessao } from '../sessao';
 import {
   type ContextoDaMutacao,
+  LIMITE_DE_MEUS_TRAMPOS,
   TETO_DA_RECARGA_MS,
   useEditarServico,
   useEditarTrampo,
@@ -200,6 +202,21 @@ function requisicoesPara(
   );
 }
 
+/**
+ * O que a lista tem no cache. A de Meus trampos é paginada (D47): o cache
+ * guarda as páginas, e o teste compara os trampos já juntos, como o hook os
+ * devolve.
+ */
+function lerLista(provedores: Provedores, chave: QueryKey): unknown {
+  const dados = provedores.queryClient.getQueryData(chave);
+  if (typeof dados === 'object' && dados !== null && 'pages' in dados) {
+    return (
+      dados as InfiniteData<{ readonly trampos: readonly unknown[] }>
+    ).pages.flatMap((pagina) => pagina.trampos);
+  }
+  return dados;
+}
+
 describe('consultas das listas da conta (CA4, CA6, CA8, CA14)', () => {
   it('useMeusTrampos faz GET /trampos/meus com o Bearer', async () => {
     const provedores = autenticado();
@@ -318,6 +335,300 @@ describe('consultas das listas da conta (CA4, CA6, CA8, CA14)', () => {
     });
 
     expect(provedores.fetch.requisicoes).toHaveLength(0);
+  });
+});
+
+/** `n` trampos da conta, do mais recente (`t001`) para o mais antigo. */
+function meusTrampos(n: number, prefixo = 't'): Trampo[] {
+  return Array.from({ length: n }, (_, i) =>
+    trampo(`${prefixo}${String(i + 1).padStart(3, '0')}`, {
+      criadoEm: new Date(
+        Date.UTC(2026, 9, 20, 12, 0, 0) - i * 60_000,
+      ).toISOString(),
+      versao: 1,
+    }),
+  );
+}
+
+/**
+ * `GET /trampos/meus` como a API (D47): `criadoEm desc, id desc`, só o que
+ * vem antes do cursor `(antesDeCriadoEm, antesDeId)`, até `limite` (padrão
+ * 20). Lê `todos()` a cada requisição, para o teste mudar a lista no meio.
+ */
+function servidorDeMeusTrampos(
+  todos: () => readonly Trampo[],
+): (requisicao: RequisicaoFeita) => RespostaFalsa {
+  return ({ query }) => {
+    const limite = query.limite === undefined ? 20 : Number(query.limite);
+    const { antesDeCriadoEm, antesDeId } = query;
+    const ordenados = [...todos()].sort((a, b) =>
+      a.criadoEm === b.criadoEm
+        ? b.id.localeCompare(a.id)
+        : b.criadoEm.localeCompare(a.criadoEm),
+    );
+    const depoisDoCursor =
+      antesDeCriadoEm === undefined || antesDeId === undefined
+        ? ordenados
+        : ordenados.filter(
+            (t) =>
+              t.criadoEm < antesDeCriadoEm ||
+              (t.criadoEm === antesDeCriadoEm && t.id < antesDeId),
+          );
+    return { corpo: depoisDoCursor.slice(0, limite) };
+  };
+}
+
+function idsDe(trampos: readonly Trampo[] | null): string[] | null {
+  return trampos === null ? null : trampos.map((t) => t.id);
+}
+
+describe('useMeusTrampos paginada (CA66, D47)', () => {
+  it('a primeira página pede um a mais que o limite e sem cursor; a segunda leva antesDeCriadoEm e antesDeId do último item mostrado', async () => {
+    const provedores = autenticado();
+    const todos = meusTrampos(25);
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => todos),
+    );
+    const { result } = await montar(useMeusTrampos, provedores);
+
+    await waitFor(() =>
+      expect(result.current.dados.trampos).toEqual(todos.slice(0, 20)),
+    );
+    // 21: o excedente só diz que há mais (Q2); a tela mostra 20.
+    expect(provedores.fetch.ultima().query).toEqual({
+      limite: String(LIMITE_DE_MEUS_TRAMPOS + 1),
+    });
+    expect(LIMITE_DE_MEUS_TRAMPOS).toBe(20);
+    expect(result.current.dados.temMais).toBe(true);
+    expect(result.current.dados.erroAoCarregarMais).toBeNull();
+
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    const vigesimo = todos[19] as Trampo;
+    expect(provedores.fetch.ultima().query).toEqual({
+      limite: '21',
+      antesDeCriadoEm: vigesimo.criadoEm,
+      antesDeId: vigesimo.id,
+    });
+    await waitFor(() => expect(result.current.dados.trampos).toEqual(todos));
+    // A segunda página veio com 5 (< 20): é a última.
+    expect(result.current.dados.temMais).toBe(false);
+    expect(
+      requisicoesPara(provedores, 'GET', '/trampos/meus').every(
+        (r) => r.cabecalhos.authorization === BEARER,
+      ),
+    ).toBe(true);
+  });
+
+  it('com menos de 20 na primeira página, temMais fica falso e carregarMais não pede nada', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => meusTrampos(19)),
+    );
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.trampos).toHaveLength(19));
+
+    expect(result.current.dados.temMais).toBe(false);
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    expect(requisicoesPara(provedores, 'GET', '/trampos/meus')).toHaveLength(1);
+  });
+
+  it('lista vazia: trampos é [] e temMais é falso', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder('GET /trampos/meus', { corpo: [] });
+    const { result } = await montar(useMeusTrampos, provedores);
+
+    await waitFor(() => expect(result.current.dados.trampos).toEqual([]));
+    expect(result.current.dados.temMais).toBe(false);
+  });
+
+  it('com exatamente 20, temMais é falso de saída e carregarMais não pede nada (Q2)', async () => {
+    const provedores = autenticado();
+    const todos = meusTrampos(20);
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => todos),
+    );
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.trampos).toEqual(todos));
+
+    expect(result.current.dados.temMais).toBe(false);
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    expect(requisicoesPara(provedores, 'GET', '/trampos/meus')).toHaveLength(1);
+  });
+
+  it('com 21, a primeira página mostra 20 e a segunda traz o 21º, que o cursor não pula nem repete', async () => {
+    const provedores = autenticado();
+    const todos = meusTrampos(21);
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => todos),
+    );
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() =>
+      expect(result.current.dados.trampos).toEqual(todos.slice(0, 20)),
+    );
+    expect(result.current.dados.temMais).toBe(true);
+
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    await waitFor(() => expect(result.current.dados.trampos).toEqual(todos));
+    expect(result.current.dados.temMais).toBe(false);
+    expect(provedores.fetch.ultima().query).toEqual({
+      limite: '21',
+      antesDeCriadoEm: (todos[19] as Trampo).criadoEm,
+      antesDeId: (todos[19] as Trampo).id,
+    });
+  });
+
+  it('a invalidação recarrega as páginas já carregadas, cada uma a partir da anterior recém-lida, sem repetir nem pular', async () => {
+    const provedores = autenticado();
+    let todos = meusTrampos(45);
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => todos),
+    );
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.trampos).toHaveLength(20));
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+    await waitFor(() => expect(result.current.dados.trampos).toHaveLength(40));
+    provedores.fetch.limparRequisicoes();
+
+    // Um trampo novo entra no topo (publicado neste aparelho ou noutro).
+    const [novo] = meusTrampos(1, 'novo');
+    todos = [
+      {
+        ...(novo as Trampo),
+        criadoEm: '2026-10-21T09:00:00.000Z',
+      },
+      ...todos,
+    ];
+    await act(async () => {
+      await provedores.queryClient.invalidateQueries({
+        queryKey: chaves.meusTrampos(),
+        refetchType: 'all',
+      });
+    });
+
+    const recargas = requisicoesPara(provedores, 'GET', '/trampos/meus');
+    expect(recargas.map((r) => r.query)).toEqual([
+      { limite: '21' },
+      {
+        limite: '21',
+        antesDeCriadoEm: (todos[19] as Trampo).criadoEm,
+        antesDeId: (todos[19] as Trampo).id,
+      },
+    ]);
+    await waitFor(() =>
+      expect(idsDe(result.current.dados.trampos)).toEqual(
+        idsDe(todos.slice(0, 40)),
+      ),
+    );
+    expect(result.current.dados.temMais).toBe(true);
+  });
+
+  it('erro ao carregar mais fica em erroAoCarregarMais, sem apagar as páginas carregadas, e carregarMais tenta de novo', async () => {
+    const provedores = autenticado();
+    const todos = meusTrampos(30);
+    const servidor = servidorDeMeusTrampos(() => todos);
+    provedores.fetch.responder('GET /trampos/meus', [
+      servidor,
+      { status: 500, corpo: { erro: 'interno' } },
+      servidor,
+    ]);
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.trampos).toHaveLength(20));
+
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    await waitFor(() =>
+      expect(result.current.dados.erroAoCarregarMais).toBeInstanceOf(ErroDaApi),
+    );
+    expect(result.current.dados.erro).toBeNull();
+    expect(result.current.dados.trampos).toEqual(todos.slice(0, 20));
+    expect(result.current.dados.temMais).toBe(true);
+    expect(result.current.dados.carregandoMais).toBe(false);
+
+    await act(async () => {
+      await result.current.dados.carregarMais();
+    });
+
+    await waitFor(() => expect(result.current.dados.trampos).toEqual(todos));
+    expect(result.current.dados.erroAoCarregarMais).toBeNull();
+    expect(result.current.dados.temMais).toBe(false);
+  });
+
+  it('erro na primeira página sobe em erro, não em erroAoCarregarMais', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder('GET /trampos/meus', {
+      status: 500,
+      corpo: { erro: 'interno' },
+    });
+    const { result } = await montar(useMeusTrampos, provedores);
+
+    await waitFor(() =>
+      expect(result.current.dados.erro).toBeInstanceOf(ErroDaApi),
+    );
+    expect(result.current.dados.erroAoCarregarMais).toBeNull();
+    expect(result.current.dados.trampos).toBeNull();
+  });
+
+  it('carregandoMais vale durante a página seguinte, e o toque repetido não pede a mesma página duas vezes', async () => {
+    const provedores = autenticado();
+    const todos = meusTrampos(25);
+    const servidor = servidorDeMeusTrampos(() => todos);
+    provedores.fetch.responder('GET /trampos/meus', [
+      servidor,
+      (requisicao) => ({ ...servidor(requisicao), demoraMs: 50 }),
+    ]);
+    const { result } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.temMais).toBe(true));
+
+    let primeira: Promise<unknown> = Promise.resolve();
+    let segunda: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      primeira = result.current.dados.carregarMais();
+      segunda = result.current.dados.carregarMais();
+    });
+    await waitFor(() => expect(result.current.dados.carregandoMais).toBe(true));
+    await act(async () => {
+      await Promise.all([primeira, segunda]);
+    });
+
+    await waitFor(() => expect(result.current.dados.trampos).toEqual(todos));
+    expect(result.current.dados.carregandoMais).toBe(false);
+    expect(requisicoesPara(provedores, 'GET', '/trampos/meus')).toHaveLength(2);
+  });
+
+  it('trampos é o mesmo array enquanto as páginas não mudam', async () => {
+    const provedores = autenticado();
+    provedores.fetch.responder(
+      'GET /trampos/meus',
+      servidorDeMeusTrampos(() => meusTrampos(3)),
+    );
+    const { result, rerender } = await montar(useMeusTrampos, provedores);
+    await waitFor(() => expect(result.current.dados.trampos).toHaveLength(3));
+    const antes = result.current.dados.trampos;
+
+    await rerender({});
+
+    expect(result.current.dados.trampos).toBe(antes);
   });
 });
 
@@ -614,9 +925,7 @@ describe.each(CASOS)('$nome', (caso) => {
       provedores,
     );
     await waitFor(() =>
-      expect(provedores.queryClient.getQueryData(caso.lista.chave)).toEqual(
-        caso.lista.antes,
-      ),
+      expect(lerLista(provedores, caso.lista.chave)).toEqual(caso.lista.antes),
     );
     const aoTerSucesso = jest.fn();
 
@@ -631,9 +940,7 @@ describe.each(CASOS)('$nome', (caso) => {
       expect(result.current.dados.mutacao.status).toBe('success'),
     );
     // O dado de antes fica; a recarga falha sem virar erro da mutação.
-    expect(provedores.queryClient.getQueryData(caso.lista.chave)).toEqual(
-      caso.lista.antes,
-    );
+    expect(lerLista(provedores, caso.lista.chave)).toEqual(caso.lista.antes);
   });
 
   it(`a recarga essencial lenta segura o sucesso por no máximo ${TETO_DA_RECARGA_MS} ms`, async () => {
@@ -651,7 +958,7 @@ describe.each(CASOS)('$nome', (caso) => {
         provedores,
       );
       await waitFor(() =>
-        expect(provedores.queryClient.getQueryData(caso.lista.chave)).toEqual(
+        expect(lerLista(provedores, caso.lista.chave)).toEqual(
           caso.lista.antes,
         ),
       );
@@ -680,9 +987,7 @@ describe.each(CASOS)('$nome', (caso) => {
       await waitFor(() =>
         expect(result.current.dados.mutacao.status).toBe('success'),
       );
-      expect(provedores.queryClient.getQueryData(caso.lista.chave)).toEqual(
-        caso.lista.antes,
-      );
+      expect(lerLista(provedores, caso.lista.chave)).toEqual(caso.lista.antes);
     } finally {
       jest.useRealTimers();
     }
@@ -699,9 +1004,7 @@ describe.each(CASOS)('$nome', (caso) => {
     // A lista entra no cache e a tela dela sai: a consulta fica inativa.
     const daLista = await montar(caso.lista.usar, provedores);
     await waitFor(() =>
-      expect(provedores.queryClient.getQueryData(caso.lista.chave)).toEqual(
-        caso.lista.antes,
-      ),
+      expect(lerLista(provedores, caso.lista.chave)).toEqual(caso.lista.antes),
     );
     await daLista.unmount();
     const { result } = await montar(caso.usar, provedores);
@@ -709,7 +1012,7 @@ describe.each(CASOS)('$nome', (caso) => {
     let lidaNoSucesso: unknown;
     await act(async () => {
       result.current.dados.disparar(() => {
-        lidaNoSucesso = provedores.queryClient.getQueryData(caso.lista.chave);
+        lidaNoSucesso = lerLista(provedores, caso.lista.chave);
       });
     });
 

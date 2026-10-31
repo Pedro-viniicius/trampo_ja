@@ -11,7 +11,11 @@ import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import RotaDaConversa from '../../app/(app)/conversas/[id]';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { chaves } from '../../estado/consultas/chaves';
-import { INTERVALO_DO_POLLING_MS } from '../../estado/consultas/conversas';
+import {
+  INTERVALO_DO_POLLING_MS,
+  TETO_DE_MENSAGENS_NO_CACHE,
+} from '../../estado/consultas/conversas';
+import type { MensagemParaExibir } from '../../telas/tipos';
 import { textos } from '../../textos/pt-BR';
 import {
   criarFetchFalso,
@@ -43,7 +47,14 @@ const EU = 'conta-eu';
 const OUTRO = 'conta-outra';
 const CAMINHO = '/conversas/c1/mensagens';
 const NOME_DO_OUTRO = 'NOME-SENTINELA';
-const ENVIADA_EM = '2026-10-21T10:00:00.000Z';
+/** Instante da mensagem `m0`; cada mensagem seguinte vem 2 min depois. */
+const INICIO_DAS_MENSAGENS = Date.parse('2026-10-21T10:00:00.000Z');
+/** Maior que a janela de releitura (60 s, D48): o cursor é a penúltima. */
+const ENTRE_MENSAGENS_MS = 2 * 60_000;
+
+function enviadaEm(n: number): string {
+  return new Date(INICIO_DAS_MENSAGENS + n * ENTRE_MENSAGENS_MS).toISOString();
+}
 
 const PERFIL_DO_OUTRO = {
   contaId: OUTRO,
@@ -65,7 +76,7 @@ function texto(n: number | string): string {
 }
 
 function mensagem(n: number, autorId: string): Mensagem {
-  return { id: `m${n}`, autorId, texto: texto(n), enviadaEm: ENVIADA_EM };
+  return { id: `m${n}`, autorId, texto: texto(n), enviadaEm: enviadaEm(n) };
 }
 
 /** Do outro, minha, do outro: a ordem de envio que a API devolve. */
@@ -139,11 +150,17 @@ function criarServidor(iniciais: readonly Mensagem[] = INICIAIS) {
           break;
       }
       const { texto: recebido } = requisicao.corpo as { texto: string };
+      const ultima = servidor.mensagens.at(-1);
       const nova: Mensagem = {
         id: `m${servidor.proximo}`,
         autorId: EU,
         texto: recebido,
-        enviadaEm: ENVIADA_EM,
+        // O relógio da API: 2 min depois da última gravada.
+        enviadaEm: new Date(
+          (ultima === undefined
+            ? INICIO_DAS_MENSAGENS
+            : Date.parse(ultima.enviadaEm)) + ENTRE_MENSAGENS_MS,
+        ).toISOString(),
       };
       servidor.proximo += 1;
       servidor.mensagens.push(nova);
@@ -367,9 +384,12 @@ describe('conversa: leitura (CA12, CA16)', () => {
     await avancar(INTERVALO_DO_POLLING_MS);
 
     expect(bolhasCom(4)).toHaveLength(1);
+    // O ciclo relê os últimos 60 s antes de `m3` (D48): o cursor é `m2`, a
+    // última com 60 s ou mais de diferença, e `m3` volta sem duplicar.
     expect(requisicoes(fetch, 'GET').at(-1)?.query).toEqual({
-      depoisDe: 'm3',
+      depoisDe: 'm2',
     });
+    expect(bolhasCom(3)).toHaveLength(1);
   });
 
   it('três falhas seguidas do polling mostram o aviso, sem esconder as mensagens', async () => {
@@ -818,6 +838,348 @@ describe('conversa: 429 no envio e na lista (CA20)', () => {
 
     expect(campo()).toHaveDisplayValue(texto('segunda'));
     expect(botaoEnviar()).toBeEnabled();
+  });
+});
+
+// --- CA60: "Tentar de novo" com a âncora fora do teto do cache ---
+
+/** `n` mensagens do outro a partir de `m<desde>` (instantes depois de m100). */
+function doOutro(n: number, desde: number): Mensagem[] {
+  return Array.from({ length: n }, (_, i) => mensagem(desde + i, OUTRO));
+}
+
+interface FibraDaLista {
+  readonly memoizedProps?: Record<string, unknown> | null;
+  readonly child: FibraDaLista | null;
+  readonly sibling: FibraDaLista | null;
+}
+
+interface PropsDaLista {
+  readonly data: readonly MensagemParaExibir[];
+  readonly renderItem: (info: { item: MensagemParaExibir; index: number }) => {
+    props: { onTentarDeNovo: () => void };
+  };
+}
+
+/**
+ * Props da `FlatList` das mensagens: com 500 bolhas, ela só desenha as
+ * primeiras sem layout, e a pendente fica no fim.
+ */
+function propsDaLista(): PropsDaLista {
+  const visitar = (fibra: FibraDaLista | null): PropsDaLista | null => {
+    for (let atual = fibra; atual !== null; atual = atual.sibling) {
+      const props = atual.memoizedProps;
+      if (
+        props != null &&
+        Array.isArray(props.data) &&
+        typeof props.renderItem === 'function' &&
+        typeof props.keyExtractor === 'function'
+      ) {
+        return props as unknown as PropsDaLista;
+      }
+      const dentro = visitar(atual.child);
+      if (dentro !== null) {
+        return dentro;
+      }
+    }
+    return null;
+  };
+  const raiz = (screen.root as unknown as { unstable_fiber?: FibraDaLista })
+    .unstable_fiber;
+  const props = visitar(raiz ?? null);
+  if (props === null) {
+    throw new Error('lista de mensagens não encontrada');
+  }
+  return props;
+}
+
+/** "Tentar de novo" da pendente com o texto `n`, pelo `renderItem`. */
+async function tentarDeNovoDaPendente(n: number | string) {
+  const { data, renderItem } = propsDaLista();
+  const indice = data.findIndex(
+    (item) => item.texto === texto(n) && item.situacao === 'falhou',
+  );
+  const item = data[indice];
+  if (item === undefined) {
+    throw new Error('pendente "Não enviada" não encontrada');
+  }
+  await act(async () => {
+    renderItem({ item, index: indice }).props.onTentarDeNovo();
+  });
+}
+
+/** Itens da lista com o texto `n` e a situação de cada um. */
+function situacoesDe(n: number | string) {
+  return propsDaLista()
+    .data.filter((item) => item.texto === texto(n))
+    .map((item) => item.situacao);
+}
+
+async function enviarTexto(valor: string) {
+  await escrever(valor);
+  await fireEvent.press(botaoEnviar());
+  await avancar(100);
+}
+
+describe('conversa: "Tentar de novo" com a âncora fora do cache (CA60)', () => {
+  /**
+   * A minha sai do aparelho e o 201 se perde (`perdida`) ou nunca chega
+   * (`falha`); depois chegam 600 do outro e um ciclo do polling corta o
+   * cache em 500: a âncora (`m3`) e a minha ficam de fora.
+   */
+  async function minhaCortadaPeloPolling(modo: ModoDoPost) {
+    const aberto = await abrirCarregada();
+    const { servidor } = aberto;
+    servidor.modo = modo;
+    await enviarTexto(texto('minha'));
+    expect(situacoesDe('minha')).toEqual(['falhou']);
+
+    servidor.mensagens.push(...doOutro(600, 1000));
+    await avancar(INTERVALO_DO_POLLING_MS);
+    const dados = propsDaLista().data;
+    expect(dados).toHaveLength(TETO_DE_MENSAGENS_NO_CACHE + 1);
+    expect(dados[0]?.chave).toBe('m1100');
+    // Só a pendente: a confirmada (se chegou) foi cortada com a âncora.
+    expect(situacoesDe('minha')).toEqual(['falhou']);
+    servidor.modo = 'ok';
+    aberto.fetch.limparRequisicoes();
+    return aberto;
+  }
+
+  it('600 mensagens do outro e a minha no meio: confere a partir da âncora, acha a minha e nenhum POST sai', async () => {
+    const { servidor, fetch } = await minhaCortadaPeloPolling('perdida');
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+    // A conferência leu a partir da âncora, página a página (601 depois de m3).
+    const conferencia = requisicoes(fetch, 'GET').filter(
+      (r) => r.query.depoisDe === 'm3',
+    );
+    expect(conferencia).toHaveLength(1);
+    expect(situacoesDe('minha')).toEqual([]);
+    expect(propsDaLista().data).toHaveLength(TETO_DE_MENSAGENS_NO_CACHE);
+    expect(
+      servidor.mensagens.filter((m) => m.texto === texto('minha')),
+    ).toHaveLength(1);
+    // Nada do que a conferência leu entrou no cache das mensagens.
+    expect(propsDaLista().data[0]?.chave).toBe('m1100');
+    semTextoCruDeErro();
+  });
+
+  it('sem a minha no servidor: confere e reenvia uma vez só', async () => {
+    const { servidor, fetch } = await minhaCortadaPeloPolling('falha');
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    const daConversa = fetch.requisicoes.filter((r) => r.caminho === CAMINHO);
+    const indiceDaConferencia = daConversa.findIndex(
+      (r) => r.metodo === 'GET' && r.query.depoisDe === 'm3',
+    );
+    const indiceDoPost = daConversa.findIndex((r) => r.metodo === 'POST');
+    expect(indiceDaConferencia).toBeGreaterThanOrEqual(0);
+    expect(indiceDoPost).toBeGreaterThan(indiceDaConferencia);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')[0]?.corpo).toEqual({
+      texto: texto('minha'),
+    });
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(
+      servidor.mensagens.filter((m) => m.texto === texto('minha')),
+    ).toHaveLength(1);
+    expect(situacoesDe('minha')).toEqual(['enviada']);
+  });
+
+  it('mais de 1000 mensagens depois da âncora: a conferência para no teto, continua "Não enviada" e nenhum POST sai (S2, D21)', async () => {
+    const { servidor, fetch } = await minhaCortadaPeloPolling('falha');
+    // 600 + 401 = 1001 depois de m3: a conferência lê 20 páginas cheias e
+    // não chega ao fim, então não pode afirmar que a minha não chegou.
+    servidor.mensagens.push(...doOutro(401, 1600));
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    expect(
+      requisicoes(fetch, 'GET').filter((r) => r.query.depoisDe === 'm3'),
+    ).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+    expect(situacoesDe('minha')).toEqual(['falhou']);
+    semTextoCruDeErro();
+  });
+
+  it.each([
+    ['500', { status: 500, corpo: { erro: 'erro_interno' } }],
+    [
+      '400 (âncora que não vale mais)',
+      { status: 400, corpo: { erro: 'dados_invalidos' } },
+    ],
+    ['queda de rede', { falhaDeRede: true }],
+  ] as const)(
+    'conferência com %s: continua "Não enviada", nenhum POST sai, e o toque seguinte confere de novo',
+    async (_nome, falha: RespostaFalsa) => {
+      const { servidor, fetch } = await minhaCortadaPeloPolling('perdida');
+      fetch.responder(`GET ${CAMINHO}?depoisDe=m3`, falha);
+
+      await tentarDeNovoDaPendente('minha');
+      await avancar(1_000);
+
+      expect(
+        requisicoes(fetch, 'GET').filter((r) => r.query.depoisDe === 'm3'),
+      ).toHaveLength(1);
+      expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+      // A pendente fica "Não enviada" (a bolha está no fim da lista, que a
+      // `FlatList` não desenha sem layout).
+      expect(situacoesDe('minha')).toEqual(['falhou']);
+      semTextoCruDeErro();
+
+      // A API volta: o toque seguinte confere de novo e acha a minha.
+      fetch.responder(`GET ${CAMINHO}?depoisDe=m3`, (r) => servidor.get(r));
+      await tentarDeNovoDaPendente('minha');
+      await avancar(1_000);
+
+      expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+      expect(situacoesDe('minha')).toEqual([]);
+    },
+  );
+
+  it('o corte acontece no GET do próprio toque: confere a partir da âncora e não reenvia', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    servidor.modo = 'perdida';
+    await enviarTexto(texto('minha'));
+    expect(situacoesDe('minha')).toEqual(['falhou']);
+    // Chegam antes do próximo ciclo: só o GET do toque as vê.
+    servidor.mensagens.push(...doOutro(600, 1000));
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    expect(
+      requisicoes(fetch, 'GET').filter((r) => r.query.depoisDe === 'm3'),
+    ).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+    expect(situacoesDe('minha')).toEqual([]);
+  });
+
+  it('âncora nula (conversa vazia ao enviar) e a lista no teto: confere desde o começo e não reenvia', async () => {
+    const servidor = criarServidor([]);
+    const { fetch } = await abrir(servidor);
+    await screen.findByText(textos.conversas.semMensagens);
+    servidor.modo = 'perdida';
+    await enviarTexto(texto('minha'));
+    expect(situacoesDe('minha')).toEqual(['falhou']);
+    servidor.mensagens.push(...doOutro(600, 1000));
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(propsDaLista().data).toHaveLength(TETO_DE_MENSAGENS_NO_CACHE + 1);
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    // O GET do toque leva cursor; a conferência, nenhum (desde o começo).
+    const gets = requisicoes(fetch, 'GET');
+    expect(gets[0]?.query.depoisDe).toBeDefined();
+    expect(gets.filter((r) => r.query.depoisDe === undefined)).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+    expect(situacoesDe('minha')).toEqual([]);
+  });
+
+  it('a minha ainda no cache: casa pelo GET do toque, sem conferência', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    servidor.modo = 'perdida';
+    await enviarTexto(texto('minha'));
+    // A minha (m100) e só 10 do outro: tudo cabe no cache.
+    servidor.mensagens.push(...doOutro(10, 1000));
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+
+    await tentarDeNovoDaPendente('minha');
+    await avancar(1_000);
+
+    expect(requisicoes(fetch, 'GET')).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(0);
+    expect(situacoesDe('minha')).toEqual(['enviada']);
+    expect(bolhasCom('minha')).toHaveLength(1);
+  });
+
+  it('mesmo texto que outra pendente já casou pelo texto (ainda no cache) não conta como a minha: reenvia', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    servidor.mensagens.push(...doOutro(499, 1000));
+    // A primeira "ok" chega, mas o 201 se perde; a segunda não chega.
+    servidor.modo = 'perdida';
+    await enviarTexto(texto('ok'));
+    servidor.modo = 'falha';
+    await enviarTexto(texto('ok'));
+    expect(situacoesDe('ok')).toEqual(['falhou', 'falhou']);
+
+    // O ciclo traz m100 e corta m3: a primeira casa m100 pelo texto e sai; a
+    // âncora da segunda (m3) fica de fora.
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(situacoesDe('ok')).toEqual(['enviada', 'falhou']);
+    expect(propsDaLista().data.at(-2)?.chave).toBe('m100');
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+
+    await tentarDeNovoDaPendente('ok');
+    await avancar(1_000);
+
+    // A conferência lê m100 de novo, mas ela já está no cache e é da
+    // primeira: a segunda reenvia.
+    expect(
+      requisicoes(fetch, 'GET').filter((r) => r.query.depoisDe === 'm3'),
+    ).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(1);
+    expect(
+      servidor.mensagens.filter((m) => m.texto === texto('ok')),
+    ).toHaveLength(2);
+  });
+
+  it('mesmo texto já entregue por outra pendente (id do 201) não conta como a minha: reenvia', async () => {
+    const { servidor, fetch } = await abrirCarregada();
+    // A primeira "ok" é gravada (m100), e 499 do outro chegam depois dela
+    // antes de o 201 voltar. O GET que a invalidação puxa demora, e a segunda
+    // "ok" sai com a mesma âncora (m3) e não chega.
+    servidor.demoraDoPostMs = 1_000;
+    servidor.demoraDoGetMs = 3_000;
+    await escrever(texto('ok'));
+    await fireEvent.press(botaoEnviar());
+    servidor.mensagens.push(...doOutro(499, 1000));
+    await avancar(1_000);
+    servidor.demoraDoPostMs = 0;
+    servidor.demoraDoGetMs = 0;
+    servidor.modo = 'falha';
+    await escrever(texto('ok'));
+    await fireEvent.press(botaoEnviar());
+    await avancar(100);
+    expect(situacoesDe('ok')).toEqual(['enviada', 'falhou']);
+
+    // O GET traz m100 e as 499 e corta m3: a primeira sai pelo id.
+    await avancar(3_000);
+    expect(situacoesDe('ok')).toEqual(['enviada', 'falhou']);
+    expect(propsDaLista().data[0]?.chave).toBe('m100');
+    // Mais uma e outro ciclo: m100 também sai do cache. Depois de m3 ficam
+    // 501, menos que o teto da conferência (S2), que chega ao fim.
+    servidor.mensagens.push(...doOutro(1, 2000));
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(situacoesDe('ok')).toEqual(['falhou']);
+    servidor.modo = 'ok';
+    fetch.limparRequisicoes();
+
+    await tentarDeNovoDaPendente('ok');
+    await avancar(1_000);
+
+    // A conferência acha m100, mas ela é da primeira: a segunda reenvia.
+    expect(
+      requisicoes(fetch, 'GET').filter((r) => r.query.depoisDe === 'm3'),
+    ).toHaveLength(1);
+    expect(requisicoes(fetch, 'POST')).toHaveLength(1);
+    expect(
+      servidor.mensagens.filter((m) => m.texto === texto('ok')),
+    ).toHaveLength(2);
   });
 });
 

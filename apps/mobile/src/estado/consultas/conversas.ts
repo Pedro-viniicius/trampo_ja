@@ -32,10 +32,19 @@ export const PAGINA_DE_MENSAGENS = 50;
 export const PAGINAS_POR_BUSCA = 20;
 /**
  * Mensagens guardadas no cache por conversa (S1): passando disso, saem as
- * mais antigas. O cursor do polling é sempre o último id, então cortar o
- * começo não muda o que se pede à API.
+ * mais antigas. O cursor do polling fica no fim da lista (ver
+ * `cursorDaReleitura`), então cortar o começo não muda o que se pede à API.
  */
 export const TETO_DE_MENSAGENS_NO_CACHE = 500;
+/**
+ * Janela que cada ciclo relê, contada para trás a partir do `enviadaEm` da
+ * última mensagem em cache (D48). A API ordena por `(enviada_em, ordem)`, e o
+ * `enviada_em` sai do relógio antes do insert: uma mensagem gravada depois de
+ * outra mais nova pode aparecer antes dela (R2). Supõe que essa diferença,
+ * somada à dos relógios das réplicas, fique abaixo de 60 s. Com 0, o cursor
+ * volta a ser o último id.
+ */
+export const JANELA_DE_RELEITURA_MS = 60_000;
 
 /**
  * Espera até o próximo ciclo depois de `falhas` falhas passageiras seguidas
@@ -72,6 +81,80 @@ export function mesclarPagina(
   return juntas.length > TETO_DE_MENSAGENS_NO_CACHE
     ? juntas.slice(-TETO_DE_MENSAGENS_NO_CACHE)
     : juntas;
+}
+
+/**
+ * Troca o que vem depois de `cursorId` em `atuais` por `novas` (a resposta da
+ * API a partir daquele cursor, na ordem dela), sem repetir id, e guarda só as
+ * últimas `TETO_DE_MENSAGENS_NO_CACHE` (S1). Mensagem não some da conversa
+ * (D25 apaga a conversa inteira), então a cauda nova contém a velha, agora na
+ * ordem da API, mais o que chegou (CA59).
+ *
+ * - `cursorId` `null`: `novas` é a conversa desde o começo e substitui tudo.
+ * - `cursorId` fora de `atuais` (não acontece no polling, que o tira da
+ *   própria lista): só acrescenta, como `mesclarPagina`.
+ * - Nada mudou (mesmos ids na mesma ordem): devolve o próprio `atuais`.
+ */
+export function substituirCauda(
+  atuais: readonly Mensagem[],
+  cursorId: string | null,
+  novas: readonly Mensagem[],
+): readonly Mensagem[] {
+  const posicao =
+    cursorId === null
+      ? -1
+      : atuais.findIndex((mensagem) => mensagem.id === cursorId);
+  if (cursorId !== null && posicao < 0) {
+    return mesclarPagina(atuais, novas);
+  }
+  const juntas = [...atuais.slice(0, posicao + 1)];
+  const vistos = new Set(juntas.map((mensagem) => mensagem.id));
+  for (const mensagem of novas) {
+    if (!vistos.has(mensagem.id)) {
+      vistos.add(mensagem.id);
+      juntas.push(mensagem);
+    }
+  }
+  const resultado =
+    juntas.length > TETO_DE_MENSAGENS_NO_CACHE
+      ? juntas.slice(-TETO_DE_MENSAGENS_NO_CACHE)
+      : juntas;
+  const igual =
+    resultado.length === atuais.length &&
+    resultado.every((mensagem, i) => mensagem.id === atuais[i]?.id);
+  return igual ? atuais : resultado;
+}
+
+/**
+ * Cursor do ciclo (D48): o id da última mensagem de `atuais` com `enviadaEm`
+ * até `JANELA_DE_RELEITURA_MS` antes da última. O ciclo relê o que vem
+ * depois dele e troca a cauda (`substituirCauda`).
+ *
+ * - Lista vazia: `null` (carga do começo).
+ * - Nenhuma tão antiga: `null` se a lista ainda não chegou ao teto (então
+ *   ela começa no começo da conversa); no teto, o id da primeira, porque
+ *   recarregar do começo de uma conversa longa trocaria as mais novas pelas
+ *   mais antigas.
+ * - `enviadaEm` da última ilegível: o id dela, como antes da janela.
+ */
+export function cursorDaReleitura(atuais: readonly Mensagem[]): string | null {
+  const ultima = atuais[atuais.length - 1];
+  if (ultima === undefined) {
+    return null;
+  }
+  const limite = Date.parse(ultima.enviadaEm) - JANELA_DE_RELEITURA_MS;
+  if (!Number.isFinite(limite)) {
+    return ultima.id;
+  }
+  for (let i = atuais.length - 1; i >= 0; i -= 1) {
+    const mensagem = atuais[i];
+    if (mensagem !== undefined && Date.parse(mensagem.enviadaEm) <= limite) {
+      return mensagem.id;
+    }
+  }
+  return atuais.length >= TETO_DE_MENSAGENS_NO_CACHE
+    ? (atuais[0]?.id ?? null)
+    : null;
 }
 
 /** Opção dos hooks com atualização periódica. */
@@ -166,14 +249,56 @@ function erroDeBuscaInterrompida(): Error {
   return new Error('busca de mensagens interrompida');
 }
 
+/** Cursor da página pedida por último em `lerPaginas` e onde ela parou. */
+interface Leitura {
+  depoisDe: string | null;
+  /**
+   * Parou no teto de `PAGINAS_POR_BUSCA` com a última página cheia: pode
+   * haver mais mensagens depois do que foi lido.
+   */
+  noTeto?: boolean;
+}
+
 /**
- * Pede as mensagens depois da última de `base`, página a página, até vir uma
- * com menos de `PAGINA_DE_MENSAGENS` ou até `PAGINAS_POR_BUSCA` páginas.
+ * Pede as mensagens depois de `leitura.depoisDe`, página a página, até vir
+ * uma com menos de `PAGINA_DE_MENSAGENS` ou até `PAGINAS_POR_BUSCA` páginas.
+ * A partir da 2ª página, o cursor é o último id da página anterior, e
+ * `leitura.depoisDe` acompanha (quem chama sabe com que cursor a página que
+ * falhou foi pedida) e `leitura.noTeto` diz se a leitura parou no teto
+ * com a última página cheia. Lança o erro da página que falhou e
+ * `erroDeBuscaInterrompida` se `interrompida()` virar.
+ */
+async function lerPaginas(
+  cliente: ClienteHttp,
+  conversaId: string,
+  leitura: Leitura,
+  interrompida: () => boolean,
+): Promise<Mensagem[]> {
+  const lidas: Mensagem[] = [];
+  for (let pagina = 0; pagina < PAGINAS_POR_BUSCA; pagina += 1) {
+    const novas = await listarMensagens(cliente, conversaId, leitura.depoisDe);
+    if (interrompida()) {
+      throw erroDeBuscaInterrompida();
+    }
+    lidas.push(...novas);
+    const ultima = novas[novas.length - 1];
+    if (ultima === undefined || novas.length < PAGINA_DE_MENSAGENS) {
+      return lidas;
+    }
+    leitura.depoisDe = ultima.id;
+  }
+  leitura.noTeto = true;
+  return lidas;
+}
+
+/**
+ * Relê a janela do fim de `base` e o que veio depois (`cursorDaReleitura`) e
+ * troca a cauda pela resposta (`substituirCauda`, D48).
  *
- * O cursor é sempre o último id que um GET listou (o fim de `base`, que só
- * este polling escreve, ou o fim da página anterior). Nunca o id devolvido
- * pelo `POST` do envio: mensagens do outro enviadas antes dele, que este
- * aparelho ainda não viu, seriam puladas.
+ * O cursor sai sempre de uma lista que um GET devolveu (`base`, que só este
+ * polling escreve, ou a página anterior). Nunca o id devolvido pelo `POST` do
+ * envio: mensagens do outro enviadas antes dele, que este aparelho ainda não
+ * viu, seriam puladas.
  *
  * 400 numa página pedida com cursor (o id não vale mais nesta conversa):
  * refaz a carga do zero uma vez, descartando `base`.
@@ -185,41 +310,62 @@ async function carregarDesde(
   interrompida: () => boolean,
   podeRecomecar: boolean,
 ): Promise<readonly Mensagem[]> {
-  let lista = base;
-  let cursor = base[base.length - 1]?.id ?? null;
-  for (let pagina = 0; pagina < PAGINAS_POR_BUSCA; pagina += 1) {
-    let novas: readonly Mensagem[];
-    try {
-      novas = await listarMensagens(cliente, conversaId, cursor);
-    } catch (erro) {
-      if (
-        podeRecomecar &&
-        cursor !== null &&
-        ehErroDaApi(erro) &&
-        erro.status === 400 &&
-        !interrompida()
-      ) {
-        return carregarDesde(cliente, conversaId, [], interrompida, false);
-      }
-      throw erro;
+  const cursor = cursorDaReleitura(base);
+  const leitura: Leitura = { depoisDe: cursor };
+  try {
+    const lidas = await lerPaginas(cliente, conversaId, leitura, interrompida);
+    return substituirCauda(base, cursor, lidas);
+  } catch (erro) {
+    if (
+      podeRecomecar &&
+      leitura.depoisDe !== null &&
+      ehErroDaApi(erro) &&
+      erro.status === 400 &&
+      !interrompida()
+    ) {
+      return carregarDesde(cliente, conversaId, [], interrompida, false);
     }
-    if (interrompida()) {
-      throw erroDeBuscaInterrompida();
-    }
-    lista = mesclarPagina(lista, novas);
-    const ultima = novas[novas.length - 1];
-    if (ultima === undefined || novas.length < PAGINA_DE_MENSAGENS) {
-      break;
-    }
-    cursor = ultima.id;
+    throw erro;
   }
-  return lista;
+}
+
+/**
+ * Lê na API as mensagens depois de `ancora` (`null`: desde o começo), até
+ * `PAGINAS_POR_BUSCA` páginas, sem gravar nada no cache (CA60). Serve ao
+ * "Tentar de novo" quando a âncora da pendente já saiu do teto do cache: a
+ * lista volta para `reconciliar`, que confere se a mensagem chegou.
+ *
+ * Devolve `null` se não deu para conferir: falha de rede, erro da API
+ * (inclusive o 400 de âncora que não vale mais), `interrompida()` virou
+ * entre as páginas, ou a leitura parou no teto de `PAGINAS_POR_BUSCA` com a
+ * última página cheia (a mensagem pode estar depois dela; dar a conferência
+ * por completa levaria a reenviar, D21). O texto das mensagens fica só no
+ * valor devolvido.
+ */
+export async function conferirDesde(
+  cliente: ClienteHttp,
+  conversaId: string,
+  ancora: string | null,
+  interrompida: () => boolean = () => false,
+): Promise<readonly Mensagem[] | null> {
+  const leitura: Leitura = { depoisDe: ancora };
+  try {
+    const lidas = await lerPaginas(cliente, conversaId, leitura, interrompida);
+    return leitura.noTeto === true ? null : lidas;
+  } catch {
+    // O erro cru não sai daqui (CA15): quem chama só precisa saber que não
+    // deu para conferir.
+    return null;
+  }
 }
 
 /**
  * Mensagens da conversa (CA12), acumuladas no cache por polling incremental:
- * cada busca lê o que já está em `chaves.mensagens(conversaId)` e pede só o
- * que veio depois (`depoisDe`), acrescentando com `mesclarPagina`.
+ * cada busca lê o que já está em `chaves.mensagens(conversaId)`, relê os
+ * últimos 60 s dele e o que veio depois (`depoisDe`, ver
+ * `cursorDaReleitura`) e troca a cauda pela resposta (`substituirCauda`).
+ * Uma mensagem gravada depois de outra mais nova entra na posição da API, sem
+ * duplicata (CA59, D48).
  *
  * - Só busca com `ativa` e a sessão autenticada; o ciclo também para com o
  *   app em segundo plano (`focusManager`) e sem rede (`onlineManager`), e
@@ -316,6 +462,29 @@ export function useMensagens(conversaId: string, { ativa }: OpcoesDeAtividade) {
     return resultado.data ?? null;
   }, [autenticado, geracao, refetch]);
 
+  /**
+   * Confere na API, sem gravar no cache, as mensagens depois de `ancora`
+   * (`conferirDesde`, CA60). `null` quando não deu para conferir: sem sessão,
+   * sem conexão, falha da API, sessão trocada no meio ou leitura parada no
+   * teto de páginas com a última cheia.
+   */
+  const conferir = useCallback(
+    async (ancora: string | null): Promise<readonly Mensagem[] | null> => {
+      if (!autenticado || !onlineManager.isOnline()) {
+        return null;
+      }
+      // `conferirDesde` confere a sessão depois de cada página.
+      const geracaoAntes = geracao();
+      return conferirDesde(
+        cliente,
+        conversaId,
+        ancora,
+        () => geracaoAntes !== geracao(),
+      );
+    },
+    [autenticado, cliente, conversaId, geracao],
+  );
+
   const erro = consulta.error;
   return {
     mensagens: consulta.data ?? null,
@@ -326,6 +495,7 @@ export function useMensagens(conversaId: string, { ativa }: OpcoesDeAtividade) {
     /** Falhas seguidas de rede, 5xx ou 429 (0 depois de um sucesso). */
     falhasSeguidas: consulta.isError ? lerFalhas() : 0,
     recarregar,
+    conferirDesde: conferir,
   };
 }
 

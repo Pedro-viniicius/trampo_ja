@@ -1,5 +1,6 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useBusca, useCategorias } from '../../../estado/consultas/busca';
 import type { FiltrosDeConsulta } from '../../../estado/consultas/chaves';
@@ -50,6 +51,8 @@ export default function BuscarRota() {
   const router = useRouter();
   const { online } = useConexao();
   const { categorias } = useCategorias();
+  // CA63: ver `Inicio`; o detalhe aberto daqui que exclui volta com o aviso.
+  const aviso = useAvisoDeRetorno(useIsFocused());
   const params = useLocalSearchParams<{ tipo?: string; pedido?: string }>();
   const tipoDaUrl = tipoValido(params.tipo);
   const pedidoDaUrl = tipoDaUrl === undefined ? undefined : params.pedido;
@@ -121,6 +124,8 @@ export default function BuscarRota() {
       erroAoCarregarMais={erroAoCarregarMais}
       onTentarCarregarMais={carregarMais}
       semConexao={!online}
+      toast={aviso.texto}
+      onFecharToast={aviso.limpar}
       onMudarTexto={(texto) => setFormulario({ ...formulario, texto })}
       onMudarCategoria={(categoria) => enviar({ ...formulario, categoria })}
       onMudarCidade={(cidade) => enviar({ ...formulario, cidade })}

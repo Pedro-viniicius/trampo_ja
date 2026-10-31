@@ -65,3 +65,28 @@ export function useMargensSeguras(): {
   const margens = useContext(SafeAreaInsetsContext);
   return margens ?? { top: 0, bottom: 0, left: 0, right: 0 };
 }
+
+const ZWJ = '‍';
+
+/** Conta pontos de código (como `[...t].length` e a API), não unidades UTF-16. */
+export function contarPontosDeCodigo(texto: string): number {
+  let n = 0;
+  for (const _ of texto) n += 1;
+  return n;
+}
+
+/**
+ * Corta em no máximo `limite` pontos de código, nunca no meio de um par
+ * substituto (um emoji conta 1). Se o corte deixar um ZWJ solto no fim
+ * (família cortada), o ZWJ também sai.
+ */
+export function cortarEmPontosDeCodigo(texto: string, limite: number): string {
+  const max = Math.max(0, Math.floor(limite));
+  const pontos = Array.from(texto);
+  if (pontos.length <= max) return texto;
+  const cortado = pontos.slice(0, max);
+  while (cortado.length > 0 && cortado[cortado.length - 1] === ZWJ) {
+    cortado.pop();
+  }
+  return cortado.join('');
+}

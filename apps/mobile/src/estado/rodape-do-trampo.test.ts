@@ -8,7 +8,6 @@ const EM_ANDAMENTO = { id: 't1', status: 'em_andamento' as StatusDoTrampo };
 const ENCERRADO = { id: 't1', status: 'encerrado' as StatusDoTrampo };
 
 const SEM_NADA = { dados: [] };
-const MEU_TRAMPO = { dados: [{ id: 'outro' }, { id: 't1' }] };
 const CANDIDATURA = (trampoId: string, status: StatusDaCandidatura) => ({
   dados: [
     { trampoId: 'outro', status: 'recusada' as StatusDaCandidatura },
@@ -19,7 +18,7 @@ const CANDIDATURA = (trampoId: string, status: StatusDaCandidatura) => ({
 function entrada(parcial: Partial<EntradaDoRodape>): EntradaDoRodape {
   return {
     trampo: ABERTO,
-    meusTrampos: SEM_NADA,
+    souAutor: false,
     minhasCandidaturas: SEM_NADA,
     recebidas: undefined,
     ...parcial,
@@ -29,32 +28,30 @@ function entrada(parcial: Partial<EntradaDoRodape>): EntradaDoRodape {
 describe('situacaoDoRodape: carregando', () => {
   it.each([
     ['sem o trampo', { trampo: undefined }],
-    ['sem meusTrampos', { meusTrampos: { dados: undefined } }],
     ['sem minhasCandidaturas', { minhasCandidaturas: { dados: undefined } }],
     [
-      'sem as duas listas',
-      {
-        meusTrampos: { dados: undefined },
-        minhasCandidaturas: { dados: undefined },
-      },
-    ],
-    [
-      'falta só uma lista, mesmo com a outra dizendo autor',
-      { meusTrampos: MEU_TRAMPO, minhasCandidaturas: { dados: undefined } },
-    ],
-    [
-      'falta só a outra lista, mesmo com candidatura',
-      {
-        meusTrampos: { dados: undefined },
-        minhasCandidaturas: CANDIDATURA('t1', 'pendente'),
-      },
-    ],
-    [
       'falhou=false não é falha',
-      { meusTrampos: { dados: undefined, falhou: false } },
+      { minhasCandidaturas: { dados: undefined, falhou: false } },
     ],
   ])('%s', (_nome, parcial) => {
     expect(situacaoDoRodape(entrada(parcial))).toEqual({ tipo: 'carregando' });
+  });
+
+  it('sem o trampo, nem o papel de autor tira o carregando', () => {
+    expect(
+      situacaoDoRodape(entrada({ trampo: undefined, souAutor: true })),
+    ).toEqual({ tipo: 'carregando' });
+  });
+
+  it('o autor não espera Minhas candidaturas (D46)', () => {
+    expect(
+      situacaoDoRodape(
+        entrada({
+          souAutor: true,
+          minhasCandidaturas: { dados: undefined },
+        }),
+      ),
+    ).toEqual({ tipo: 'autor', quantidade: null });
   });
 });
 
@@ -77,7 +74,7 @@ describe('situacaoDoRodape: ordem das situações', () => {
 
   it('encerrado: autor e candidatado vencem fechado', () => {
     expect(
-      situacaoDoRodape(entrada({ trampo: ENCERRADO, meusTrampos: MEU_TRAMPO })),
+      situacaoDoRodape(entrada({ trampo: ENCERRADO, souAutor: true })),
     ).toEqual({ tipo: 'autor', quantidade: null });
     expect(
       situacaoDoRodape(
@@ -114,7 +111,7 @@ describe('situacaoDoRodape: ordem das situações', () => {
     expect(
       situacaoDoRodape(
         entrada({
-          meusTrampos: MEU_TRAMPO,
+          souAutor: true,
           minhasCandidaturas: CANDIDATURA('t1', 'pendente'),
         }),
       ),
@@ -123,9 +120,7 @@ describe('situacaoDoRodape: ordem das situações', () => {
 
   it('autor vence fechado', () => {
     expect(
-      situacaoDoRodape(
-        entrada({ trampo: EM_ANDAMENTO, meusTrampos: MEU_TRAMPO }),
-      ),
+      situacaoDoRodape(entrada({ trampo: EM_ANDAMENTO, souAutor: true })),
     ).toEqual({ tipo: 'autor', quantidade: null });
   });
 
@@ -137,10 +132,10 @@ describe('situacaoDoRodape: ordem das situações', () => {
     ).toEqual({ tipo: 'candidatar' });
   });
 
-  it('meu trampo é outro: não sou o autor deste', () => {
-    expect(
-      situacaoDoRodape(entrada({ meusTrampos: { dados: [{ id: 'outro' }] } })),
-    ).toEqual({ tipo: 'candidatar' });
+  it('sem a visão do autor, não sou o autor: segue para candidatar', () => {
+    expect(situacaoDoRodape(entrada({ souAutor: false }))).toEqual({
+      tipo: 'candidatar',
+    });
   });
 });
 
@@ -151,9 +146,10 @@ describe('situacaoDoRodape: autor e a quantidade', () => {
     [[{}], 1],
     [[{}, {}, {}], 3],
   ])('recebidas %j dá quantidade %j', (recebidas, quantidade) => {
-    expect(
-      situacaoDoRodape(entrada({ meusTrampos: MEU_TRAMPO, recebidas })),
-    ).toEqual({ tipo: 'autor', quantidade });
+    expect(situacaoDoRodape(entrada({ souAutor: true, recebidas }))).toEqual({
+      tipo: 'autor',
+      quantidade,
+    });
   });
 
   it('recebidas só importam para o autor', () => {
@@ -164,17 +160,6 @@ describe('situacaoDoRodape: autor e a quantidade', () => {
 });
 
 describe('situacaoDoRodape: lista que falhou conta como vazia', () => {
-  it('meusTrampos falhou: segue para candidatado', () => {
-    expect(
-      situacaoDoRodape(
-        entrada({
-          meusTrampos: { dados: undefined, falhou: true },
-          minhasCandidaturas: CANDIDATURA('t1', 'pendente'),
-        }),
-      ),
-    ).toEqual({ tipo: 'candidatado', status: 'pendente' });
-  });
-
   it('minhasCandidaturas falhou: segue para candidatar (a API decide)', () => {
     expect(
       situacaoDoRodape(
@@ -183,35 +168,33 @@ describe('situacaoDoRodape: lista que falhou conta como vazia', () => {
     ).toEqual({ tipo: 'candidatar' });
   });
 
-  it('as duas falharam com o trampo fechado: fechado', () => {
+  it('minhasCandidaturas falhou com o trampo fechado: fechado', () => {
     expect(
       situacaoDoRodape(
         entrada({
           trampo: EM_ANDAMENTO,
-          meusTrampos: { dados: undefined, falhou: true },
           minhasCandidaturas: { dados: undefined, falhou: true },
         }),
       ),
     ).toEqual({ tipo: 'fechado' });
   });
 
-  it('a lista que falhou não esconde o autor que veio da outra', () => {
+  it('a lista que falhou não esconde o autor', () => {
     expect(
       situacaoDoRodape(
         entrada({
-          meusTrampos: MEU_TRAMPO,
+          souAutor: true,
           minhasCandidaturas: { dados: undefined, falhou: true },
         }),
       ),
     ).toEqual({ tipo: 'autor', quantidade: null });
   });
 
-  it('o trampo ainda sem dado continua carregando mesmo com as listas em erro', () => {
+  it('o trampo ainda sem dado continua carregando mesmo com a lista em erro', () => {
     expect(
       situacaoDoRodape(
         entrada({
           trampo: undefined,
-          meusTrampos: { dados: undefined, falhou: true },
           minhasCandidaturas: { dados: undefined, falhou: true },
         }),
       ),

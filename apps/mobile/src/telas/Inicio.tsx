@@ -1,5 +1,5 @@
 import { ScrollView, View } from 'react-native';
-import { Aviso, Botao, EstadoVazio } from '../componentes';
+import { Aviso, Botao, EstadoVazio, Toast } from '../componentes';
 import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Carregando, ErroDoBloco, Rolavel, Titulo } from './base';
@@ -27,6 +27,8 @@ export function Inicio({
   onPublicarTrampo,
   onOfertarServico,
   onMinhasCandidaturas,
+  toast,
+  onFecharToast,
 }: PropsDoInicio) {
   return (
     <Rolavel
@@ -36,6 +38,16 @@ export function Inicio({
           : textos.inicio.saudacaoSemNome
       }
       semConexao={semConexao}
+      sobreposicao={
+        toast ? (
+          <Toast
+            visivel
+            mensagem={toast}
+            rotuloFechar={textos.gerais.toastFechar}
+            onFechar={() => onFecharToast?.()}
+          />
+        ) : undefined
+      }
     >
       {perfilIncompleto ? (
         <Aviso

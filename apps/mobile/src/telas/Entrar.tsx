@@ -2,8 +2,10 @@ import { type ComponentRef, useRef } from 'react';
 import type { TextInput } from 'react-native';
 import { Aviso, Botao, CampoDeTexto } from '../componentes';
 import { textos } from '../textos/pt-BR';
-import { Formulario, Paragrafo, useFocarPrimeiroErro } from './base';
+import { FocarPrimeiroErro, Formulario, Paragrafo } from './base';
 import type { PropsDeEntrar } from './tipos';
+
+const LIMITE_DA_SENHA = 128;
 
 export function Entrar({
   email,
@@ -19,10 +21,6 @@ export function Entrar({
 }: PropsDeEntrar) {
   const refEmail = useRef<ComponentRef<typeof TextInput>>(null);
   const refSenha = useRef<ComponentRef<typeof TextInput>>(null);
-  useFocarPrimeiroErro([
-    { ref: refEmail, erro: erros.email },
-    { ref: refSenha, erro: erros.senha },
-  ]);
   const enviar = () => {
     if (!enviando) onEntrar();
   };
@@ -41,6 +39,12 @@ export function Entrar({
         />
       }
     >
+      <FocarPrimeiroErro
+        campos={[
+          { ref: refEmail, erro: erros.email },
+          { ref: refSenha, erro: erros.senha },
+        ]}
+      />
       {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
       <CampoDeTexto
         rotulo={textos.entrar.email}
@@ -55,7 +59,8 @@ export function Entrar({
       <CampoDeTexto
         rotulo={textos.entrar.senha}
         tipo="senha"
-        maxLength={128}
+        limite={LIMITE_DA_SENHA}
+        contadorDoLimite="nunca"
         secureTextEntry
         valor={senha}
         onChangeText={onMudarSenha}

@@ -244,10 +244,15 @@ describe('CA18/D25 — trampo em andamento cuja candidatura aceita foi apagada',
   };
 
   function fakeDoAutor(recebidas: readonly object[]): FetchFalso {
-    return criarFetchDoMundo(criarMundo({ conversaAberta: false }))
-      .responder('GET /trampos/t1', { corpo: TRAMPO_EM_ANDAMENTO })
-      .responder('GET /trampos/meus', { corpo: [TRAMPO_EM_ANDAMENTO] })
-      .responder('GET /trampos/t1/candidaturas', { corpo: recebidas });
+    return (
+      criarFetchDoMundo(criarMundo({ conversaAberta: false }))
+        // D46: o autor recebe a visão do autor (`versao`) no detalhe.
+        .responder('GET /trampos/t1', {
+          corpo: { ...TRAMPO_EM_ANDAMENTO, versao: 1 },
+        })
+        .responder('GET /trampos/meus', { corpo: [TRAMPO_EM_ANDAMENTO] })
+        .responder('GET /trampos/t1/candidaturas', { corpo: recebidas })
+    );
   }
 
   it.each([

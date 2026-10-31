@@ -98,6 +98,8 @@ function mundoDoAutor(mensagemDaMaria = 'Mensagem de k1') {
     .responder('GET /trampos/t1', () => ({
       corpo: {
         ...TRAMPO,
+        // D46: o autor é reconhecido pela visão do autor, que traz `versao`.
+        versao: 1,
         status: estado.vencedora === null ? 'aberto' : 'em_andamento',
       },
     }))
@@ -258,7 +260,10 @@ describe('jornada do candidato (CA8, CA9)', () => {
     ).toEqual({ mensagem: 'Posso fazer.', valorPropostoCentavos: 2147483647 });
   });
 
-  it('mensagem de 2001 caracteres não envia; de 2000 envia', async () => {
+  // Desde a L4 (CA55, D45) o campo corta no limite, em pontos de código: o
+  // 2001º não chega a entrar. A regra de domínio (recusar acima do limite)
+  // segue provada em `estado/validacao.test.ts`.
+  it('mensagem de 2001 caracteres é cortada em 2000 no campo e é o que se envia', async () => {
     const fetch = criarFake().responder('POST /trampos/t1/candidaturas', {
       status: 201,
       corpo: { id: 'm1', status: 'pendente' },
@@ -266,18 +271,16 @@ describe('jornada do candidato (CA8, CA9)', () => {
     await abrirApp('/trampos/t1', { fetch });
     await abrirFolha();
     await preencherFolha('a'.repeat(2001), '100');
-    await fireEvent.press(botaoEnviar());
-    expect(
-      await screen.findByText(textos.erros.mensagem_tamanho),
-    ).toBeOnTheScreen();
-    expect(requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')).toEqual([]);
-
-    await fireEvent.changeText(
-      screen.getByLabelText(textos.candidatar.mensagem),
+    expect(screen.getByLabelText(textos.candidatar.mensagem).props.value).toBe(
       'a'.repeat(2000),
     );
     await fireEvent.press(botaoEnviar());
+
     await screen.findByText(textos.candidatar.enviada);
+    expect(screen.queryByText(textos.erros.mensagem_tamanho)).toBeNull();
+    const envios = requisicoes(fetch, 'POST', '/trampos/t1/candidaturas');
+    expect(envios).toHaveLength(1);
+    expect(envios[0]?.corpo).toMatchObject({ mensagem: 'a'.repeat(2000) });
   });
 
   it('se Minhas candidaturas falha na recarga depois do POST, a folha fecha com o toast e não fica em "Enviando…"', async () => {
@@ -429,14 +432,12 @@ describe('rodapé desatualizado depois de um 409 (CA9)', () => {
     ).toBeOnTheScreen();
   });
 
-  it('autor_nao_pode_candidatar: a lista "meus trampos" falhou na carga e, depois do 409, o rodapé passa a mostrar "Ver candidaturas"', async () => {
+  it('autor_nao_pode_candidatar: o detalhe veio sem a visão do autor e, depois do 409, a releitura do trampo troca o rodapé por "Ver candidaturas"', async () => {
     let ehMeu = false;
     const fetch = criarFake()
-      .responder('GET /trampos/meus', () =>
-        ehMeu
-          ? { corpo: [TRAMPO] }
-          : { status: 500, corpo: { erro: 'interno' } },
-      )
+      .responder('GET /trampos/t1', () => ({
+        corpo: ehMeu ? { ...TRAMPO, versao: 1 } : TRAMPO,
+      }))
       .responder('GET /trampos/t1/candidaturas', { corpo: [] })
       .responder('POST /trampos/t1/candidaturas', () => {
         ehMeu = true;

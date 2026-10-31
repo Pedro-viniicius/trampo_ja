@@ -9,7 +9,7 @@ import {
 } from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { Paragrafo, Rolavel, Titulo, useFocarPrimeiroErro } from './base';
+import { FocarPrimeiroErro, Paragrafo, Rolavel, Titulo } from './base';
 import type { PropsDeExcluirConta } from './tipos';
 
 export function ExcluirConta({
@@ -27,8 +27,6 @@ export function ExcluirConta({
   const [confirmando, setConfirmando] = useState(false);
   const refSenha = useRef<ComponentRef<typeof TextInput>>(null);
   const eraExcluindo = useRef(false);
-
-  useFocarPrimeiroErro([{ ref: refSenha, erro: erroDaSenha }]);
 
   // O diálogo fecha quando a exclusão termina com falha ou quando chega um erro.
   useEffect(() => {
@@ -49,6 +47,7 @@ export function ExcluirConta({
 
   return (
     <Rolavel titulo={t.titulo} onVoltar={onCancelar} semConexao={semConexao}>
+      <FocarPrimeiroErro campos={[{ ref: refSenha, erro: erroDaSenha }]} />
       <Aviso variante="erro" texto={t.alerta} />
       <Titulo texto={t.oQueAcontece} />
       <View style={{ gap: espaco[2] }}>

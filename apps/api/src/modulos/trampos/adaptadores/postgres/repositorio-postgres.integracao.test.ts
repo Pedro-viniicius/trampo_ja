@@ -48,6 +48,9 @@ const proposta = {
 
 const db = () => bancoDeTeste<TabelasDeTrampos>();
 
+/** Página que cabe todos os trampos de um autor nestes testes. */
+const PAGINA_CHEIA = { limite: 50 } as const;
+
 let repositorio: RepositorioDeTramposPostgres;
 let relogio: RelogioFixo;
 let casos: CasosDeUsoDeTrampos;
@@ -111,14 +114,17 @@ function acompanhar(promessa: Promise<unknown>): Promise<Desfecho> {
   );
 }
 
-/** Espera até alguma conexão do banco de teste ficar parada numa trava. */
-async function esperarAlguemNaTrava(): Promise<void> {
+/**
+ * Espera até `minimo` conexões do banco de teste (uma, por padrão) ficarem
+ * paradas numa trava.
+ */
+async function esperarAlguemNaTrava(minimo = 1): Promise<void> {
   for (let tentativa = 0; tentativa < 120; tentativa += 1) {
     const { rows } = await sql<{ total: number }>`
       select count(*)::int as total from pg_stat_activity
       where datname = current_database() and wait_event_type = 'Lock'
     `.execute(db());
-    if ((rows[0]?.total ?? 0) > 0) {
+    if ((rows[0]?.total ?? 0) >= minimo) {
       return;
     }
     await new Promise((resolver) => setTimeout(resolver, 25));
@@ -208,7 +214,9 @@ describe('migração 0002_trampos', () => {
       }),
     );
     expect(vazias).toBe(desfazer);
-    expect(await repositorio.listarDoAutor(EMPREGADOR)).toEqual([]);
+    expect(await repositorio.listarDoAutor(EMPREGADOR, PAGINA_CHEIA)).toEqual(
+      [],
+    );
   });
 });
 
@@ -547,7 +555,7 @@ describe('listagens e vínculo', () => {
     await casos.aceitarCandidatura(EMPREGADOR, antigo, bruno.id);
 
     expect(
-      (await repositorio.listarDoAutor(EMPREGADOR)).map((t) => [
+      (await repositorio.listarDoAutor(EMPREGADOR, PAGINA_CHEIA)).map((t) => [
         t.id,
         t.status,
       ]),
@@ -555,7 +563,9 @@ describe('listagens e vínculo', () => {
       [recente, 'aberto'],
       [antigo, 'em_andamento'],
     ]);
-    expect(await repositorio.listarDoAutor('nao-uuid')).toEqual([]);
+    expect(await repositorio.listarDoAutor('nao-uuid', PAGINA_CHEIA)).toEqual(
+      [],
+    );
   });
 
   it('CA8 — listarCandidaturasDoFreelancer traz as dele, em qualquer estado, mais recentes primeiro', async () => {
@@ -713,7 +723,9 @@ describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
     expect((await casos.buscarTrampos()).map((t) => t.id).sort()).toEqual(
       [t3, t4].sort(),
     );
-    expect(await repositorio.listarDoAutor(EMPREGADOR)).toEqual([]);
+    expect(await repositorio.listarDoAutor(EMPREGADOR, PAGINA_CHEIA)).toEqual(
+      [],
+    );
   });
 
   it('CA18 — candidatura num trampo apagado dá 404', async () => {
@@ -1411,6 +1423,89 @@ describe('L2 — editar, encerrar, excluir e retirar no Postgres (CA25, CA27 a C
     });
   });
 
+  describe('CA65 — retirar sob a trava do trampo (D49)', () => {
+    it('Dado a retirada com a trava do trampo tomada, quando um freelancer se candidata e o autor aceita ao mesmo tempo, então os dois esperam a trava: a candidatura grava depois e o aceite recebe 404', async () => {
+      const id = await publicar();
+      const ana = await casos.candidatar(ANA, id, proposta);
+      let candidatura: Promise<Desfecho> | undefined;
+      let aceite: Promise<Desfecho> | undefined;
+      const repositorioQuePausa = new RepositorioDeTramposPostgres(
+        pausarDepoisDaTrava(db(), 1, async () => {
+          candidatura = acompanhar(casos.candidatar(BRUNO, id, proposta));
+          aceite = acompanhar(casos.aceitarCandidatura(EMPREGADOR, id, ana.id));
+          await esperarAlguemNaTrava(2);
+        }),
+      );
+
+      await criarCasosDeUsoDeTrampos({
+        repositorio: repositorioQuePausa,
+        verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+        relogio,
+      }).retirarCandidatura(ANA, ana.id);
+
+      expect((await candidatura)?.ok).toBe(true);
+      const desfechoDoAceite = await aceite;
+      expect(
+        desfechoDoAceite?.ok === false && desfechoDoAceite.erro,
+      ).toBeInstanceOf(ErroNaoEncontrado);
+      expect(await candidaturasNoBanco(id)).toEqual([
+        {
+          freelancer_id: BRUNO,
+          status: 'pendente',
+          mensagem: proposta.mensagem,
+        },
+      ]);
+      expect((await carregar(id)).status).toBe('aberto');
+      expect(await repositorio.trampoDaCandidatura(ana.id)).toBeNull();
+    });
+
+    const RAJADA = 20;
+
+    it.each([1, 2, 3, 4, 5])(
+      'rodada %i: retirar no meio de 20 candidaturas simultâneas sempre dá certo (nunca conflito_de_versao), sem órfã e sem a retirada de volta',
+      async () => {
+        const freelancers = Array.from({ length: RAJADA }, () => randomUUID());
+        const casosDaRajada = criarCasosDeUsoDeTrampos({
+          repositorio,
+          verificadorDePerfil: new VerificadorDePerfilEmMemoria(freelancers),
+          relogio,
+        });
+        const id = await publicar();
+        const ana = await casos.candidatar(ANA, id, proposta);
+
+        const candidaturas = freelancers.map((f) =>
+          acompanhar(casosDaRajada.candidatar(f, id, proposta)),
+        );
+        await Promise.race(candidaturas);
+        const retirada = await acompanhar(
+          casosDaRajada.retirarCandidatura(ANA, ana.id),
+        );
+        const candidatos = await Promise.all(candidaturas);
+
+        expect(retirada).toEqual({ ok: true, valor: undefined });
+        // Candidatar segue no retry otimista (até 10 vezes): quem perde todas
+        // as rodadas recebe conflito_de_versao, nunca outro erro.
+        for (const [i, resultado] of candidatos.entries()) {
+          if (!resultado.ok) {
+            expect(resultado.erro, `candidato ${i}`).toEqual(
+              new ErroDeRegra('conflito_de_versao'),
+            );
+          }
+        }
+        const gravadas = await candidaturasNoBanco(id);
+        expect(gravadas.map((c) => c.freelancer_id)).not.toContain(ANA);
+        expect(gravadas.length).toBe(candidatos.filter((r) => r.ok).length);
+        expect(gravadas.every((c) => c.status === 'pendente')).toBe(true);
+        expect(await repositorio.trampoDaCandidatura(ana.id)).toBeNull();
+        const { rows } = await sql<{ total: number }>`
+          select count(*)::int as total from candidaturas c
+          where not exists (select 1 from trampos t where t.id = c.trampo_id)
+        `.execute(db());
+        expect(rows[0]?.total).toBe(0);
+      },
+    );
+  });
+
   describe('CA31 — listarDoAutor na visão do autor', () => {
     it('traz a versão e a contagem de candidaturas em qualquer estado, inclusive dos encerrados', async () => {
       const antigo = await publicar();
@@ -1426,7 +1521,7 @@ describe('L2 — editar, encerrar, excluir e retirar no Postgres (CA25, CA27 a C
       await casos.encerrarTrampo(EMPREGADOR, meio);
 
       expect(
-        (await repositorio.listarDoAutor(EMPREGADOR)).map((t) => [
+        (await repositorio.listarDoAutor(EMPREGADOR, PAGINA_CHEIA)).map((t) => [
           t.id,
           t.status,
           t.versao,
@@ -1437,8 +1532,108 @@ describe('L2 — editar, encerrar, excluir e retirar no Postgres (CA25, CA27 a C
         [meio, 'encerrado', 3, 1],
         [antigo, 'em_andamento', 4, 2],
       ]);
-      const [primeiro] = await repositorio.listarDoAutor(EMPREGADOR);
+      const [primeiro] = await repositorio.listarDoAutor(
+        EMPREGADOR,
+        PAGINA_CHEIA,
+      );
       expect(primeiro).toEqual((await carregar(recente)).resumoDoAutor());
+    });
+  });
+
+  describe('CA66 — listarDoAutor paginado', () => {
+    /** Ids de todas as páginas de 20, seguindo o cursor do último item. */
+    async function paginasDoAutor(autor: string): Promise<string[][]> {
+      const paginas: string[][] = [];
+      let entrada: Parameters<CasosDeUsoDeTrampos['listarMeusTrampos']>[1] = {};
+      for (let volta = 0; volta < 10; volta += 1) {
+        const pagina = await casos.listarMeusTrampos(autor, entrada);
+        paginas.push(pagina.map((t) => t.id));
+        const ultimo = pagina.at(-1);
+        if (pagina.length < 20 || ultimo === undefined) {
+          return paginas;
+        }
+        entrada = {
+          antesDeCriadoEm: ultimo.criadoEm.toISOString(),
+          antesDeId: ultimo.id,
+        };
+      }
+      throw new Error('paginação sem fim');
+    }
+
+    it('Dado 45 trampos, 30 deles no mesmo milissegundo, quando o autor pagina de 20 em 20, então vê 20, 20 e 5, sem repetir nem pular, na ordem (criadoEm, id) decrescente', async () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 45; i += 1) {
+        // Os 15 primeiros em milissegundos distintos; os outros 30 empatam.
+        if (i < 15) {
+          relogio.avancar(1);
+        }
+        ids.push(await publicar({ titulo: `Trampo número ${i}` }));
+        await publicar({ titulo: `Do outro ${i}` }, ANA);
+      }
+      // Ordem esperada calculada à parte: uuid em minúsculas compara como o
+      // `uuid` do Postgres (byte a byte).
+      const { rows: criados } = await sql<{ id: string; criado_em: Date }>`
+        select id::text, criado_em from trampos where autor_id = ${EMPREGADOR}
+      `.execute(db());
+      const ordemEsperada = criados
+        .sort((a, b) => {
+          const diferenca = b.criado_em.getTime() - a.criado_em.getTime();
+          return diferenca !== 0 ? diferenca : a.id > b.id ? -1 : 1;
+        })
+        .map((t) => t.id);
+      expect([...ordemEsperada].sort()).toEqual([...ids].sort());
+
+      const paginas = await paginasDoAutor(EMPREGADOR);
+
+      expect(paginas.map((p) => p.length)).toEqual([20, 20, 5]);
+      expect(paginas.flat()).toEqual(ordemEsperada);
+      expect(new Set(paginas.flat()).size).toBe(45);
+    });
+
+    it('Dado o cursor de um trampo de outra conta, quando o autor pede a página, então só vem trampo dele, mais antigo que o cursor', async () => {
+      const antigo = await publicar();
+      relogio.avancar(1000);
+      const doOutro = await publicar({}, ANA);
+      relogio.avancar(1000);
+      await publicar();
+      const cursor = (await carregar(doOutro)).resumo();
+
+      const pagina = await repositorio.listarDoAutor(EMPREGADOR, {
+        limite: 20,
+        antesDe: { criadoEm: cursor.criadoEm, id: cursor.id },
+      });
+
+      expect(pagina.map((t) => [t.id, t.autorId])).toEqual([
+        [antigo, EMPREGADOR],
+      ]);
+      expect(pagina[0]).toEqual((await carregar(antigo)).resumoDoAutor());
+    });
+
+    it('Dado o limite, quando lista, então traz no máximo esse número, os mais recentes', async () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i += 1) {
+        relogio.avancar(1000);
+        ids.push(await publicar());
+      }
+
+      expect(
+        (await repositorio.listarDoAutor(EMPREGADOR, { limite: 2 })).map(
+          (t) => t.id,
+        ),
+      ).toEqual([ids[2], ids[1]]);
+    });
+
+    it('Dado um cursor com id fora do formato uuid, quando lista, então recusa sem consultar (antesDe inválido)', async () => {
+      await publicar();
+
+      expect(
+        await rejeicao(
+          repositorio.listarDoAutor(EMPREGADOR, {
+            limite: 20,
+            antesDe: { criadoEm: new Date(), id: 'abc' },
+          }),
+        ),
+      ).toEqual(ErroDeValidacao.doCampo('antesDe', 'invalido'));
     });
   });
 });

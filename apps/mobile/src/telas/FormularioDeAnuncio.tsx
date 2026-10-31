@@ -12,12 +12,12 @@ import { textos } from '../textos/pt-BR';
 import {
   Carregando,
   ErroDoBloco,
+  FocarPrimeiroErro,
   Formulario,
   NaoEncontrado,
   Paragrafo,
   RolarAoTopo,
   Rolavel,
-  useFocarPrimeiroErro,
 } from './base';
 import type { PropsDoFormularioDeAnuncio } from './tipos';
 
@@ -26,9 +26,6 @@ const LIMITE_DA_DESCRICAO = 2000;
 const LIMITE_DA_CIDADE = 80;
 const LIMITE_DO_VALOR = 14;
 const LIMITE_DO_PRAZO = 10;
-
-/** Conta caracteres como o servidor: pontos de código, não unidades UTF-16. */
-const contarCaracteres = (texto: string): number => Array.from(texto).length;
 
 export function FormularioDeAnuncio({
   tipo,
@@ -59,19 +56,6 @@ export function FormularioDeAnuncio({
   const refCidade = useRef<ComponentRef<typeof TextInput>>(null);
   const refValor = useRef<ComponentRef<typeof TextInput>>(null);
   const refPrazo = useRef<ComponentRef<typeof TextInput>>(null);
-
-  // Ordem visual da tela. A categoria é um seletor: o foco vai ao botão que o abre.
-  useFocarPrimeiroErro(
-    [
-      { ref: refTitulo, erro: erros.titulo },
-      { ref: refDescricao, erro: erros.descricao },
-      { ref: refCategoria, erro: erros.categoria },
-      { ref: refCidade, erro: erros.cidade },
-      { ref: refValor, erro: erros.valor },
-      { ref: refPrazo, erro: erros.prazo },
-    ],
-    tentativa,
-  );
 
   const a = textos.anuncio;
   const editando = edicao !== undefined;
@@ -206,6 +190,18 @@ export function FormularioDeAnuncio({
         semConexao={semConexao}
         rodape={rodape}
       >
+        {/* Ordem visual da tela. A categoria é um seletor: o foco vai ao botão que o abre. */}
+        <FocarPrimeiroErro
+          campos={[
+            { ref: refTitulo, erro: erros.titulo },
+            { ref: refDescricao, erro: erros.descricao },
+            { ref: refCategoria, erro: erros.categoria },
+            { ref: refCidade, erro: erros.cidade },
+            { ref: refValor, erro: erros.valor },
+            { ref: refPrazo, erro: erros.prazo },
+          ]}
+          tentativa={tentativa}
+        />
         <RolarAoTopo
           quando={Boolean(edicao?.conflito || erros.geral)}
           tentativa={tentativa}
@@ -243,11 +239,7 @@ export function FormularioDeAnuncio({
           onBlur={() => onSairDoCampo('titulo')}
           inputRef={refTitulo}
           editable={!camposBloqueados}
-          maxLength={LIMITE_DO_TITULO}
-          contador={t.contador(
-            contarCaracteres(valores.titulo),
-            LIMITE_DO_TITULO,
-          )}
+          limite={LIMITE_DO_TITULO}
           returnKeyType="next"
           onSubmitEditing={() => refDescricao.current?.focus()}
         />
@@ -260,11 +252,8 @@ export function FormularioDeAnuncio({
           inputRef={refDescricao}
           editable={!camposBloqueados}
           multiline
-          maxLength={LIMITE_DA_DESCRICAO}
-          contador={t.contador(
-            contarCaracteres(valores.descricao),
-            LIMITE_DA_DESCRICAO,
-          )}
+          limite={LIMITE_DA_DESCRICAO}
+          contadorDoLimite="sempre"
         />
         <Seletor
           rotulo={t.categoria}
@@ -291,7 +280,7 @@ export function FormularioDeAnuncio({
           onBlur={() => onSairDoCampo('cidade')}
           inputRef={refCidade}
           editable={!camposBloqueados}
-          maxLength={LIMITE_DA_CIDADE}
+          limite={LIMITE_DA_CIDADE}
           autoComplete="postal-address-locality"
           textContentType="addressCity"
           returnKeyType="next"

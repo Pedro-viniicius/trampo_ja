@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { AccessibilityInfo, Platform, Text } from 'react-native';
 import { textos } from '../textos/pt-BR';
 import {
   Avatar,
@@ -24,6 +24,7 @@ import {
   Selo,
   Toast,
 } from './index';
+import { contarPontosDeCodigo, cortarEmPontosDeCodigo } from './utilitarios';
 
 // O mock de @expo/vector-icons está em src/testes/setup-jest.tsx (setupFiles do Jest).
 
@@ -497,5 +498,274 @@ describe('navegacao', () => {
       opcoes.tabBarIcon({ color: '#000', size: 24, focused: true }),
     ).toBeTruthy();
     expect(opcoesDoCabecalho.headerTitleStyle.fontSize).toBe(22);
+  });
+});
+
+const EMOJI = '\u{1F600}';
+const BANDEIRA = '\u{1F1E7}\u{1F1F7}';
+const FAMILIA = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+const E_COMPOSTO = 'e\u0301';
+
+describe('pontos de código (L4, CA55)', () => {
+  it.each([
+    ['ASCII', 'abc', 3],
+    ['emoji', EMOJI, 1],
+    ['bandeira', BANDEIRA, 2],
+    ['família (ZWJ)', FAMILIA, 5],
+    ['acento composto (e + U+0301)', E_COMPOSTO, 2],
+    ['acento pré-composto', '\u00E9', 1],
+  ])('conta %s', (_nome, texto, n) => {
+    expect(contarPontosDeCodigo(texto)).toBe(n);
+  });
+
+  it('corta no limite sem partir o emoji', () => {
+    expect(cortarEmPontosDeCodigo(`ab${EMOJI}cd`, 3)).toBe(`ab${EMOJI}`);
+    expect(cortarEmPontosDeCodigo(`ab${EMOJI}cd`, 2)).toBe('ab');
+    expect(cortarEmPontosDeCodigo(EMOJI.repeat(5), 3)).toBe(EMOJI.repeat(3));
+  });
+
+  it('não corta o que cabe e não passa do limite', () => {
+    expect(cortarEmPontosDeCodigo('abc', 3)).toBe('abc');
+    expect(cortarEmPontosDeCodigo(`a${BANDEIRA}`, 3)).toBe(`a${BANDEIRA}`);
+    expect(
+      contarPontosDeCodigo(cortarEmPontosDeCodigo(`a${BANDEIRA}`, 2)),
+    ).toBe(2);
+  });
+
+  it('família cortada no meio não deixa ZWJ solto', () => {
+    // homem, ZWJ, mulher, ZWJ, menina: limite 2 acabaria em "homem + ZWJ".
+    const cortado = cortarEmPontosDeCodigo(FAMILIA, 2);
+    expect(cortado).toBe('\u{1F468}');
+    expect(cortarEmPontosDeCodigo(FAMILIA, 3)).toBe('\u{1F468}\u200D\u{1F469}');
+  });
+
+  it('acento composto conta 2 e o corte respeita isso', () => {
+    expect(cortarEmPontosDeCodigo(`${E_COMPOSTO}x`, 2)).toBe(E_COMPOSTO);
+  });
+});
+
+describe('CampoDeTexto com limite (L4, CA55)', () => {
+  function Controlado({
+    limite,
+    inicial = '',
+    onMudou,
+  }: {
+    limite: number;
+    inicial?: string;
+    onMudou?: (t: string) => void;
+  }) {
+    const [valor, setValor] = useState(inicial);
+    return (
+      <CampoDeTexto
+        rotulo="Título"
+        valor={valor}
+        limite={limite}
+        onChangeText={(t) => {
+          setValor(t);
+          onMudou?.(t);
+        }}
+      />
+    );
+  }
+
+  it('não mostra contador longe do limite e mostra a partir de 80%', async () => {
+    await render(<Controlado limite={10} />);
+    expect(screen.queryByText(/de 10 caracteres/)).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('Título'), '12345678');
+    expect(screen.getByText('8 de 10 caracteres')).toBeTruthy();
+  });
+
+  it('a partir de 90% diz quantos faltam', async () => {
+    await render(<Controlado limite={10} inicial="123456789" />);
+    expect(
+      screen.getByText('9 de 10 caracteres. Falta 1 caractere.'),
+    ).toBeTruthy();
+  });
+
+  it('digitar até o limite mostra o aviso de limite atingido', async () => {
+    await render(<Controlado limite={3} />);
+    await fireEvent.changeText(screen.getByLabelText('Título'), 'abc');
+    expect(
+      screen.getAllByText(textos.gerais.contadorLimite(3)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('colar além do limite corta, conta o emoji como 1 e avisa do corte', async () => {
+    const onMudou = jest.fn();
+    await render(<Controlado limite={3} onMudou={onMudou} />);
+    await fireEvent.changeText(
+      screen.getByLabelText('Título'),
+      `a${EMOJI}${EMOJI}${EMOJI}`,
+    );
+    expect(onMudou).toHaveBeenLastCalledWith(`a${EMOJI}${EMOJI}`);
+    expect(
+      screen.getAllByText(textos.gerais.contadorCortado(3)).length,
+    ).toBeGreaterThan(0);
+    // próxima digitação limpa o aviso de corte
+    await fireEvent.changeText(screen.getByLabelText('Título'), 'a');
+    expect(screen.queryByText(textos.gerais.contadorCortado(3))).toBeNull();
+  });
+
+  it.each([
+    ['bandeira', BANDEIRA, 2, `a${BANDEIRA}`],
+    ['família', FAMILIA, 5, FAMILIA],
+    ['acento composto', E_COMPOSTO, 2, E_COMPOSTO],
+  ])(
+    'colar %s cabe quando soma o limite',
+    async (_n, trecho, pontos, esperado) => {
+      const onMudou = jest.fn();
+      await render(<Controlado limite={pontos + 1} onMudou={onMudou} />);
+      await fireEvent.changeText(screen.getByLabelText('Título'), `a${trecho}`);
+      expect(onMudou).toHaveBeenLastCalledWith(`a${trecho}`);
+      expect(screen.getByLabelText('Título').props.value).toBe(`a${trecho}`);
+      expect(esperado).toBeTruthy();
+    },
+  );
+
+  it('anuncia o limite no iOS uma vez por mudança de faixa', async () => {
+    const original = Platform.OS;
+    Platform.OS = 'ios';
+    const anunciar = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockClear()
+      .mockImplementation(() => undefined);
+    try {
+      await render(<Controlado limite={10} />);
+      const campo = screen.getByLabelText('Título');
+      await fireEvent.changeText(campo, '12345678');
+      expect(anunciar).not.toHaveBeenCalled();
+      await fireEvent.changeText(campo, '123456789');
+      expect(anunciar).toHaveBeenLastCalledWith('Falta 1 caractere.');
+      await fireEvent.changeText(campo, '1234567890');
+      expect(anunciar).toHaveBeenLastCalledWith(
+        textos.gerais.contadorLimite(10),
+      );
+      const chamadas = anunciar.mock.calls.length;
+      await fireEvent.changeText(campo, '1234567890');
+      expect(anunciar.mock.calls.length).toBe(chamadas);
+    } finally {
+      Platform.OS = original;
+      anunciar.mockRestore();
+    }
+  });
+
+  it('digitar além do limite anuncia o corte uma vez, não a cada tecla', async () => {
+    const original = Platform.OS;
+    Platform.OS = 'ios';
+    const anunciar = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockClear()
+      .mockImplementation(() => undefined);
+    try {
+      await render(<Controlado limite={10} />);
+      const campo = screen.getByLabelText('Título');
+      await fireEvent.changeText(campo, '1234567890');
+      await fireEvent.changeText(campo, '1234567890a');
+      await fireEvent.changeText(campo, '1234567890b');
+      await fireEvent.changeText(campo, '1234567890c');
+      const cortes = anunciar.mock.calls.filter(
+        ([t]) => t === textos.gerais.contadorCortado(10),
+      );
+      expect(cortes).toHaveLength(1);
+    } finally {
+      Platform.OS = original;
+      anunciar.mockRestore();
+    }
+  });
+
+  it('o anúncio fica numa região viva, sem live region no texto do contador', async () => {
+    await render(<Controlado limite={3} />);
+    await fireEvent.changeText(screen.getByLabelText('Título'), 'abc');
+    const textosDoLimite = screen.getAllByText(textos.gerais.contadorLimite(3));
+    expect(
+      textosDoLimite.filter(
+        (no) => no.props.accessibilityLiveRegion === 'polite',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("contadorDoLimite 'nunca' não mostra contador e 'sempre' mostra de 0", async () => {
+    await render(
+      <>
+        <CampoDeTexto
+          rotulo="A"
+          valor=""
+          limite={10}
+          contadorDoLimite="sempre"
+          onChangeText={() => undefined}
+        />
+        <CampoDeTexto
+          rotulo="B"
+          valor="1234567890"
+          limite={10}
+          contadorDoLimite="nunca"
+          onChangeText={() => undefined}
+        />
+      </>,
+    );
+    expect(screen.getByText('0 de 10 caracteres')).toBeTruthy();
+    expect(screen.queryByText(textos.gerais.contadorLimite(10))).toBeNull();
+  });
+});
+
+describe('Seletor com limite (L4, CA55)', () => {
+  it('corta o texto livre no limite por ponto de código', async () => {
+    await render(
+      <Seletor
+        rotulo="Habilidade"
+        valor={null}
+        textoVazio="Escolha"
+        opcoes={[]}
+        modo="livre"
+        rotuloDePesquisa="Buscar habilidade"
+        textoSemOpcoes="Nada"
+        limite={3}
+        onSelecionar={() => undefined}
+      />,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: /Habilidade/ }));
+    const campo = screen.getByLabelText('Buscar habilidade');
+    await fireEvent.changeText(campo, `${EMOJI}${EMOJI}${EMOJI}${EMOJI}`);
+    expect(screen.getByLabelText('Buscar habilidade').props.value).toBe(
+      EMOJI.repeat(3),
+    );
+  });
+});
+
+describe('FaixaSemConexao na raiz (L4, CA56)', () => {
+  it('visivel=false não desenha e anuncia "Conexão de volta." ao sumir', async () => {
+    const anunciar = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockClear()
+      .mockImplementation(() => undefined);
+    try {
+      const tela = await render(<FaixaSemConexao />);
+      expect(screen.getByText(textos.gerais.semConexaoFaixa)).toBeTruthy();
+      await tela.rerender(<FaixaSemConexao visivel={false} />);
+      expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
+      expect(anunciar).toHaveBeenCalledWith(textos.gerais.conexaoDeVolta);
+      const quantasVezes = () =>
+        anunciar.mock.calls.filter(([t]) => t === textos.gerais.conexaoDeVolta)
+          .length;
+      expect(quantasVezes()).toBe(1);
+      await tela.rerender(<FaixaSemConexao visivel={false} />);
+      expect(quantasVezes()).toBe(1);
+    } finally {
+      anunciar.mockRestore();
+    }
+  });
+
+  it('ocupa a margem segura de cima', async () => {
+    const { SafeAreaInsetsContext } = jest.requireActual(
+      'react-native-safe-area-context',
+    );
+    await render(
+      <SafeAreaInsetsContext.Provider
+        value={{ top: 44, bottom: 0, left: 0, right: 0 }}
+      >
+        <FaixaSemConexao />
+      </SafeAreaInsetsContext.Provider>,
+    );
+    expect(screen.root?.props.style.paddingTop).toBe(44 + 8);
   });
 });

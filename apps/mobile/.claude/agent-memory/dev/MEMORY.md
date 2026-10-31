@@ -1,0 +1,1 @@
+- [Armadilhas dos testes do app](armadilhas-testes-app.md) — jornadas em sem-dado-pessoal/qa quebram com mudança na sessão; rede pendurada no fetch falso; @babel/runtime ausente = node_modules trocado

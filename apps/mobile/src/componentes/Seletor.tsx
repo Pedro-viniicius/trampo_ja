@@ -24,7 +24,9 @@ export type PropsDoSeletor = {
   onSelecionar: (valor: string | null) => void;
   erro?: string;
   desabilitado?: boolean;
-  /** Limite de caracteres do campo de pesquisa/texto livre. */
+  /** Limite em pontos de código do campo de pesquisa/texto livre (corta e conta). */
+  limite?: number;
+  /** Só para texto ASCII; texto livre usa `limite`. */
   maxLength?: number;
   /** Ref do botão que abre a lista: recebe o foco quando há erro. */
   gatilhoRef?: Ref<ComponentRef<typeof Pressable>>;
@@ -48,6 +50,7 @@ export function Seletor({
   onSelecionar,
   erro,
   desabilitado = false,
+  limite,
   maxLength,
   gatilhoRef,
 }: PropsDoSeletor) {
@@ -165,6 +168,8 @@ export function Seletor({
           rotulo={rotuloDePesquisa}
           valor={busca}
           onChangeText={setBusca}
+          limite={limite}
+          contadorDoLimite="perto"
           maxLength={maxLength}
           returnKeyType={modo === 'livre' ? 'done' : 'search'}
           onSubmitEditing={aplicarLivre}

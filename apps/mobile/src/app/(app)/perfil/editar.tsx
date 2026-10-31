@@ -95,6 +95,16 @@ export default function RotaDeEditarPerfil() {
   const [erros, setErros] = useState<ErrosDoPerfil>({});
   const [sucesso, setSucesso] = useState(false);
 
+  // Só `semPerfil` (404) ou um perfil na mão liberam o formulário. Sem rede e
+  // sem dado a consulta fica pausada (nem carregando nem erro): sai como erro,
+  // para a tela não girar para sempre.
+  const situacaoDaCarga: 'carregando' | 'erro' | 'pronta' =
+    meuPerfil.perfil !== null || meuPerfil.semPerfil
+      ? 'pronta'
+      : meuPerfil.erro !== null || !online
+        ? 'erro'
+        : 'carregando';
+
   const salvos: ValoresDoPerfil =
     meuPerfil.perfil === null
       ? VALORES_VAZIOS
@@ -142,6 +152,9 @@ export default function RotaDeEditarPerfil() {
   };
 
   const aoSalvar = () => {
+    // Defesa extra: sem o perfil carregado os campos estão vazios por falta de
+    // carga, e salvar assim apagaria o perfil.
+    if (situacaoDaCarga !== 'pronta') return;
     const descricao = valores.descricao.trim();
     const dados: EntradaDePerfil = {
       nome: valores.nome.trim(),
@@ -172,6 +185,12 @@ export default function RotaDeEditarPerfil() {
       salvando={salvar.isPending}
       sucesso={sucesso}
       semConexao={!online}
+      carregamento={{
+        situacao: situacaoDaCarga,
+        onTentarDeNovo: () => {
+          void meuPerfil.recarregar();
+        },
+      }}
       onMudarNome={(nome) => alterar({ nome }, 'nome')}
       onMudarCidade={(cidade) => alterar({ cidade }, 'cidade')}
       onMudarDescricao={(descricao) => alterar({ descricao }, 'descricao')}

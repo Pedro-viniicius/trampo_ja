@@ -4,8 +4,10 @@ import {
   copiarCandidatura,
 } from '../../dominio/candidatura.js';
 import type {
+  CursorDeBusca,
   FiltrosDeBusca,
   GravacaoSobTrava,
+  PaginaDoAutor,
   RepositorioDeTrampos,
 } from '../../dominio/portas.js';
 import {
@@ -21,6 +23,18 @@ function maisRecentesPrimeiro(a: TrampoResumo, b: TrampoResumo): number {
     return diferenca;
   }
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/** `(criadoEm, id) < cursor`, como a comparação de tuplas do Postgres. */
+function antesDoCursor(
+  trampo: TrampoResumo,
+  antesDe: CursorDeBusca | undefined,
+): boolean {
+  if (antesDe === undefined) {
+    return true;
+  }
+  const diferenca = trampo.criadoEm.getTime() - antesDe.criadoEm.getTime();
+  return diferenca < 0 || (diferenca === 0 && trampo.id < antesDe.id);
 }
 
 function candidaturasMaisRecentesPrimeiro(
@@ -88,11 +102,16 @@ export class RepositorioDeTramposEmMemoria implements RepositorioDeTrampos {
     return null;
   }
 
-  async listarDoAutor(autorId: string): Promise<TrampoDoAutor[]> {
+  async listarDoAutor(
+    autorId: string,
+    pagina: PaginaDoAutor,
+  ): Promise<TrampoDoAutor[]> {
     return [...this.#guardados.values()]
       .filter((dados) => dados.autorId === autorId)
       .map((dados) => Trampo.reconstituir(dados).resumoDoAutor())
-      .sort(maisRecentesPrimeiro);
+      .filter((t) => antesDoCursor(t, pagina.antesDe))
+      .sort(maisRecentesPrimeiro)
+      .slice(0, pagina.limite);
   }
 
   async buscar(filtros: FiltrosDeBusca): Promise<TrampoResumo[]> {
@@ -102,13 +121,7 @@ export class RepositorioDeTramposEmMemoria implements RepositorioDeTrampos {
       .filter((t) => texto === undefined || t.textoBusca.includes(texto))
       .filter((t) => categoria === undefined || t.categoria === categoria)
       .filter((t) => cidade === undefined || t.cidadeNormalizada === cidade)
-      .filter((t) => {
-        if (antesDe === undefined) {
-          return true;
-        }
-        const diferenca = t.criadoEm.getTime() - antesDe.criadoEm.getTime();
-        return diferenca < 0 || (diferenca === 0 && t.id < antesDe.id);
-      })
+      .filter((t) => antesDoCursor(t, antesDe))
       .sort(maisRecentesPrimeiro)
       .slice(0, limite);
   }

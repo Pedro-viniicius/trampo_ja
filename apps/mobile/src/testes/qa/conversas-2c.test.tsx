@@ -425,9 +425,9 @@ describe('limites do texto no campo (CA12)', () => {
       FAMILIA.repeat(400),
     ],
     [
-      '2000 letras com espaços e quebras nas pontas',
-      `  \n${'a'.repeat(2000)}\t `,
-      'a'.repeat(2000),
+      '1995 letras com espaços e quebras nas pontas (2000 pontos de código)',
+      `  \n${'a'.repeat(1995)}\t `,
+      'a'.repeat(1995),
     ],
     [
       'quebra de linha no meio fica',
@@ -451,10 +451,48 @@ describe('limites do texto no campo (CA12)', () => {
     },
   );
 
+  // D45 (L4): acima de 2000 pontos de código o campo corta no limite, nunca
+  // antes (um emoji conta 1), e anuncia o corte. O texto que vai à API nunca
+  // passa de 2000.
   it.each([
-    ['2001 emojis', EMOJI.repeat(2001)],
-    ['401 famílias com ZWJ (2005 pontos de código)', FAMILIA.repeat(401)],
-    ['2001 letras', 'a'.repeat(2001)],
+    ['2001 emojis', EMOJI.repeat(2001), EMOJI.repeat(2000), EMOJI.repeat(2000)],
+    [
+      '401 famílias com ZWJ (2005 pontos de código)',
+      FAMILIA.repeat(401),
+      FAMILIA.repeat(400),
+      FAMILIA.repeat(400),
+    ],
+    ['2001 letras', 'a'.repeat(2001), 'a'.repeat(2000), 'a'.repeat(2000)],
+    [
+      '2000 letras com espaços e quebras nas pontas (2005 pontos de código)',
+      `  \n${'a'.repeat(2000)}\t `,
+      `  \n${'a'.repeat(1997)}`,
+      'a'.repeat(1997),
+    ],
+  ])(
+    '%s: o campo corta em 2000 pontos de código, anuncia o corte e o POST leva o texto cortado e aparado',
+    async (_nome, digitado, noCampo, esperado) => {
+      const { fetch } = await abrirVazia();
+      await escrever(digitado);
+
+      expect(campo()).toHaveDisplayValue(noCampo);
+      expect(Array.from(noCampo)).toHaveLength(2000);
+      expect(
+        screen.getAllByText(textos.gerais.contadorCortado(2000)).length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(botaoEnviar()).toBeEnabled();
+      await fireEvent.press(botaoEnviar());
+      await avancar(100);
+
+      const posts = POSTS_DAS_MENSAGENS(fetch);
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.corpo).toEqual({ texto: esperado });
+      expect(Array.from(esperado).length).toBeLessThanOrEqual(2000);
+      expect(campo()).toHaveDisplayValue('');
+    },
+  );
+
+  it.each([
     ['caractere nulo no meio', 'oi\u0000tchau'],
     ['só o caractere nulo', '\u0000'],
     ['vazio', ''],
@@ -477,8 +515,18 @@ describe('limites do texto no campo (CA12)', () => {
 
   it('o campo avisa o limite de 2000 e é multilinha', async () => {
     await abrirVazia();
-    expect(campo().props.maxLength).toBe(2000);
+    // D45: o limite é em pontos de código, no corte, e não no `maxLength`
+    // (que contaria unidades UTF-16 e cortaria um emoji antes da hora).
+    expect(campo().props.maxLength).toBeUndefined();
     expect(campo().props.multiline).toBe(true);
+
+    await escrever(EMOJI.repeat(2000));
+
+    expect(campo()).toHaveDisplayValue(EMOJI.repeat(2000));
+    expect(
+      screen.getAllByText(textos.gerais.contadorLimite(2000)).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(botaoEnviar()).toBeEnabled();
   });
 });
 
@@ -522,8 +570,9 @@ describe('polling da conversa (CA12, D20)', () => {
     await avancar(5_200);
     await screen.findByLabelText(new RegExp(`${textoDe(2)}$`));
     expect(textosDasBolhas()).toEqual([textoDe(1), textoDe(2)]);
-    // Depois do primeiro, só entra `depoisDe` com o último id que o GET listou.
-    expect(GETS_DAS_MENSAGENS(fetch).at(-1)?.query).toEqual({ depoisDe: 'm1' });
+    // Só com `m1` em cache, nada fica fora da janela de 60 s (D48): o ciclo
+    // relê do começo, sem `depoisDe`, e `m1` não duplica.
+    expect(GETS_DAS_MENSAGENS(fetch).at(-1)?.query).toEqual({});
 
     await avancar(120_000);
     expect(requisicoesDe(fetch, 'GET', '/conversas')).toHaveLength(listas);

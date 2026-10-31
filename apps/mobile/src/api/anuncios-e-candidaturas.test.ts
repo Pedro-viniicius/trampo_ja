@@ -1046,6 +1046,54 @@ describe('listas "minhas"', () => {
     expect(falso.ultima().url).toBe(`${URL_BASE}/trampos/meus`);
   });
 
+  it('listarMeusTrampos com limite e cursor manda limite, antesDeCriadoEm e antesDeId (D47)', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('GET /trampos/meus', { corpo: [TRAMPO] });
+
+    await expect(
+      listarMeusTrampos(cliente, {
+        limite: 20,
+        antesDe: { criadoEm: '2026-10-01T10:00:00.123Z', id: 't&id=x' },
+      }),
+    ).resolves.toEqual([TRAMPO]);
+
+    expect(falso.ultima().caminho).toBe('/trampos/meus');
+    expect(falso.ultima().query).toEqual({
+      limite: '20',
+      antesDeCriadoEm: '2026-10-01T10:00:00.123Z',
+      antesDeId: 't&id=x',
+    });
+    // O cursor vai codificado: o id não abre parâmetro novo na query.
+    expect(falso.ultima().url).toBe(
+      `${URL_BASE}/trampos/meus?limite=20&antesDeCriadoEm=2026-10-01T10%3A00%3A00.123Z&antesDeId=t%26id%3Dx`,
+    );
+  });
+
+  it('listarMeusTrampos só com limite não manda cursor; sem opções não manda query', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('GET /trampos/meus', { corpo: [] });
+
+    await listarMeusTrampos(cliente, { limite: 50 });
+    expect(falso.ultima().query).toEqual({ limite: '50' });
+
+    await listarMeusTrampos(cliente, {});
+    expect(falso.ultima().url).toBe(`${URL_BASE}/trampos/meus`);
+  });
+
+  it('listarMeusTrampos só com cursor manda os dois antesDe* juntos, sem limite', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('GET /trampos/meus', { corpo: [] });
+
+    await listarMeusTrampos(cliente, {
+      antesDe: { criadoEm: '2026-10-01T10:00:00.000Z', id: 't9' },
+    });
+
+    expect(falso.ultima().query).toEqual({
+      antesDeCriadoEm: '2026-10-01T10:00:00.000Z',
+      antesDeId: 't9',
+    });
+  });
+
   it('a visão do autor traz versao, candidaturasRecebidas e o status encerrado (D33, D34)', async () => {
     const { cliente, falso } = montar();
     const trampo: Trampo = {

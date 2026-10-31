@@ -81,8 +81,9 @@ describe('FormularioDeAnuncio', () => {
     expect(screen.getByLabelText(t.cidade)).toBeOnTheScreen();
     expect(screen.getByLabelText(t.valor)).toBeOnTheScreen();
     expect(screen.getByLabelText(t.prazo)).toBeOnTheScreen();
-    expect(screen.getByText(t.contador(0, 80))).toBeOnTheScreen();
-    expect(screen.getByText(t.contador(0, 2000))).toBeOnTheScreen();
+    // Título: contador só perto do limite. Descrição: sempre.
+    expect(screen.queryByText(textos.gerais.contador(0, 80))).toBeNull();
+    expect(screen.getByText(textos.gerais.contador(0, 2000))).toBeOnTheScreen();
     expect(
       screen.getByRole('button', { name: t.publicarTrampo }),
     ).toBeOnTheScreen();

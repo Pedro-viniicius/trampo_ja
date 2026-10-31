@@ -122,7 +122,10 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
     expect(screen.getAllByLabelText(/^Remover /)).toHaveLength(1);
   });
 
-  it('habilidade de 1 caractere e de 31 caracteres é recusada com o texto de tamanho', async () => {
+  // Desde a L4 (CA55, D45) o campo corta em pontos de código no limite: o
+  // erro de tamanho "acima do máximo" não sai mais pelo campo (a regra de
+  // domínio segue recusando acima do limite, provada em `estado/validacao.test.ts`).
+  it('habilidade de 1 caractere é recusada; a de 31 é cortada em 30 no campo e entra com 30', async () => {
     const fetch = fakeComCategorias().responder('GET /perfis/eu', {
       corpo: PERFIL_COMPLETO,
     });
@@ -133,13 +136,15 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
     expect(
       await screen.findByText(textos.erros.habilidade_tamanho),
     ).toBeOnTheScreen();
-    await adicionarHabilidade('x'.repeat(31));
-    expect(screen.getByText(textos.erros.habilidade_tamanho)).toBeOnTheScreen();
-    await adicionarHabilidade('x'.repeat(30));
+
+    await fireEvent.changeText(campoHabilidade(), 'x'.repeat(31));
+    expect(campoHabilidade().props.value).toBe('x'.repeat(30));
+    await fireEvent.press(botaoAdicionar());
     await waitFor(() =>
       expect(screen.queryByText(textos.erros.habilidade_tamanho)).toBeNull(),
     );
     expect(screen.getByText('x'.repeat(30))).toBeOnTheScreen();
+    expect(screen.queryByText('x'.repeat(31))).toBeNull();
   });
 
   it('a habilidade digitada chega à API como a pessoa escreveu (acento preservado)', async () => {
@@ -157,7 +162,7 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
     });
   });
 
-  it('descrição de 301 caracteres é recusada no campo e nada é enviado', async () => {
+  it('descrição de 301 caracteres é cortada em 300 no campo e é o que vai à API', async () => {
     const fetch = fakeDoPerfil();
     await abrirApp('/perfil/editar', { fetch });
     await screen.findByDisplayValue('Maria Souza');
@@ -166,12 +171,19 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
       screen.getByLabelText(textos.editarPerfil.descricao),
       'a'.repeat(301),
     );
+    expect(
+      screen.getByLabelText(textos.editarPerfil.descricao).props.value,
+    ).toBe('a'.repeat(300));
     await fireEvent.press(salvar());
 
     expect(
-      await screen.findByText(textos.erros.descricao_tamanho),
+      await screen.findByText(textos.editarPerfil.sucesso),
     ).toBeOnTheScreen();
-    expect(puts(fetch)).toHaveLength(0);
+    expect(screen.queryByText(textos.erros.descricao_tamanho)).toBeNull();
+    expect(puts(fetch)).toHaveLength(1);
+    expect(puts(fetch)[0]?.corpo).toMatchObject({
+      descricao: 'a'.repeat(300),
+    });
   });
 
   it('descrição de exatamente 300 caracteres é enviada', async () => {
@@ -193,7 +205,7 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
     });
   });
 
-  it('descrição com 300 emojis (300 pontos de código) é aceita e o contador não passa de 300', async () => {
+  it('descrição com 300 emojis (300 pontos de código) é aceita sem corte e o contador anuncia o limite atingido', async () => {
     const fetch = fakeDoPerfil();
     await abrirApp('/perfil/editar', { fetch });
     await screen.findByDisplayValue('Maria Souza');
@@ -203,13 +215,22 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
       '😀'.repeat(300),
     );
 
+    // No limite: o texto de "limite atingido" (no contador e na região
+    // anunciada), não o de corte, e todos os emojis ficam.
     expect(
-      screen.getByText(textos.editarPerfil.contador(300, 300)),
-    ).toBeOnTheScreen();
+      (await screen.findAllByText(textos.gerais.contadorLimite(300))).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(textos.gerais.contadorCortado(300))).toBeNull();
+    expect(
+      screen.getByLabelText(textos.editarPerfil.descricao).props.value,
+    ).toBe('😀'.repeat(300));
     await fireEvent.press(salvar());
     expect(
       await screen.findByText(textos.editarPerfil.sucesso),
     ).toBeOnTheScreen();
+    expect(puts(fetch)[0]?.corpo).toMatchObject({
+      descricao: '😀'.repeat(300),
+    });
   });
 
   it('apagar a descrição de um perfil que tinha uma manda o PUT sem `descricao`', async () => {
@@ -231,7 +252,7 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
     expect(puts(fetch)[0]?.corpo).not.toHaveProperty('descricao');
   });
 
-  it('nome e cidade de 1 caractere ou de 81 são recusados nos campos; 2 e 80 passam', async () => {
+  it('nome de 1 caractere é recusado; nome e cidade de 81 são cortados em 80; 2 e 80 passam', async () => {
     const fetch = fakeDoPerfil();
     await abrirApp('/perfil/editar', { fetch });
     const nome = await screen.findByDisplayValue('Maria Souza');
@@ -239,20 +260,27 @@ describe('Editar perfil: limites e normalização (CA3)', () => {
 
     await fireEvent.changeText(nome, 'M');
     await fireEvent.changeText(cidade, 'L'.repeat(81));
+    expect(screen.getByLabelText(textos.editarPerfil.cidade).props.value).toBe(
+      'L'.repeat(80),
+    );
     await fireEvent.press(salvar());
     expect(
       await screen.findByText(textos.erros.nome_tamanho),
     ).toBeOnTheScreen();
-    expect(screen.getByText(textos.erros.cidade_tamanho)).toBeOnTheScreen();
+    // A cidade foi cortada no campo: não há erro de tamanho nela.
+    expect(screen.queryByText(textos.erros.cidade_tamanho)).toBeNull();
     expect(puts(fetch)).toHaveLength(0);
 
     await fireEvent.changeText(
       screen.getByLabelText(textos.editarPerfil.nome),
-      'Zé',
+      'N'.repeat(81),
+    );
+    expect(screen.getByLabelText(textos.editarPerfil.nome).props.value).toBe(
+      'N'.repeat(80),
     );
     await fireEvent.changeText(
-      screen.getByLabelText(textos.editarPerfil.cidade),
-      'L'.repeat(80),
+      screen.getByLabelText(textos.editarPerfil.nome),
+      'Zé',
     );
     await fireEvent.press(salvar());
     expect(

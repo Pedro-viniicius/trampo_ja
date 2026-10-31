@@ -43,12 +43,20 @@ function useLimparDepoisDoSucesso({
   }, [isSuccess, reset]);
 }
 
+/**
+ * Entrar e cadastrar rodam sem conexão (`networkMode: 'always'`) e falham na
+ * hora com `ErroDeRede` (CA58): o padrão do TanStack pausaria a mutação com a
+ * senha em `variables` e a enviaria sozinha quando a rede voltasse. Sem nova
+ * tentativa (`retry: 0`): repetir o login gastaria o limite de tentativas.
+ */
 function useMutacaoDeSessao(
   chamar: FuncaoDeSessao,
 ): UseMutationResult<void, Error, Credenciais> {
   const cliente = useCliente();
   const sessao = useSessao();
   const mutacao = useMutation<void, Error, Credenciais>({
+    networkMode: 'always',
+    retry: 0,
     gcTime: SEM_CACHE,
     mutationFn: async (credenciais) => {
       const { token } = await chamar(cliente, credenciais);

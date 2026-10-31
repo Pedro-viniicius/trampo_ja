@@ -24,6 +24,16 @@ export interface FiltrosDeBusca {
   readonly limite: number;
 }
 
+/**
+ * Página da lista do autor (D47): até `limite` trampos, estritamente mais
+ * antigos que `antesDe` na ordem de `criadoEm` e `id` decrescentes. Chega já
+ * validada pelo caso de uso.
+ */
+export interface PaginaDoAutor {
+  readonly limite: number;
+  readonly antesDe?: CursorDeBusca;
+}
+
 /** O que `alterarSobTrava` faz com o agregado depois de `decidir`. */
 export type GravacaoSobTrava = 'salvar' | 'excluir' | 'nada';
 
@@ -41,13 +51,14 @@ export interface RepositorioDeTrampos {
    */
   salvar(trampo: Trampo): Promise<void>;
   /**
-   * Trava pessimista das ações de estado do autor (encerrar e excluir, D33):
-   * trava o trampo sem olhar a versão, lê o agregado sob a trava e o passa a
-   * `decidir`, que aplica a regra (e pode lançar: nada é gravado). Conforme a
-   * resposta, grava o agregado como `salvar` (`'salvar'`), apaga o trampo e
-   * todas as candidaturas dele (`'excluir'`) ou não grava nada (`'nada'`).
-   * Uma escrita concorrente espera a trava e depois vê o estado novo, então a
-   * ação do autor nunca dá `conflito_de_versao`. Devolve `false`, sem chamar
+   * Trava pessimista das ações de estado do autor (encerrar e excluir, D33)
+   * e da retirada do freelancer (D49): trava o trampo sem olhar a versão, lê
+   * o agregado sob a trava e o passa a `decidir`, que aplica a regra (e pode
+   * lançar: nada é gravado). Conforme a resposta, grava o agregado como
+   * `salvar` (`'salvar'`), apaga o trampo e todas as candidaturas dele
+   * (`'excluir'`) ou não grava nada (`'nada'`).
+   * Uma escrita concorrente espera a trava e depois vê o estado novo, então
+   * essas ações nunca dão `conflito_de_versao`. Devolve `false`, sem chamar
    * `decidir`, se o trampo não existe.
    */
   alterarSobTrava(
@@ -57,8 +68,16 @@ export interface RepositorioDeTrampos {
   buscarPorId(id: string): Promise<Trampo | null>;
   /** Id do trampo da candidatura, ou `null` se ela não existe (CA29). */
   trampoDaCandidatura(candidaturaId: string): Promise<string | null>;
-  /** Mais recentes primeiro, na visão do autor (com versão e contagem). */
-  listarDoAutor(autorId: string): Promise<TrampoDoAutor[]>;
+  /**
+   * Uma página dos trampos do autor, em qualquer status, mais recentes
+   * primeiro (`criadoEm` e `id` decrescentes), na visão do autor (com versão
+   * e contagem). Só os do `autorId`: um cursor tirado de trampo de outra
+   * conta só marca a posição.
+   */
+  listarDoAutor(
+    autorId: string,
+    pagina: PaginaDoAutor,
+  ): Promise<TrampoDoAutor[]>;
   /** Só trampos abertos, mais recentes primeiro (`criadoEm` e `id` decrescentes). */
   buscar(filtros: FiltrosDeBusca): Promise<TrampoResumo[]>;
   /** Verdadeiro se há candidatura, em qualquer estado, de um para o trampo do outro. */

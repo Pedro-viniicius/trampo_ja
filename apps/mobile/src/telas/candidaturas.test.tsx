@@ -176,7 +176,8 @@ describe('RodapeDoTrampo', () => {
           },
         ),
       );
-      expect(screen.getByText('3 de 2000 caracteres')).toBeOnTheScreen();
+      // O contador só aparece a partir de 80% do limite.
+      expect(screen.queryByText('3 de 2000 caracteres')).toBeNull();
       expect(screen.getByText(textos.gerais.ajudaValor)).toBeOnTheScreen();
       await fireEvent.changeText(
         screen.getByLabelText(textos.candidatar.mensagem),
@@ -537,6 +538,94 @@ const anuncio = (
 });
 
 describe('MeusAnuncios', () => {
+  const lista2 = ok([anuncio(), anuncio({ id: 't2', titulo: 'Capinar' })]);
+  const meus = (extra: Partial<Parameters<typeof MeusAnuncios>[0]>) => (
+    <MeusAnuncios
+      tipo="trampo"
+      lista={lista2}
+      onAbrirItem={noop}
+      onPublicar={noop}
+      onVoltar={noop}
+      {...extra}
+    />
+  );
+
+  it('sem a prop carregarMais, não mostra o botão', async () => {
+    await render(meus({}));
+    expect(
+      screen.queryByRole('button', { name: textos.gerais.carregarMais }),
+    ).toBeNull();
+  });
+
+  it('"Carregar mais" chama a ação; a lista continua visível ao carregar', async () => {
+    const onCarregarMais = jest.fn();
+    const { rerender } = await render(
+      meus({ carregarMais: { carregando: false, onCarregarMais } }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.carregarMais }),
+    );
+    expect(onCarregarMais).toHaveBeenCalledTimes(1);
+    await rerender(
+      meus({ carregarMais: { carregando: true, onCarregarMais } }),
+    );
+    expect(screen.getByText(textos.gerais.carregando)).toBeOnTheScreen();
+    expect(screen.getByLabelText(/Capinar/)).toBeOnTheScreen();
+  });
+
+  it('erro ao carregar mais: aviso com "Tentar de novo" e a lista fica', async () => {
+    const onCarregarMais = jest.fn();
+    await render(
+      meus({
+        carregarMais: { carregando: false, erro: 'Falhou.', onCarregarMais },
+      }),
+    );
+    expect(screen.getByText('Falhou.')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.tentarDeNovo }),
+    );
+    expect(onCarregarMais).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText(/Pintar a sala/)).toBeOnTheScreen();
+  });
+
+  it('sem conexão: botão desabilitado com o motivo', async () => {
+    await render(
+      meus({
+        semConexao: true,
+        carregarMais: { carregando: false, onCarregarMais: noop },
+      }),
+    );
+    expect(
+      screen.getByText(textos.meusAnuncios.semConexaoParaCarregarMais),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: textos.gerais.carregarMais }),
+    ).toBeDisabled();
+  });
+
+  it('depois de carregar, anuncia quantos itens vieram', async () => {
+    const onCarregarMais = jest.fn();
+    const { rerender } = await render(
+      meus({ carregarMais: { carregando: false, onCarregarMais } }),
+    );
+    await rerender(
+      meus({ carregarMais: { carregando: true, onCarregarMais } }),
+    );
+    await rerender(
+      meus({
+        lista: ok([
+          anuncio(),
+          anuncio({ id: 't2', titulo: 'Capinar' }),
+          anuncio({ id: 't3', titulo: 'Lavar' }),
+        ]),
+        carregarMais: { carregando: false, onCarregarMais },
+      }),
+    );
+    expect(
+      screen.getByText(textos.meusAnuncios.maisCarregados(1, 'trampo')),
+    ).toBeOnTheScreen();
+  });
+
   it('trampos: título, selo de status e abre o item', async () => {
     const onAbrirItem = jest.fn();
     await render(

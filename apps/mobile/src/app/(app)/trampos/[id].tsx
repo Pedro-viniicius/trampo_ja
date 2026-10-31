@@ -16,7 +16,7 @@ import {
 } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useConversar } from '../../../estado/consultas/abrir-conversa';
-import { useMeusTrampos, useTrampo } from '../../../estado/consultas/anuncios';
+import { useTrampo } from '../../../estado/consultas/anuncios';
 import { useCategorias } from '../../../estado/consultas/busca';
 import {
   useCandidatar,
@@ -24,12 +24,14 @@ import {
   useMinhasCandidaturas,
   useRetirarCandidatura,
 } from '../../../estado/consultas/candidaturas';
+import { chaves } from '../../../estado/consultas/chaves';
 import {
   useMeuPerfil,
   usePerfilPublico,
 } from '../../../estado/consultas/perfil';
 import { chaveDoErro, textoDeErroDeAcao } from '../../../estado/erros';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
+import { folhaDepoisDoConflito } from '../../../estado/folha-atualizada';
 import {
   centavosParaCampo,
   formatarCentavos,
@@ -164,21 +166,36 @@ function TrampoComAutor({
   );
   const [toast, setToast] = useState<string | null>(null);
 
-  // "Mais opções" (CA33), só para o autor, decidido pela lista "meus". O
-  // status e a contagem de candidaturas que a folha precisa vêm do próprio
-  // detalhe, que os traz para o autor (a lista pode estar mais velha).
+  // "Mais opções" (CA33), só para o autor, que o detalhe reconhece pela visão
+  // do autor (`versao`, D46): não depende de lista nenhuma, nem da página em
+  // que o trampo estaria. O status e a contagem de candidaturas que a folha
+  // precisa vêm do próprio detalhe, que os traz para o autor. A folha aberta
+  // segue o detalhe vivo (`anuncioAtual`, CA61): depois de um 409, a recarga
+  // do detalhe (`consultaDoAtual`) recalcula as ações sem fechar e reabrir.
   // Excluir não mostra o toast do hook: o aviso vai para a tela de destino, e
   // esta para de ouvir antes de avisar (senão consumiria o próprio aviso).
-  const meusTrampos = useMeusTrampos();
-  const meu = meusTrampos.trampos?.find((m) => m.id === trampo.id);
+  const anuncio: AnuncioDaFolha | null =
+    trampo.versao === undefined
+      ? null
+      : {
+          tipo: 'trampo',
+          id: trampo.id,
+          titulo: trampo.titulo,
+          status: trampo.status,
+          ...(trampo.candidaturasRecebidas !== undefined && {
+            candidaturasRecebidas: trampo.candidaturasRecebidas,
+          }),
+        };
   const [saida, setSaida] = useState<MotivoDaSaida | null>(null);
   const acoes = useAcoesDoAnuncio({
-    aoEditar: (anuncio) =>
+    aoEditar: (aberto) =>
       abrirEdicao({
         pathname: '/trampos/editar/[id]',
-        params: { id: anuncio.id },
+        params: { id: aberto.id },
       }),
-    aoExcluir: (_anuncio, motivo) => setSaida(motivo),
+    aoExcluir: (_aberto, motivo) => setSaida(motivo),
+    anuncioAtual: () => anuncio,
+    consultaDoAtual: chaves.trampo(trampo.id),
   });
   const aviso = useAvisoDeRetorno(useIsFocused() && saida === null);
   const saiu = useRef(false);
@@ -193,18 +210,6 @@ function TrampoComAutor({
     voltarRef.current();
   }, [saida, geracao]);
 
-  const anuncio: AnuncioDaFolha | null =
-    meu === undefined
-      ? null
-      : {
-          tipo: 'trampo',
-          id: trampo.id,
-          titulo: trampo.titulo,
-          status: trampo.status,
-          ...(trampo.candidaturasRecebidas !== undefined && {
-            candidaturasRecebidas: trampo.candidaturasRecebidas,
-          }),
-        };
   // Encerrar mostra o toast do hook aqui mesmo; excluir (ou o 404) sai da
   // tela, e o aviso é da tela de destino.
   const mensagem =
@@ -213,7 +218,7 @@ function TrampoComAutor({
     <DetalheDoTrampo
       estado={estado}
       autor={autor}
-      // Excluído: a lista já não traz o trampo, e o rodapé não pisca antes de sair.
+      // Excluído: o rodapé não pisca antes de sair.
       rodape={
         saida === null ? (
           <RodapeDaRota
@@ -243,7 +248,10 @@ function TrampoComAutor({
           : // O botão "Mais opções" fala do título de agora, não do da
             // última abertura da folha.
             {
-              ...(acoes.folha ?? folhaFechada(anuncio, !semConexao)),
+              ...folhaDepoisDoConflito(
+                acoes.folha ?? folhaFechada(anuncio, !semConexao),
+                acoes.conflito,
+              ),
               titulo: anuncio.titulo,
             }
       }
@@ -291,9 +299,8 @@ function codigoDoConflito(erro: unknown): string | null {
 }
 
 /**
- * 409 que mostram que o rodapé estava desatualizado: as listas "minhas"
- * falharam ou estavam velhas. Recarregá-las troca o botão pelo selo ou por
- * "Ver candidaturas".
+ * 409 que mostram que Minhas candidaturas estava velha ou falhou. Recarregá-la
+ * troca o botão pelo selo.
  */
 const CONFLITOS_DAS_LISTAS: ReadonlySet<string> = new Set([
   'candidatura_duplicada',
@@ -301,9 +308,12 @@ const CONFLITOS_DAS_LISTAS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Rodapé do detalhe: a situação vem das listas "minhas" (o app não conhece o
- * id da conta, ADR-003) e as candidaturas recebidas só são pedidas quando a
- * pessoa é a autora. A folha guarda o rascunho só na memória do componente.
+ * Rodapé do detalhe: o papel de autor vem do próprio trampo (a visão do autor
+ * traz `versao`, D46; o app não conhece o id da conta, ADR-003), a candidatura
+ * vem de Minhas candidaturas, e as candidaturas recebidas só são pedidas
+ * quando a pessoa é a autora. Todo 409 do rodapé relê o trampo: o selo e o
+ * papel mostram o que o servidor já sabe. A folha guarda o rascunho só na
+ * memória do componente.
  */
 function RodapeDaRota({
   trampo,
@@ -321,29 +331,24 @@ function RodapeDaRota({
   onRecarregarTrampo: () => void;
 }) {
   const router = useRouter();
-  const meusTrampos = useMeusTrampos();
   const minhasCandidaturas = useMinhasCandidaturas();
   const meuPerfil = useMeuPerfil();
   const candidatar = useCandidatar(trampo.id);
   const conversa = useConversar(trampo.autorId, semConexao);
   const retirar = useRetirarCandidatura();
 
-  const listas = {
+  const souAutor = trampo.versao !== undefined;
+  const recebidas = useCandidaturasRecebidas(trampo.id, {
+    habilitada: souAutor,
+  });
+  const situacao = situacaoDoRodape({
     trampo,
-    meusTrampos: paraLista(meusTrampos.trampos, meusTrampos.erro),
+    souAutor,
     minhasCandidaturas: paraLista(
       minhasCandidaturas.candidaturas,
       minhasCandidaturas.erro,
     ),
-  };
-  const ehAutor =
-    situacaoDoRodape({ ...listas, recebidas: undefined }).tipo === 'autor';
-  const recebidas = useCandidaturasRecebidas(trampo.id, {
-    habilitada: ehAutor,
-  });
-  const situacao = situacaoDoRodape({
-    ...listas,
-    recebidas: ehAutor ? (recebidas.candidaturas ?? undefined) : undefined,
+    recebidas: souAutor ? (recebidas.candidaturas ?? undefined) : undefined,
   });
 
   const [avisoDaRetirada, setAvisoDaRetirada] = useState<string | undefined>();
@@ -392,10 +397,10 @@ function RodapeDaRota({
           }
           if (codigo !== null && CONFLITOS_DAS_LISTAS.has(codigo)) {
             void minhasCandidaturas.recarregar();
-            void meusTrampos.recarregar();
           }
-          if (codigo === 'trampo_nao_aberto') {
-            // O rodapé passa a "fechado" se o trampo já não está aberto.
+          if (codigo !== null) {
+            // O rodapé passa a "fechado" se o trampo já não está aberto, e a
+            // visão do autor (`autor_nao_pode_candidatar`) chega com a recarga.
             onRecarregarTrampo();
           }
           const { geral, campos } = chaveDoErro(erro, 'candidatura');
@@ -441,6 +446,8 @@ function RodapeDaRota({
           // Foi respondida antes: o rodapé troca para o selo novo.
           setAvisoDaRetirada(textos.candidatura.respondida);
           void minhasCandidaturas.recarregar();
+          // O selo do detalhe (status do trampo) também mudou (CA64).
+          onRecarregarTrampo();
           return;
         }
         setAvisoDaRetirada(

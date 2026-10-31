@@ -5,10 +5,14 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react-native';
+import { criarCliente } from '../../api/cliente';
 import { ErroDaApi, ErroDeRede } from '../../api/erros';
 import type { Mensagem, ResumoDeConversa } from '../../api/tipos';
 import type { RequisicaoFeita, RespostaFalsa } from '../../testes/fetch-falso';
-import { criarProvedores as criarProvedoresBase } from '../../testes/renderizar';
+import {
+  criarProvedores as criarProvedoresBase,
+  URL_BASE_DE_TESTE,
+} from '../../testes/renderizar';
 import {
   type ArmazenamentoEmMemoria,
   criarArmazenamentoEmMemoria,
@@ -18,13 +22,17 @@ import { useSessao } from '../sessao';
 import { TETO_DA_RECARGA_MS } from './anuncios';
 import { chaves } from './chaves';
 import {
+  conferirDesde,
+  cursorDaReleitura,
   FRESCOR_DA_LISTA_MS,
   INTERVALO_DA_LISTA_MS,
   INTERVALO_DO_POLLING_MS,
   intervaloDoPolling,
+  JANELA_DE_RELEITURA_MS,
   mesclarPagina,
   PAGINA_DE_MENSAGENS,
   PAGINAS_POR_BUSCA,
+  substituirCauda,
   TETO_DE_MENSAGENS_NO_CACHE,
   TETO_DO_POLLING_MS,
   useAbrirConversa,
@@ -43,12 +51,28 @@ const EU = 'conta-eu';
 const TEXTO_A = 'SENTINELA-TEXTO-A';
 const TEXTO_B = 'SENTINELA-TEXTO-B';
 
-function mensagem(n: number | string, autorId = OUTRO): Mensagem {
+const INICIO_MS = Date.parse('2026-10-21T10:00:00.000Z');
+/**
+ * Distância entre `mensagem(n)` e `mensagem(n + 1)`: mais que a janela de
+ * releitura (D48), então o ciclo relê a partir da penúltima mensagem.
+ */
+const PASSO_MS = 2 * 60_000;
+
+/** `enviadaEm` da posição `n` (aceita fração, para ficar entre duas). */
+function instante(n: number): string {
+  return new Date(INICIO_MS + n * PASSO_MS).toISOString();
+}
+
+function mensagem(
+  n: number | string,
+  autorId = OUTRO,
+  enviadaEm = instante(typeof n === 'number' ? n : 0),
+): Mensagem {
   return {
     id: `m${n}`,
     autorId,
     texto: `SENTINELA-TEXTO-${n}`,
-    enviadaEm: '2026-10-21T10:00:00.000Z',
+    enviadaEm,
   };
 }
 
@@ -294,8 +318,111 @@ describe('mesclarPagina', () => {
   });
 });
 
+/** `n` mensagens do outro com o mesmo `enviadaEm` (todas na mesma janela). */
+function rajada(de: number, ate: number): Mensagem[] {
+  return mensagens(de, ate).map((m) => ({ ...m, enviadaEm: instante(0) }));
+}
+
+describe('cursorDaReleitura (D48)', () => {
+  it('a janela é de 60 s', () => {
+    expect(JANELA_DE_RELEITURA_MS).toBe(60_000);
+  });
+
+  it('sem mensagens, carga do começo', () => {
+    expect(cursorDaReleitura([])).toBeNull();
+  });
+
+  it('é a última com enviadaEm até 60 s antes da última, inclusive no limite', () => {
+    const ultima = Date.parse(instante(10));
+    const em = (ms: number) => new Date(ultima - ms).toISOString();
+    const lista = [
+      mensagem('a', OUTRO, em(5 * 60_000)),
+      mensagem('b', OUTRO, em(JANELA_DE_RELEITURA_MS)),
+      mensagem('c', OUTRO, em(JANELA_DE_RELEITURA_MS - 1)),
+      mensagem('d', OUTRO, em(0)),
+    ];
+    expect(cursorDaReleitura(lista)).toBe('mb');
+    expect(cursorDaReleitura(lista.filter((m) => m.id !== 'mb'))).toBe('ma');
+    expect(cursorDaReleitura(mensagens(1, 3))).toBe('m2');
+  });
+
+  it('nenhuma tão antiga e a lista abaixo do teto: carga do começo', () => {
+    expect(cursorDaReleitura(rajada(1, 30))).toBeNull();
+    expect(cursorDaReleitura([mensagem(1)])).toBeNull();
+    expect(
+      cursorDaReleitura(rajada(1, TETO_DE_MENSAGENS_NO_CACHE - 1)),
+    ).toBeNull();
+  });
+
+  it('nenhuma tão antiga e a lista no teto: a primeira, nunca o começo da conversa', () => {
+    expect(
+      cursorDaReleitura(rajada(101, 100 + TETO_DE_MENSAGENS_NO_CACHE)),
+    ).toBe('m101');
+  });
+
+  it('enviadaEm ilegível na última: o id dela, como antes da janela', () => {
+    expect(cursorDaReleitura([mensagem(1), mensagem(2, OUTRO, 'ontem')])).toBe(
+      'm2',
+    );
+  });
+});
+
+describe('substituirCauda (D48)', () => {
+  it('troca o que vem depois do cursor pela resposta, na ordem da API', () => {
+    const atrasada = mensagem('-atrasada', EU, instante(2.9));
+    const resultado = substituirCauda(mensagens(1, 3), 'm2', [
+      atrasada,
+      mensagem(3),
+      mensagem(4),
+    ]);
+    expect(ids(resultado)).toEqual(['m1', 'm2', 'm-atrasada', 'm3', 'm4']);
+  });
+
+  it('cursor null: a resposta é a conversa desde o começo e substitui tudo', () => {
+    expect(
+      ids(substituirCauda(mensagens(1, 3), null, [mensagem(1), mensagem(3)])),
+    ).toEqual(['m1', 'm3']);
+  });
+
+  it('não repete id, nem do começo mantido nem da própria resposta', () => {
+    const resultado = substituirCauda(mensagens(1, 3), 'm2', [
+      mensagem(1),
+      mensagem(3),
+      mensagem(3),
+      mensagem(4),
+    ]);
+    expect(ids(resultado)).toEqual(['m1', 'm2', 'm3', 'm4']);
+  });
+
+  it('sem nada mudado devolve a mesma lista', () => {
+    const atuais = mensagens(1, 3);
+    expect(substituirCauda(atuais, 'm2', [mensagem(3)])).toBe(atuais);
+    expect(substituirCauda(atuais, 'm3', [])).toBe(atuais);
+    expect(substituirCauda(atuais, null, mensagens(1, 3))).toBe(atuais);
+  });
+
+  it('cursor fora da lista: só acrescenta, sem perder nada', () => {
+    expect(
+      ids(substituirCauda(mensagens(1, 3), 'm9', [mensagem(3), mensagem(4)])),
+    ).toEqual(['m1', 'm2', 'm3', 'm4']);
+  });
+
+  it(`guarda só as últimas ${TETO_DE_MENSAGENS_NO_CACHE} (S1)`, () => {
+    const atuais = mensagens(1, TETO_DE_MENSAGENS_NO_CACHE);
+    const resultado = substituirCauda(
+      atuais,
+      `m${TETO_DE_MENSAGENS_NO_CACHE - 1}`,
+      mensagens(TETO_DE_MENSAGENS_NO_CACHE, TETO_DE_MENSAGENS_NO_CACHE + 3),
+    );
+    expect(resultado).toHaveLength(TETO_DE_MENSAGENS_NO_CACHE);
+    expect(ids(resultado)).toEqual(
+      ids(mensagens(4, TETO_DE_MENSAGENS_NO_CACHE + 3)),
+    );
+  });
+});
+
 describe('useMensagens: carga incremental e ciclo (CA12)', () => {
-  it('carrega em 2 páginas (50 + 3) e depois pede só depoisDe do último id', async () => {
+  it('carrega em 2 páginas (50 + 3) e depois relê a partir da penúltima (janela de 60 s)', async () => {
     const { provedores, servidor } = comServidor(mensagens(1, 53));
     const { result } = await montarMensagens(provedores);
 
@@ -309,7 +436,7 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
     servidor.mensagens.push(mensagem(54, EU));
     await avancar(INTERVALO_DO_POLLING_MS);
 
-    expect(cursores(provedores)).toEqual([null, 'm50', 'm53']);
+    expect(cursores(provedores)).toEqual([null, 'm50', 'm52']);
     expect(ids(result.current.dados.mensagens).slice(-2)).toEqual([
       'm53',
       'm54',
@@ -324,9 +451,9 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
     await avancar(INTERVALO_DO_POLLING_MS - 1);
     expect(cursores(provedores)).toEqual([null]);
     await avancar(1);
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
     await avancar(INTERVALO_DO_POLLING_MS);
-    expect(cursores(provedores)).toEqual([null, 'm3', 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2', 'm2']);
   });
 
   it(`lê no máximo ${PAGINAS_POR_BUSCA} páginas por busca; o resto vem no ciclo seguinte`, async () => {
@@ -344,11 +471,11 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
 
     await avancar(INTERVALO_DO_POLLING_MS);
 
-    expect(cursores(provedores).at(-1)).toBe(`m${lidas}`);
+    expect(cursores(provedores).at(-1)).toBe(`m${lidas - 1}`);
     expect(ids(result.current.dados.mensagens).at(-1)).toBe(`m${total}`);
   });
 
-  it(`o cache não passa de ${TETO_DE_MENSAGENS_NO_CACHE} mensagens e o cursor segue sendo o último id (S1)`, async () => {
+  it(`o cache não passa de ${TETO_DE_MENSAGENS_NO_CACHE} mensagens e o ciclo relê a partir da penúltima (S1)`, async () => {
     const total = TETO_DE_MENSAGENS_NO_CACHE + 20;
     const { provedores, servidor } = comServidor(mensagens(1, total));
     const { result } = await montarMensagens(provedores);
@@ -361,7 +488,7 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
     provedores.fetch.limparRequisicoes();
     await avancar(INTERVALO_DO_POLLING_MS);
 
-    expect(cursores(provedores)).toEqual([`m${total}`]);
+    expect(cursores(provedores)).toEqual([`m${total - 1}`]);
     expect(ids(result.current.dados.mensagens)).toEqual(
       ids(mensagens(22, total + 1)),
     );
@@ -402,7 +529,7 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
     await montado.rerender({ ativa: true });
     await avancar(0);
 
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
   });
 
   it('com o app em segundo plano (focusManager) não busca; ao voltar, busca na hora', async () => {
@@ -415,7 +542,7 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
 
     await act(async () => focusManager.setFocused(true));
     await avancar(0);
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
   });
 
   it('sem sessão autenticada não busca', async () => {
@@ -426,6 +553,74 @@ describe('useMensagens: carga incremental e ciclo (CA12)', () => {
 
     expect(result.current.sessao.status).toBe('anonimo');
     expect(provedores.fetch.requisicoes).toHaveLength(0);
+  });
+});
+
+describe('useMensagens: releitura da janela (CA59, D48)', () => {
+  it('a mensagem gravada depois de outra mais nova entra no ciclo seguinte, na posição da API e sem duplicata', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 3));
+    const { result } = await montarMensagens(provedores);
+    expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm2', 'm3']);
+
+    // R2: o relógio deu a ela um instante anterior ao de m3, mas o insert
+    // chegou depois de este aparelho ler m3. A API a lista antes de m3.
+    servidor.mensagens.splice(2, 0, mensagem('-atrasada', EU, instante(2.9)));
+    provedores.fetch.limparRequisicoes();
+    await avancar(INTERVALO_DO_POLLING_MS);
+
+    expect(cursores(provedores)).toEqual(['m2']);
+    const lista = ids(result.current.dados.mensagens);
+    expect(lista).toEqual(['m1', 'm2', 'm-atrasada', 'm3']);
+    expect(new Set(lista).size).toBe(lista.length);
+
+    // O ciclo seguinte relê de novo e não muda nada (nem a referência).
+    const antes = result.current.dados.mensagens;
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(cursores(provedores)).toEqual(['m2', 'm2']);
+    expect(result.current.dados.mensagens).toBe(antes);
+  });
+
+  it('com menos de 50 mensagens na janela, continua 1 GET por ciclo', async () => {
+    const { provedores, servidor } = comServidor(rajada(1, 30));
+    const { result } = await montarMensagens(provedores);
+    expect(cursores(provedores)).toEqual([null]);
+
+    servidor.mensagens.push({ ...mensagem(31), enviadaEm: instante(0) });
+    for (let ciclo = 1; ciclo <= 3; ciclo += 1) {
+      await avancar(INTERVALO_DO_POLLING_MS);
+      expect(cursores(provedores)).toHaveLength(1 + ciclo);
+    }
+    // Todas na janela e a lista abaixo do teto: relê do começo.
+    expect(cursores(provedores)).toEqual([null, null, null, null]);
+    expect(ids(result.current.dados.mensagens)).toEqual(ids(rajada(1, 31)));
+  });
+
+  it(`no teto, com todas na janela, relê a partir da primeira em cache e nunca volta ao começo da conversa`, async () => {
+    const total = PAGINA_DE_MENSAGENS * PAGINAS_POR_BUSCA + 3;
+    const { provedores, servidor } = comServidor(rajada(1, total));
+    const { result } = await montarMensagens(provedores);
+    const lidas = PAGINA_DE_MENSAGENS * PAGINAS_POR_BUSCA;
+    expect(ids(result.current.dados.mensagens)).toEqual(
+      ids(rajada(lidas - TETO_DE_MENSAGENS_NO_CACHE + 1, lidas)),
+    );
+
+    provedores.fetch.limparRequisicoes();
+    await avancar(INTERVALO_DO_POLLING_MS);
+    const primeira = `m${lidas - TETO_DE_MENSAGENS_NO_CACHE + 1}`;
+    expect(cursores(provedores)[0]).toBe(primeira);
+    expect(cursores(provedores)).not.toContain(null);
+    expect(ids(result.current.dados.mensagens)).toEqual(
+      ids(rajada(total - TETO_DE_MENSAGENS_NO_CACHE + 1, total)),
+    );
+
+    servidor.mensagens.push({ ...mensagem(total + 1), enviadaEm: instante(0) });
+    await avancar(INTERVALO_DO_POLLING_MS);
+    expect(ids(result.current.dados.mensagens)).toEqual(
+      ids(rajada(total - TETO_DE_MENSAGENS_NO_CACHE + 2, total + 1)),
+    );
+    expect(
+      provedores.queryClient.getQueryData(chaves.mensagens(CONVERSA)),
+    ).toHaveLength(TETO_DE_MENSAGENS_NO_CACHE);
   });
 });
 
@@ -456,7 +651,7 @@ describe('useMensagens: falhas e parada', () => {
     await avancar(20_000 - 1);
     expect(cursores(provedores)).toHaveLength(3);
     await avancar(1);
-    expect(cursores(provedores)).toEqual([null, 'm3', 'm3', 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2', 'm2', 'm2']);
     expect(result.current.dados.erro).toBeNull();
     expect(result.current.dados.falhasSeguidas).toBe(0);
     expect(ids(result.current.dados.mensagens)).toContain('m4');
@@ -464,7 +659,7 @@ describe('useMensagens: falhas e parada', () => {
     await avancar(INTERVALO_DO_POLLING_MS - 1);
     expect(cursores(provedores)).toHaveLength(4);
     await avancar(1);
-    expect(cursores(provedores)).toEqual([null, 'm3', 'm3', 'm3', 'm4']);
+    expect(cursores(provedores)).toEqual([null, 'm2', 'm2', 'm2', 'm3']);
   });
 
   it('404 para o ciclo e marca indisponivel, inclusive ao voltar ao app e à rede', async () => {
@@ -484,7 +679,7 @@ describe('useMensagens: falhas e parada', () => {
     await act(async () => onlineManager.setOnline(true));
     await avancar(TETO_DO_POLLING_MS);
 
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
   });
 
   it('404 na primeira carga: sem mensagens, indisponivel e sem novo GET', async () => {
@@ -554,7 +749,7 @@ describe('useMensagens: falhas e parada', () => {
 
     await avancar(INTERVALO_DO_POLLING_MS);
     expect(cursores(provedores)).toHaveLength(9);
-    expect(cursores(provedores).at(-1)).toBe('m4');
+    expect(cursores(provedores).at(-1)).toBe('m3');
   });
 
   it('429 na primeira carga: sem indisponivel, e o ciclo segue até carregar', async () => {
@@ -614,16 +809,16 @@ describe('useMensagens: falhas e parada', () => {
     const { provedores, servidor } = comServidor(mensagens(1, 3));
     const { result } = await montarMensagens(provedores);
 
-    // O último id do cache deixou de valer nesta conversa.
-    servidor.mensagens = [mensagem(1), mensagem(2), mensagem(4)];
+    // O cursor do ciclo (m2, a penúltima) deixou de valer nesta conversa.
+    servidor.mensagens = [mensagem(1), mensagem(4)];
     await avancar(INTERVALO_DO_POLLING_MS);
 
-    expect(cursores(provedores)).toEqual([null, 'm3', null]);
-    expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm2', 'm4']);
+    expect(cursores(provedores)).toEqual([null, 'm2', null]);
+    expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm4']);
     expect(result.current.dados.erro).toBeNull();
 
     await avancar(INTERVALO_DO_POLLING_MS);
-    expect(cursores(provedores).at(-1)).toBe('m4');
+    expect(cursores(provedores).at(-1)).toBe('m1');
   });
 
   it('400 no cursor refaz do zero uma vez só; o segundo 400 para o ciclo', async () => {
@@ -633,7 +828,7 @@ describe('useMensagens: falhas e parada', () => {
     servidor.falha = { status: 400, corpo: { erro: 'dados_invalidos' } };
     await avancar(INTERVALO_DO_POLLING_MS);
 
-    expect(cursores(provedores)).toEqual([null, 'm3', null]);
+    expect(cursores(provedores)).toEqual([null, 'm2', null]);
     expect((result.current.dados.erro as ErroDaApi).status).toBe(400);
     expect(ids(result.current.dados.mensagens)).toEqual(['m1', 'm2', 'm3']);
     await avancar(TETO_DO_POLLING_MS * 2);
@@ -698,7 +893,7 @@ describe('useMensagens: recarregar', () => {
     });
 
     expect(ids(lista)).toEqual(['m1', 'm2', 'm3', 'm4']);
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
   });
 
   it('devolve null quando a busca falha', async () => {
@@ -712,7 +907,7 @@ describe('useMensagens: recarregar', () => {
     });
 
     expect(lista).toBeNull();
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    expect(cursores(provedores)).toEqual([null, 'm2']);
   });
 
   it('sem conexão devolve null na hora, sem GET', async () => {
@@ -727,6 +922,183 @@ describe('useMensagens: recarregar', () => {
 
     expect(lista).toBeNull();
     expect(cursores(provedores)).toEqual([null]);
+  });
+});
+
+describe('conferirDesde (CA60)', () => {
+  /** Lê do cache e devolve a referência, para provar que nada foi gravado. */
+  function cache(provedores: Provedores) {
+    return provedores.queryClient.getQueryData(chaves.mensagens(CONVERSA));
+  }
+
+  async function conferir(
+    montado: Awaited<ReturnType<typeof montarMensagens>>,
+    ancora: string | null,
+  ) {
+    let lista: readonly Mensagem[] | null | undefined;
+    await act(async () => {
+      lista = await montado.result.current.dados.conferirDesde(ancora);
+    });
+    return lista;
+  }
+
+  it('pagina a partir da âncora e devolve o que veio depois, sem tocar no cache', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 3));
+    const montado = await montarMensagens(provedores, false);
+    await montado.rerender({ ativa: true });
+    await avancar(0);
+    await montado.rerender({ ativa: false });
+    const antes = cache(provedores);
+    servidor.mensagens = mensagens(1, 120);
+    provedores.fetch.limparRequisicoes();
+
+    const lista = await conferir(montado, 'm10');
+
+    expect(cursores(provedores)).toEqual(['m10', 'm60', 'm110']);
+    expect(ids(lista)).toEqual(ids(mensagens(11, 120)));
+    expect(cache(provedores)).toBe(antes);
+    expect(ids(montado.result.current.dados.mensagens)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+    ]);
+  });
+
+  it('âncora null confere desde o começo', async () => {
+    const { provedores } = comServidor(mensagens(1, 3));
+    const montado = await montarMensagens(provedores, false);
+
+    expect(ids(await conferir(montado, null))).toEqual(['m1', 'm2', 'm3']);
+    expect(cursores(provedores)).toEqual([null]);
+    expect(cache(provedores)).toBeUndefined();
+  });
+
+  it(`lê no máximo ${PAGINAS_POR_BUSCA} páginas e, parando no teto com a última cheia, devolve null (S2, D21)`, async () => {
+    const lidas = PAGINA_DE_MENSAGENS * PAGINAS_POR_BUSCA;
+    // 1001 depois da âncora: a 1001ª nunca é lida nesta conferência.
+    const { provedores } = comServidor(mensagens(1, lidas + 2));
+    const montado = await montarMensagens(provedores, false);
+
+    const lista = await conferir(montado, 'm1');
+
+    expect(cursores(provedores)).toHaveLength(PAGINAS_POR_BUSCA);
+    expect(lista).toBeNull();
+  });
+
+  it(`exatamente ${PAGINAS_POR_BUSCA} páginas cheias também devolvem null: não dá para saber se há mais`, async () => {
+    const lidas = PAGINA_DE_MENSAGENS * PAGINAS_POR_BUSCA;
+    const { provedores } = comServidor(mensagens(1, lidas + 1));
+    const montado = await montarMensagens(provedores, false);
+
+    expect(await conferir(montado, 'm1')).toBeNull();
+    expect(cursores(provedores)).toHaveLength(PAGINAS_POR_BUSCA);
+  });
+
+  it(`a ${PAGINAS_POR_BUSCA}ª página incompleta encerra a conferência: devolve tudo o que leu`, async () => {
+    const lidas = PAGINA_DE_MENSAGENS * PAGINAS_POR_BUSCA - 1;
+    const { provedores } = comServidor(mensagens(1, lidas + 1));
+    const montado = await montarMensagens(provedores, false);
+
+    const lista = await conferir(montado, 'm1');
+
+    expect(cursores(provedores)).toHaveLength(PAGINAS_POR_BUSCA);
+    expect(ids(lista)).toEqual(ids(mensagens(2, lidas + 1)));
+  });
+
+  it.each<[string, RespostaFalsa]>([
+    ['falha de rede', { falhaDeRede: true }],
+    ['500', { status: 500, corpo: { erro: 'erro_interno' } }],
+    [
+      '400 (âncora que não vale mais)',
+      { status: 400, corpo: { erro: 'dados_invalidos' } },
+    ],
+    ['404', { status: 404, corpo: { erro: 'nao_encontrado' } }],
+  ])(
+    '%s devolve null, sem lançar e sem tocar no cache',
+    async (_nome, falha) => {
+      const { provedores, servidor } = comServidor(mensagens(1, 3));
+      const montado = await montarMensagens(provedores);
+      const antes = cache(provedores);
+      servidor.falha = falha;
+
+      expect(await conferir(montado, 'm2')).toBeNull();
+      expect(cache(provedores)).toBe(antes);
+      expect(montado.result.current.dados.erro).toBeNull();
+    },
+  );
+
+  it('a falha na 2ª página também devolve null', async () => {
+    const { provedores } = comServidor(mensagens(1, 120));
+    provedores.fetch.responder(`GET ${CAMINHO_DAS_MENSAGENS}?depoisDe=m50`, {
+      status: 500,
+      corpo: { erro: 'erro_interno' },
+    });
+    const montado = await montarMensagens(provedores, false);
+
+    expect(await conferir(montado, null)).toBeNull();
+    expect(cursores(provedores)).toEqual([null, 'm50']);
+  });
+
+  it('sem conexão devolve null na hora, sem GET', async () => {
+    const { provedores } = comServidor(mensagens(1, 3));
+    const montado = await montarMensagens(provedores, false);
+    await act(async () => onlineManager.setOnline(false));
+
+    expect(await conferir(montado, 'm1')).toBeNull();
+    expect(cursores(provedores)).toEqual([]);
+  });
+
+  it('sem sessão devolve null, sem GET', async () => {
+    const { provedores } = comServidor(mensagens(1, 3), null);
+    const montado = await montarMensagens(provedores, false);
+
+    expect(await conferir(montado, 'm1')).toBeNull();
+    expect(provedores.fetch.requisicoes).toHaveLength(0);
+  });
+
+  it('se a sessão mudou no meio, devolve null e não pede a página seguinte', async () => {
+    const { provedores, servidor } = comServidor(mensagens(1, 120));
+    provedores.fetch.responder('DELETE /sessoes', { status: 204 });
+    servidor.demoraMs = 1_000;
+    const montado = await montarMensagens(provedores, false);
+
+    let lista: readonly Mensagem[] | null | undefined;
+    await act(async () => {
+      void montado.result.current.dados.conferirDesde(null).then((r) => {
+        lista = r;
+      });
+    });
+    await act(() => montado.result.current.sessao.sair());
+    await act(() => montado.result.current.sessao.entrar(TOKEN_NOVO));
+    await avancar(1_000);
+    await avancar(1_000);
+
+    expect(lista).toBeNull();
+    expect(cursores(provedores)).toEqual([null]);
+  });
+
+  it('a função pura para entre as páginas quando interrompida() vira', async () => {
+    const { provedores } = comServidor(mensagens(1, 120));
+    const cliente = criarCliente({
+      fetch: provedores.fetch.fetch,
+      urlBase: URL_BASE_DE_TESTE,
+      obterToken: () => TOKEN,
+      aoExpirar: () => undefined,
+    });
+    // Falso na 1ª página, verdadeiro depois da 2ª.
+    let paginas = 0;
+    const interrompida = () => {
+      paginas += 1;
+      return paginas > 1;
+    };
+
+    let lista: readonly Mensagem[] | null | undefined;
+    await act(async () => {
+      lista = await conferirDesde(cliente, CONVERSA, null, interrompida);
+    });
+
+    expect(lista).toBeNull();
+    expect(cursores(provedores)).toEqual([null, 'm50']);
   });
 });
 
@@ -1016,7 +1388,7 @@ describe('useEnviarMensagem (CA12, CA15)', () => {
     provedores.fetch.responder(`POST ${CAMINHO_DAS_MENSAGENS}`, (r) => {
       // O outro mandou uma mensagem antes da nossa chegar ao servidor.
       servidor.mensagens.push(mensagem(4));
-      servidor.mensagens.push(mensagem('-post', EU));
+      servidor.mensagens.push(mensagem('-post', EU, instante(5)));
       expect(r.corpo).toEqual({ texto: TEXTO_A });
       return {
         status: 201,
@@ -1039,8 +1411,9 @@ describe('useEnviarMensagem (CA12, CA15)', () => {
       // A prévia da lista (Q2), sem esperar.
       { queryKey: chaves.conversas(), refetchType: 'active' },
     ]);
-    // O ciclo veio na hora (sem esperar 5 s) e pediu depois de m3.
-    expect(cursores(provedores)).toEqual([null, 'm3']);
+    // O ciclo veio na hora (sem esperar 5 s) e pediu a partir do cache do
+    // GET (m2, a penúltima), não do id do POST.
+    expect(cursores(provedores)).toEqual([null, 'm2']);
     expect(ids(montado.result.current.dados.lista.mensagens)).toEqual([
       'm1',
       'm2',

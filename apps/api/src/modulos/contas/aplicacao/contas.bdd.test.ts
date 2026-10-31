@@ -33,6 +33,7 @@ import {
   type CasosDeUsoDeContas,
   criarCasosDeUsoDeContas,
   DURACAO_DA_SESSAO_MS,
+  ESPERA_APOS_FALHA_MS,
   ESPERA_DA_LAPIDE_MS,
   ESPERA_MAXIMA_NA_FILA_MS,
   LAPIDES_POR_RODADA,
@@ -1266,7 +1267,7 @@ describe('contas: cadastro, entrada e sessão', () => {
       expect(Object.keys(lapides.gravadas())).toEqual([ids[0]]);
     });
 
-    it('CA47 — uma lápide cuja exclusão falha fica para a próxima rodada, as outras seguem, e o erro sobe no fim', async () => {
+    it('CA47 e CA67 — uma lápide cuja exclusão falha não é esquecida, as outras seguem na mesma rodada, e o erro sobe no fim', async () => {
       lapides.gravar('falha', emMs(-ESPERA_DA_LAPIDE_MS - 2000));
       lapides.gravar('ok', emMs(-ESPERA_DA_LAPIDE_MS - 1000));
       await sessoes.salvar(sha256('vencida'), 'conta-x', emMs(-1));
@@ -1284,6 +1285,121 @@ describe('contas: cadastro, entrada e sessão', () => {
       expect(Object.keys(lapides.gravadas())).toEqual(['falha']);
       expect(dados.exclusoes).toEqual(['ok']);
       expect(sessoes.quantidade).toBe(0);
+    });
+
+    it(`CA67 — Dadas ${LAPIDES_POR_RODADA} lápides cuja exclusão sempre falha, quando a limpeza roda de novo, então elas ficam em espera e a ${LAPIDES_POR_RODADA + 1}ª é revarrida; o erro que sobe é o da porta, sem o id`, async () => {
+      const quebradas = Array.from(
+        { length: LAPIDES_POR_RODADA },
+        (_, i) => `quebrada-${String(i).padStart(3, '0')}`,
+      );
+      // As quebradas são as mais antigas e ocupam o lote inteiro.
+      quebradas.forEach((id, i) => {
+        lapides.gravar(
+          id,
+          emMs(-ESPERA_DA_LAPIDE_MS - (LAPIDES_POR_RODADA - i) * 1000),
+        );
+      });
+      lapides.gravar('boa', emMs(-ESPERA_DA_LAPIDE_MS));
+      const falha = Object.assign(new Error('banco fora'), { code: '57P01' });
+      const excluir = dados.excluirTudo.bind(dados);
+      const espiao = vi
+        .spyOn(dados, 'excluirTudo')
+        .mockImplementation(async (id) => {
+          if (id.startsWith('quebrada-')) {
+            throw falha;
+          }
+          return excluir(id);
+        });
+
+      const erro = await erroDe(casos.limparRegistrosVencidos());
+
+      expect(erro).toBe(falha);
+      expect(espiao.mock.calls.map(([id]) => id)).toEqual(quebradas);
+      expect(dados.exclusoes).toEqual([]);
+
+      espiao.mockClear();
+      relogio.avancar(60 * MINUTO_MS);
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 1,
+      });
+      expect(espiao.mock.calls.map(([id]) => id)).toEqual(['boa']);
+      expect(dados.exclusoes).toEqual(['boa']);
+      expect(Object.keys(lapides.gravadas()).sort()).toEqual(quebradas);
+    });
+
+    it('CA67 — Dada uma lápide cuja exclusão falhou, então ela espera 6 h de relógio e volta a ser tentada; se falhar de novo, espera outras 6 h; depois de revarrida, não volta', async () => {
+      expect(ESPERA_APOS_FALHA_MS).toBe(6 * 60 * MINUTO_MS);
+      lapides.gravar('instavel', emMs(-ESPERA_DA_LAPIDE_MS));
+      let quebrada = true;
+      const excluir = dados.excluirTudo.bind(dados);
+      const espiao = vi
+        .spyOn(dados, 'excluirTudo')
+        .mockImplementation(async (id) => {
+          if (quebrada) {
+            throw new Error('banco fora');
+          }
+          return excluir(id);
+        });
+      const nada = { sessoes: 0, contasRevarridas: 0 };
+
+      await erroDe(casos.limparRegistrosVencidos());
+      expect(espiao).toHaveBeenCalledTimes(1);
+
+      relogio.avancar(ESPERA_APOS_FALHA_MS - 1);
+      expect(await casos.limparRegistrosVencidos()).toEqual(nada);
+      expect(espiao).toHaveBeenCalledTimes(1);
+
+      relogio.avancar(1);
+      await erroDe(casos.limparRegistrosVencidos());
+      expect(espiao).toHaveBeenCalledTimes(2);
+
+      relogio.avancar(ESPERA_APOS_FALHA_MS - 1);
+      expect(await casos.limparRegistrosVencidos()).toEqual(nada);
+      expect(espiao).toHaveBeenCalledTimes(2);
+
+      quebrada = false;
+      relogio.avancar(1);
+      expect(await casos.limparRegistrosVencidos()).toEqual({
+        sessoes: 0,
+        contasRevarridas: 1,
+      });
+      expect(dados.exclusoes).toEqual(['instavel']);
+      expect(lapides.gravadas()).toEqual({});
+
+      relogio.avancar(ESPERA_APOS_FALHA_MS);
+      expect(await casos.limparRegistrosVencidos()).toEqual(nada);
+      expect(espiao).toHaveBeenCalledTimes(3);
+    });
+
+    it(`CA67 — uma lápide em espera que outra réplica já esqueceu não estica a rodada além de ${LAPIDES_POR_RODADA} tentativas`, async () => {
+      lapides.gravar('outra-replica', emMs(-ESPERA_DA_LAPIDE_MS));
+      const excluir = dados.excluirTudo.bind(dados);
+      vi.spyOn(dados, 'excluirTudo').mockImplementation(async (id) => {
+        if (id === 'outra-replica') {
+          throw new Error('banco fora');
+        }
+        return excluir(id);
+      });
+      await erroDe(casos.limparRegistrosVencidos());
+      // Outra réplica revarreu e esqueceu a lápide; aqui ela segue em espera.
+      await lapides.esquecer('outra-replica');
+      const ids = Array.from(
+        { length: LAPIDES_POR_RODADA + 1 },
+        (_, i) => `conta-${String(i).padStart(3, '0')}`,
+      );
+      // A última da lista é a mais nova.
+      ids.forEach((id, i) => {
+        lapides.gravar(
+          id,
+          emMs(-ESPERA_DA_LAPIDE_MS - (LAPIDES_POR_RODADA + 1 - i) * 1000),
+        );
+      });
+
+      const resultado = await casos.limparRegistrosVencidos();
+
+      expect(resultado.contasRevarridas).toBe(LAPIDES_POR_RODADA);
+      expect(Object.keys(lapides.gravadas())).toEqual([ids.at(-1)]);
     });
 
     it('CA47 — a falha ao apagar sessões não impede a varredura das lápides', async () => {

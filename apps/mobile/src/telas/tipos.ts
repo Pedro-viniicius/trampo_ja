@@ -50,6 +50,8 @@ export interface PropsDaFolhaDeAcoes {
   processando: 'encerrar' | 'excluir' | null;
   /** Mensagem já traduzida, mostrada na folha. */
   erro?: string;
+  /** L4: o anúncio está sendo relido (depois de um 409); as três ações ficam desabilitadas. */
+  atualizando?: boolean;
   onEditar: () => void;
   /** Chamado só depois do diálogo. */
   onEncerrar: () => void;
@@ -135,6 +137,9 @@ export interface PropsDoInicio {
   onPublicarTrampo?: () => void;
   onOfertarServico?: () => void;
   onMinhasCandidaturas?: () => void;
+  /** L4: aviso de retorno (ex.: "Trampo excluído."). */
+  toast?: string | null;
+  onFecharToast?: () => void;
 }
 
 /** `inicial`: nenhuma busca feita ainda (mostra categorias sugeridas). */
@@ -157,6 +162,9 @@ export interface PropsDaBusca {
   /** Erro ao carregar a próxima página (mensagem já traduzida); a lista continua visível. */
   erroAoCarregarMais?: string;
   onTentarCarregarMais?: () => void;
+  /** L4: aviso de retorno (ex.: "Trampo excluído."). */
+  toast?: string | null;
+  onFecharToast?: () => void;
   semConexao?: boolean;
   onMudarTexto: (texto: string) => void;
   onMudarCategoria: (id: string | null) => void;
@@ -268,6 +276,11 @@ export interface PropsDoEditarPerfil {
   /** Mostra o toast "Perfil atualizado." */
   sucesso?: boolean;
   semConexao?: boolean;
+  /** L4: ausente = formulário. Fora de `pronta`, a tela não mostra campos nem "Salvar". */
+  carregamento?: {
+    situacao: 'carregando' | 'erro' | 'pronta';
+    onTentarDeNovo: () => void;
+  };
   onMudarNome: (texto: string) => void;
   onMudarCidade: (texto: string) => void;
   onMudarDescricao: (texto: string) => void;
@@ -476,6 +489,12 @@ export interface PropsDosMeusAnuncios {
   onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
   toast?: string | null;
   onFecharToast?: () => void;
+  /** L4: "Carregar mais"; ausente = sem paginação. `erro` é a mensagem já traduzida. */
+  carregarMais?: {
+    carregando: boolean;
+    erro?: string;
+    onCarregarMais: () => void;
+  };
 }
 
 // ---- Entrega 2c: conversas ----

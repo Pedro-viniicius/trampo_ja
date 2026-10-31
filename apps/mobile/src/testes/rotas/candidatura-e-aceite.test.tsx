@@ -50,6 +50,11 @@ const TRAMPO = {
 const EM_ANDAMENTO = { ...TRAMPO, status: 'em_andamento' };
 const ENCERRADO = { ...TRAMPO, status: 'encerrado' };
 
+/** O que `GET /trampos/:id` devolve ao autor (D46): a visão do autor traz `versao`. */
+const VISAO_DO_AUTOR = { versao: 1 };
+const TRAMPO_DO_AUTOR = { ...TRAMPO, ...VISAO_DO_AUTOR };
+const EM_ANDAMENTO_DO_AUTOR = { ...EM_ANDAMENTO, ...VISAO_DO_AUTOR };
+
 const AUTOR = {
   contaId: 'c-autor',
   nome: 'Carla Souza',
@@ -119,7 +124,6 @@ function criarFake(): FetchFalso {
     .responder('GET /perfis/eu', { corpo: MEU_PERFIL })
     .responder('GET /perfis/c-autor', { corpo: AUTOR })
     .responder('GET /trampos/t1', { corpo: TRAMPO })
-    .responder('GET /trampos/meus', { corpo: [] })
     .responder('GET /candidaturas/minhas', { corpo: [] });
 }
 
@@ -224,7 +228,7 @@ afterEach(() => {
 describe('rodapé do detalhe do trampo', () => {
   it('autor: "Ver candidaturas (n)" e o toque abre as recebidas', async () => {
     const fetch = criarFake()
-      .responder('GET /trampos/meus', { corpo: [TRAMPO] })
+      .responder('GET /trampos/t1', { corpo: TRAMPO_DO_AUTOR })
       .responder('GET /trampos/t1/candidaturas', {
         corpo: [candidatura('k1', 'f1'), candidatura('k2', 'f2')],
       })
@@ -240,11 +244,13 @@ describe('rodapé do detalhe do trampo', () => {
     expect(
       screen.queryByRole('button', { name: textos.detalheTrampo.candidatar }),
     ).toBeNull();
+    // D46: o autor vem do próprio trampo, sem a lista "meus".
+    expect(requisicoes(fetch, 'GET', '/trampos/meus')).toEqual([]);
   });
 
   it('autor: "Ver candidaturas" sem número enquanto as recebidas não chegam', async () => {
     const fetch = criarFake()
-      .responder('GET /trampos/meus', { corpo: [TRAMPO] })
+      .responder('GET /trampos/t1', { corpo: TRAMPO_DO_AUTOR })
       .responder('GET /trampos/t1/candidaturas', {
         corpo: [candidatura('k1', 'f1')],
         demoraMs: 60_000,
@@ -307,15 +313,10 @@ describe('rodapé do detalhe do trampo', () => {
   });
 
   it('lista "minha" que falhou conta como vazia: a API decide', async () => {
-    const fetch = criarFake()
-      .responder('GET /trampos/meus', {
-        status: 500,
-        corpo: { erro: 'interno' },
-      })
-      .responder('GET /candidaturas/minhas', {
-        status: 500,
-        corpo: { erro: 'interno' },
-      });
+    const fetch = criarFake().responder('GET /candidaturas/minhas', {
+      status: 500,
+      corpo: { erro: 'interno' },
+    });
     await abrir('/trampos/t1', fetch);
 
     expect(
@@ -432,7 +433,7 @@ describe('folha Candidatar-se', () => {
     semTextoCruDeErro();
   });
 
-  it('409 candidatura_duplicada e autor_nao_pode_candidatar recarregam as listas "minhas" (Q4)', async () => {
+  it('409 candidatura_duplicada e autor_nao_pode_candidatar recarregam Minhas candidaturas e o trampo (Q4)', async () => {
     for (const codigo of [
       'candidatura_duplicada',
       'autor_nao_pode_candidatar',
@@ -445,7 +446,7 @@ describe('folha Candidatar-se', () => {
       await abrirFolha();
       await preencherFolha('Posso ir hoje.', '150');
       expect(requisicoes(fetch, 'GET', '/candidaturas/minhas')).toHaveLength(1);
-      expect(requisicoes(fetch, 'GET', '/trampos/meus')).toHaveLength(1);
+      expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(1);
 
       await fireEvent.press(botaoEnviar());
       await screen.findByText(textos.erros[codigo]);
@@ -455,8 +456,11 @@ describe('folha Candidatar-se', () => {
           2,
         ),
       );
-      expect(requisicoes(fetch, 'GET', '/trampos/meus')).toHaveLength(2);
-      expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(1);
+      // Todo 409 do rodapé relê o trampo (selo e papel de autor, CA64).
+      await waitFor(() =>
+        expect(requisicoes(fetch, 'GET', '/trampos/t1')).toHaveLength(2),
+      );
+      expect(requisicoes(fetch, 'GET', '/trampos/meus')).toEqual([]);
       await unmount();
     }
   });
@@ -642,9 +646,9 @@ describe('folha Candidatar-se', () => {
 function criarFakeDoAutor() {
   const estado = { vencedora: null as string | null };
   const fetch = criarFake()
-    .responder('GET /trampos/meus', { corpo: [TRAMPO] })
     .responder('GET /trampos/t1', () => ({
-      corpo: estado.vencedora === null ? TRAMPO : EM_ANDAMENTO,
+      corpo:
+        estado.vencedora === null ? TRAMPO_DO_AUTOR : EM_ANDAMENTO_DO_AUTOR,
     }))
     .responder('GET /trampos/t1/candidaturas', () => ({
       corpo: [

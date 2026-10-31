@@ -25,7 +25,6 @@ import {
   Cabecalho,
   Esqueleto,
   EstadoVazio,
-  FaixaSemConexao,
 } from '../componentes';
 import {
   estiloDeFoco,
@@ -123,7 +122,6 @@ export function Coluna({
 export function Rolavel({
   titulo,
   onVoltar,
-  semConexao,
   rodape,
   children,
   acima,
@@ -134,6 +132,7 @@ export function Rolavel({
 }: {
   titulo: string;
   onVoltar?: () => void;
+  /** Só a tela usa (ações); a faixa única fica na raiz (`NavegacaoRaiz`). */
   semConexao?: boolean;
   rodape?: ReactNode;
   children: ReactNode;
@@ -153,7 +152,6 @@ export function Rolavel({
   return (
     <Pagina>
       <Cabecalho titulo={titulo} onVoltar={onVoltar} direita={direita} />
-      {semConexao ? <FaixaSemConexao /> : null}
       {acima}
       <ScrollView
         ref={rolagem}
@@ -197,13 +195,13 @@ export function Rolavel({
 export function Formulario({
   titulo,
   onVoltar,
-  semConexao,
   rodape,
   aoMedirRodape,
   children,
 }: {
   titulo: string;
   onVoltar?: () => void;
+  /** Só a tela usa (ações); a faixa única fica na raiz (`NavegacaoRaiz`). */
   semConexao?: boolean;
   rodape: ReactNode;
   /** Recebe a altura do rodapé fixo (para o toast não cobri-lo). */
@@ -214,7 +212,6 @@ export function Formulario({
   return (
     <Pagina>
       <Cabecalho titulo={titulo} onVoltar={onVoltar} />
-      {semConexao ? <FaixaSemConexao /> : null}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
           ref={rolagem}
@@ -296,6 +293,22 @@ export function useFocarPrimeiroErro(
     }
     rolarAteOAlvo(rolagem, alvo);
   }, [chave]);
+}
+
+/**
+ * Montado dentro de `Formulario`/`Rolavel` (sob o contexto da rolagem), como o
+ * `RolarAoTopo`: as telas que chamam o hook no próprio corpo ficam fora do
+ * provider e não rolam.
+ */
+export function FocarPrimeiroErro({
+  campos,
+  tentativa,
+}: {
+  campos: readonly { ref: RefDeCampo; erro?: string }[];
+  tentativa?: number;
+}) {
+  useFocarPrimeiroErro(campos, tentativa);
+  return null;
 }
 
 /**

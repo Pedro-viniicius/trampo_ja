@@ -53,6 +53,16 @@ const RECUSADAS = [
   'https://api.exemplo.com#frag',
   'https://api exemplo.com',
   'api.exemplo.com',
+  // CA68: usuário e senha na URL iriam para o bundle; host e porta vazios.
+  'https://usuario-sentinela:senha-sentinela@api.exemplo.com',
+  'https://usuario-sentinela@api.exemplo.com',
+  'https://:3000',
+  'https://:3000/v1',
+  'https://api.exemplo.com:',
+  'https://api.exemplo.com:99999',
+  'https://api.exemplo.com:65536',
+  'https://api.exemplo.com:0',
+  'https://api.exemplo.com:443:443',
 ];
 
 const ACEITAS = [
@@ -61,6 +71,8 @@ const ACEITAS = [
   'https://api.exemplo.com:8443/v1',
   'HTTPS://API.EXEMPLO.COM',
   '  https://api.exemplo.com  ',
+  'https://api.exemplo.com:1',
+  'https://api.exemplo.com:65535/v1',
 ];
 
 describe('app.config.ts (CA53)', () => {
@@ -106,6 +118,40 @@ describe('app.config.ts (CA53)', () => {
     if (host !== '') {
       expect(mensagem?.toLowerCase()).not.toContain(host.toLowerCase());
     }
+  });
+
+  it('URL com usuário e senha é recusada sem repetir nenhuma das partes (CA68)', () => {
+    const url = 'https://usuario-sentinela:senha-sentinela@api.exemplo.com';
+    const doBuild = erroDe(() => configDoApp(contexto(), producao(url)));
+    // Em desenvolvimento o app aceita http, mas não usuário e senha.
+    const doApp = erroDe(() =>
+      urlDaApi({ EXPO_PUBLIC_API_URL: url.replace('https', 'http') }, true),
+    );
+
+    expect(doBuild).toMatch(/^build:producao: EXPO_PUBLIC_API_URL inválida/);
+    expect(doApp).toMatch(/^EXPO_PUBLIC_API_URL inválida/);
+    for (const mensagem of [doBuild, doApp]) {
+      for (const parte of ['usuario-sentinela', 'senha-sentinela', 'exemplo']) {
+        expect(mensagem).not.toContain(parte);
+      }
+    }
+  });
+
+  it('host vazio e porta fora de 1 a 65535 também são recusados em desenvolvimento (CA68)', () => {
+    for (const url of [
+      'http://:3000',
+      'http://usuario-sentinela@10.0.0.2:3000',
+      'http://10.0.0.2:99999',
+      'http://10.0.0.2:0',
+    ]) {
+      expect({
+        url,
+        mensagem: erroDe(() => urlDaApi({ EXPO_PUBLIC_API_URL: url }, true)),
+      }).toEqual({ url, mensagem: expect.stringMatching(/inválida/) });
+    }
+    expect(
+      urlDaApi({ EXPO_PUBLIC_API_URL: 'http://10.0.0.2:3000' }, true),
+    ).toBe('http://10.0.0.2:3000');
   });
 
   it.each(ACEITAS)('%j é aceita', (url) => {

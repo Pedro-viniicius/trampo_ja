@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   ErroDeRegra,
@@ -71,7 +72,7 @@ function repositorioComoObjeto(): RepositorioDeTrampos {
     alterarSobTrava: (id, decidir) => repositorio.alterarSobTrava(id, decidir),
     buscarPorId: (id) => repositorio.buscarPorId(id),
     trampoDaCandidatura: (id) => repositorio.trampoDaCandidatura(id),
-    listarDoAutor: (a) => repositorio.listarDoAutor(a),
+    listarDoAutor: (a, p) => repositorio.listarDoAutor(a, p),
     buscar: (f) => repositorio.buscar(f),
     existeCandidaturaEntre: (a, b) => repositorio.existeCandidaturaEntre(a, b),
     listarCandidaturasDoFreelancer: (f) =>
@@ -1295,11 +1296,12 @@ describe('CA28 — excluir trampo', () => {
   });
 });
 
-describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', () => {
+describe('S1 (D33) e CA65 (D49) — ações sob a trava do trampo durante uma rajada de candidaturas', () => {
   /**
-   * Casos de uso do autor em que cada leitura do trampo, e também a entrada
-   * na trava, é seguida de uma candidatura nova gravada por inteiro: quem relê
-   * e grava com trava otimista perderia todas as rodadas.
+   * Casos de uso em que cada leitura do trampo, e também a entrada na trava,
+   * é seguida de uma candidatura nova gravada por inteiro: quem relê e grava
+   * com trava otimista perderia todas as rodadas. `leituras` conta as
+   * leituras fora da trava (`buscarPorId`).
    */
   function casosSobRajada() {
     const freelancers = Array.from(
@@ -1312,6 +1314,7 @@ describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', ()
       relogio,
     });
     let gravadas = 0;
+    let leituras = 0;
     async function proximaCandidatura(trampoId: string): Promise<void> {
       const freelancer = freelancers[gravadas];
       if (freelancer !== undefined) {
@@ -1323,6 +1326,7 @@ describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', ()
       repositorio: {
         ...repositorioComoObjeto(),
         buscarPorId: async (trampoId) => {
+          leituras += 1;
           const lido = await repositorio.buscarPorId(trampoId);
           if (lido) {
             await proximaCandidatura(trampoId);
@@ -1337,7 +1341,11 @@ describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', ()
       verificadorDePerfil: verificador,
       relogio,
     });
-    return { casos: casosDoAutor, gravadas: () => gravadas };
+    return {
+      casos: casosDoAutor,
+      gravadas: () => gravadas,
+      leituras: () => leituras,
+    };
   }
 
   it('S1 — Dado candidaturas chegando sem parar, quando o autor encerra, então termina sem conflito_de_versao e nenhuma fica pendente', async () => {
@@ -1362,6 +1370,22 @@ describe('S1 (D33) — ação de estado do autor sob rajada de candidaturas', ()
     expect(rajada.gravadas()).toBeGreaterThan(0);
     expect(await repositorio.buscarPorId(id)).toBeNull();
     expect(await casos.listarMinhasCandidaturas('conta-rajada-0')).toEqual([]);
+  });
+
+  it('CA65 — Dado candidaturas chegando sem parar, quando o freelancer retira a sua, então termina sem conflito_de_versao, sem reler o trampo, e a retirada não volta', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const rajada = casosSobRajada();
+
+    await rajada.casos.retirarCandidatura(ANA, ana.id);
+
+    expect(rajada.leituras()).toBe(0);
+    expect(rajada.gravadas()).toBeGreaterThan(0);
+    expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
+    const lista = await casos.listarCandidaturas(EMPREGADOR, id);
+    expect(lista).toHaveLength(rajada.gravadas());
+    expect(lista.every((c) => c.status === 'pendente')).toBe(true);
+    expect(lista.map((c) => c.freelancerId)).not.toContain(ANA);
   });
 });
 
@@ -1432,31 +1456,56 @@ describe('CA29 — retirar candidatura', () => {
     expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
   });
 
-  it('CA29 — Dado um aceite gravado entre a leitura e a retirada, quando a retirada perde a trava, então relê e recebe candidatura_nao_pendente', async () => {
+  it('CA29 e CA65 — Dado um aceite gravado logo antes da trava da retirada, quando o freelancer retira, então recebe candidatura_nao_pendente e a aceita fica', async () => {
     const id = await publicar();
     const ana = await casos.candidatar(ANA, id, proposta);
-    let intrometeu = false;
-    const casosComCorrida = criarCasosDeUsoDeTrampos({
-      repositorio: {
-        ...repositorioComoObjeto(),
-        salvar: async (trampo) => {
-          if (!intrometeu) {
-            intrometeu = true;
-            await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
-          }
-          return repositorio.salvar(trampo);
-        },
-      },
-      verificadorDePerfil: verificador,
-      relogio,
-    });
+    const corrida = casosComConcorrencia(
+      () => casos.aceitarCandidatura(EMPREGADOR, id, ana.id),
+      async () => undefined,
+    );
 
-    expect(await codigo(casosComCorrida.retirarCandidatura(ANA, ana.id))).toBe(
+    expect(await codigo(corrida.casos.retirarCandidatura(ANA, ana.id))).toBe(
       'candidatura_nao_pendente',
     );
     expect((await casos.listarCandidaturas(EMPREGADOR, id))[0]?.status).toBe(
       'aceita',
     );
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe(
+      'em_andamento',
+    );
+  });
+
+  it('CA29 e CA65 — Dado um aceite que chega com a trava da retirada tomada, quando a retirada grava, então o aceite recebe não encontrado e a candidatura não volta', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const corrida = casosComConcorrencia(
+      async () => undefined,
+      () => casos.aceitarCandidatura(EMPREGADOR, id, ana.id),
+    );
+
+    await corrida.casos.retirarCandidatura(ANA, ana.id);
+
+    const durante = await corrida.desfechoDeDurante();
+    expect(durante.ok === false && durante.erro).toBeInstanceOf(
+      ErroNaoEncontrado,
+    );
+    expect(await casos.listarCandidaturas(EMPREGADOR, id)).toEqual([]);
+    expect((await casos.obterTrampo(id, EMPREGADOR)).status).toBe('aberto');
+  });
+
+  it('CA29 e CA65 — Dado o trampo excluído depois de achar a candidatura e antes da trava, quando o freelancer retira, então recebe não encontrado', async () => {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    const corrida = casosComConcorrencia(
+      () => casos.excluirTrampo(EMPREGADOR, id),
+      async () => undefined,
+    );
+
+    expect(
+      await rejeicao(corrida.casos.retirarCandidatura(ANA, ana.id)),
+    ).toBeInstanceOf(ErroNaoEncontrado);
+    expect(await repositorio.buscarPorId(id)).toBeNull();
+    expect(await casos.listarMinhasCandidaturas(ANA)).toEqual([]);
   });
 
   it('CA29 — Dado uma retirada gravada entre a leitura e o aceite de outra candidatura, quando o aceite perde a trava, então relê e a retirada não volta', async () => {
@@ -1525,6 +1574,252 @@ describe('CA31 — visão do autor', () => {
       [vazio, 0, 1],
       [id, 2, 4],
     ]);
+  });
+});
+
+describe('CA66 — Meus trampos paginados (D47)', () => {
+  type EntradaDaPagina = Parameters<
+    CasosDeUsoDeTrampos['listarMeusTrampos']
+  >[1];
+
+  /** Segue o cursor do último item até a página que vem com menos de 20. */
+  async function todasAsPaginas(autor: string): Promise<string[][]> {
+    const paginas: string[][] = [];
+    let entrada: EntradaDaPagina = {};
+    for (let volta = 0; volta < 10; volta += 1) {
+      const pagina = await casos.listarMeusTrampos(autor, entrada);
+      paginas.push(pagina.map((t) => t.id));
+      const ultimo = pagina.at(-1);
+      if (pagina.length < 20 || ultimo === undefined) {
+        return paginas;
+      }
+      entrada = {
+        antesDeCriadoEm: ultimo.criadoEm.toISOString(),
+        antesDeId: ultimo.id,
+      };
+    }
+    throw new Error('paginação sem fim');
+  }
+
+  /** Um por milissegundo: o primeiro publicado é o mais antigo. */
+  async function publicarVarios(quantos: number, autor = EMPREGADOR) {
+    const ids: string[] = [];
+    for (let i = 0; i < quantos; i += 1) {
+      relogio.avancar(1);
+      ids.push(await publicar({}, autor));
+    }
+    return ids;
+  }
+
+  it('CA66 — Dado 45 trampos, parte no mesmo milissegundo, quando o autor pagina sem limite, então vê 20, 20 e 5, mais recentes primeiro, sem repetir nem pular', async () => {
+    for (let i = 0; i < 45; i += 1) {
+      if (i < 10) {
+        relogio.avancar(1);
+      }
+      await publicar();
+      await publicar({}, ANA);
+    }
+    const todos = (
+      await repositorio.listarDoAutor(EMPREGADOR, { limite: 100 })
+    ).map((t) => t.id);
+
+    const paginas = await todasAsPaginas(EMPREGADOR);
+
+    expect(paginas.map((p) => p.length)).toEqual([20, 20, 5]);
+    expect(paginas.flat()).toEqual(todos);
+    expect(new Set(paginas.flat()).size).toBe(45);
+  });
+
+  it('CA66 — Dado o cursor de um trampo da página anterior, quando pede a próxima, então vêm só os estritamente mais antigos, na visão do autor', async () => {
+    const antigo = await publicar();
+    relogio.avancar(1000);
+    const recente = await publicar();
+    await casos.candidatar(ANA, antigo, proposta);
+    const doCursor = await casos.obterTrampo(recente, EMPREGADOR);
+
+    const pagina = await casos.listarMeusTrampos(EMPREGADOR, {
+      antesDeCriadoEm: doCursor.criadoEm.toISOString(),
+      antesDeId: recente,
+    });
+
+    expect(pagina).toEqual([await casos.obterTrampo(antigo, EMPREGADOR)]);
+    expect(pagina[0]).toMatchObject({ versao: 2, candidaturasRecebidas: 1 });
+  });
+
+  it('CA66 — Dado limite 1 ou 50, quando lista, então traz no máximo esse número', async () => {
+    await publicarVarios(55);
+
+    expect(
+      await casos.listarMeusTrampos(EMPREGADOR, { limite: 1 }),
+    ).toHaveLength(1);
+    expect(
+      await casos.listarMeusTrampos(EMPREGADOR, { limite: 50 }),
+    ).toHaveLength(50);
+    expect(await casos.listarMeusTrampos(EMPREGADOR)).toHaveLength(20);
+    expect(
+      await casos.listarMeusTrampos(EMPREGADOR, { limite: null }),
+    ).toHaveLength(20);
+  });
+
+  it('CA66 — Dado um limite fora de 1 a 50 ou não inteiro, quando lista, então recebe dados_invalidos no limite, sem ler', async () => {
+    let leituras = 0;
+    const casosContados = criarCasosDeUsoDeTrampos({
+      repositorio: {
+        ...repositorioComoObjeto(),
+        listarDoAutor: async (autor, pagina) => {
+          leituras += 1;
+          return repositorio.listarDoAutor(autor, pagina);
+        },
+      },
+      verificadorDePerfil: verificador,
+      relogio,
+    });
+
+    for (const limite of [0, 51, -1, 1.5, Number.NaN, '20', true]) {
+      expect(
+        await rejeicao(casosContados.listarMeusTrampos(EMPREGADOR, { limite })),
+        String(limite),
+      ).toEqual(ErroDeValidacao.doCampo('limite', 'invalido'));
+    }
+    expect(leituras).toBe(0);
+  });
+
+  it('CA66 — Dado o cursor pela metade, quando lista, então o campo que falta é obrigatório', async () => {
+    const id = await publicar();
+
+    expect(
+      await rejeicao(
+        casos.listarMeusTrampos(EMPREGADOR, {
+          antesDeCriadoEm: '2026-10-20T12:00:00.000Z',
+        }),
+      ),
+    ).toEqual(ErroDeValidacao.doCampo('antesDeId', 'obrigatorio'));
+    expect(
+      await rejeicao(casos.listarMeusTrampos(EMPREGADOR, { antesDeId: id })),
+    ).toEqual(ErroDeValidacao.doCampo('antesDeCriadoEm', 'obrigatorio'));
+  });
+
+  it('CA66 — Dado um antesDeCriadoEm fora do ISO em UTC da API ou da faixa, quando lista, então é inválido e o erro não traz o valor', async () => {
+    const id = await publicar();
+
+    for (const antesDeCriadoEm of [
+      '',
+      'ontem',
+      '2026-10-20',
+      '2026-10-20T12:00:00Z',
+      '2026-10-20T09:00:00.000-03:00',
+      '2026-13-01T00:00:00.000Z',
+      '1969-12-31T23:59:59.999Z',
+      '+010000-01-01T00:00:00.000Z',
+      1_760_000_000_000,
+    ]) {
+      const erro = await rejeicao(
+        casos.listarMeusTrampos(EMPREGADOR, { antesDeCriadoEm, antesDeId: id }),
+      );
+      expect(erro, String(antesDeCriadoEm)).toEqual(
+        ErroDeValidacao.doCampo('antesDeCriadoEm', 'invalido'),
+      );
+      if (antesDeCriadoEm !== '') {
+        expect((erro as Error).message).not.toContain(String(antesDeCriadoEm));
+      }
+    }
+  });
+
+  it('CA66 — Dado um antesDeId fora do formato uuid, quando lista, então é inválido e o erro não traz o valor', async () => {
+    for (const antesDeId of [
+      '',
+      'abc',
+      'meus',
+      `${randomUUID()}0`,
+      ` ${randomUUID()}`,
+      42,
+    ]) {
+      const erro = await rejeicao(
+        casos.listarMeusTrampos(EMPREGADOR, {
+          antesDeCriadoEm: '2026-10-20T12:00:00.000Z',
+          antesDeId,
+        }),
+      );
+      expect(erro, String(antesDeId)).toEqual(
+        ErroDeValidacao.doCampo('antesDeId', 'invalido'),
+      );
+      if (antesDeId !== '') {
+        expect((erro as Error).message).not.toContain(String(antesDeId));
+      }
+    }
+  });
+
+  it('CA66 — Dado o limite e os dois campos do cursor inválidos, quando lista, então os três vêm no erro', async () => {
+    expect(
+      await rejeicao(
+        casos.listarMeusTrampos(EMPREGADOR, {
+          limite: 0,
+          antesDeCriadoEm: 'x',
+          antesDeId: 'y',
+        }),
+      ),
+    ).toEqual(
+      new ErroDeValidacao([
+        { campo: 'limite', motivo: 'invalido' },
+        { campo: 'antesDeCriadoEm', motivo: 'invalido' },
+        { campo: 'antesDeId', motivo: 'invalido' },
+      ]),
+    );
+  });
+
+  it('CA66 — Dado o id do cursor em maiúsculas, quando lista, então compara como o id em minúsculas', async () => {
+    // Todos no mesmo milissegundo: só o id decide. Com o cursor "FFFF…"
+    // tratado como "ffff…", todos vêm antes dele; sem normalizar, os que
+    // começam com letra (minúscula > maiúscula) sumiriam.
+    const ids = await Promise.all(Array.from({ length: 20 }, () => publicar()));
+
+    const pagina = await casos.listarMeusTrampos(EMPREGADOR, {
+      limite: 50,
+      antesDeCriadoEm: '2026-10-20T12:00:00.000Z',
+      antesDeId: 'FFFFFFFF-FFFF-4FFF-BFFF-FFFFFFFFFFFF',
+    });
+
+    expect(pagina.map((t) => t.id).sort()).toEqual([...ids].sort());
+  });
+
+  it('CA66 — Dado o cursor tirado de um trampo de outra conta, quando lista, então só vêm os do autor da sessão', async () => {
+    const antigo = await publicar();
+    relogio.avancar(1000);
+    const doOutro = await publicar({}, ANA);
+    relogio.avancar(1000);
+    await publicar();
+    const cursor = await casos.obterTrampo(doOutro, EMPREGADOR);
+
+    const pagina = await casos.listarMeusTrampos(EMPREGADOR, {
+      antesDeCriadoEm: cursor.criadoEm.toISOString(),
+      antesDeId: doOutro,
+    });
+
+    expect(pagina.map((t) => [t.id, t.autorId])).toEqual([
+      [antigo, EMPREGADOR],
+    ]);
+    expect(await casos.listarMeusTrampos(ANA)).toEqual([
+      expect.objectContaining({ id: doOutro, autorId: ANA }),
+    ]);
+  });
+
+  it('CA66 e D46 — Dado um trampo fora da primeira página, quando o autor abre o detalhe, então recebe a visão do autor; o terceiro, não', async () => {
+    const [maisAntigo] = await publicarVarios(21);
+    if (maisAntigo === undefined) {
+      throw new Error('esperava 21 trampos');
+    }
+    expect(
+      (await casos.listarMeusTrampos(EMPREGADOR)).map((t) => t.id),
+    ).not.toContain(maisAntigo);
+
+    expect(await casos.obterTrampo(maisAntigo, EMPREGADOR)).toMatchObject({
+      id: maisAntigo,
+      versao: 1,
+      candidaturasRecebidas: 0,
+    });
+    expect(await casos.obterTrampo(maisAntigo, ANA)).not.toHaveProperty(
+      'versao',
+    );
   });
 });
 

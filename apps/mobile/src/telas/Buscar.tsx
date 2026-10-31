@@ -12,8 +12,8 @@ import {
   CampoDeTexto,
   Chip,
   EstadoVazio,
-  FaixaSemConexao,
   Seletor,
+  Toast,
 } from '../componentes';
 import { estiloDeFoco, useFoco } from '../componentes/utilitarios';
 import {
@@ -46,7 +46,8 @@ export function Buscar({
   carregandoMais = false,
   erroAoCarregarMais,
   onTentarCarregarMais,
-  semConexao,
+  toast,
+  onFecharToast,
   onMudarTexto,
   onMudarCategoria,
   onMudarCidade,
@@ -69,7 +70,7 @@ export function Buscar({
         rotulo={textos.buscar.campo}
         valor={texto}
         onChangeText={onMudarTexto}
-        maxLength={LIMITE_DO_TEXTO}
+        limite={LIMITE_DO_TEXTO}
         returnKeyType="search"
         onSubmitEditing={onEnviar}
       />
@@ -102,7 +103,7 @@ export function Buscar({
             rotuloDePesquisa={textos.buscar.pesquisarCidade}
             textoTodas={textos.buscar.todasCidades}
             textoSemOpcoes={textos.buscar.semOpcoes}
-            maxLength={LIMITE_DA_CIDADE}
+            limite={LIMITE_DA_CIDADE}
             onSelecionar={onMudarCidade}
           />
         </View>
@@ -122,7 +123,6 @@ export function Buscar({
   return (
     <Pagina>
       <Cabecalho titulo={textos.buscar.titulo} />
-      {semConexao ? <FaixaSemConexao /> : null}
       <FlatList
         data={itens}
         keyExtractor={(item) => `${item.tipo}-${item.id}`}
@@ -171,6 +171,14 @@ export function Buscar({
         onEndReached={temMais && !carregandoMais ? onCarregarMais : undefined}
         onEndReachedThreshold={0.5}
       />
+      {toast ? (
+        <Toast
+          visivel
+          mensagem={toast}
+          rotuloFechar={textos.gerais.toastFechar}
+          onFechar={() => onFecharToast?.()}
+        />
+      ) : null}
     </Pagina>
   );
 }

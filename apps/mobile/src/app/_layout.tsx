@@ -1,12 +1,17 @@
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { FaixaSemConexao } from '../componentes/FaixaSemConexao';
 import { opcoesDoCabecalho } from '../componentes/navegacao';
 import { criarArmazenamentoSeguro } from '../estado/armazenamento-token';
 import {
   criarQueryClient,
   ligarGerenciadores,
 } from '../estado/cliente-de-consultas';
+import { useConexao } from '../estado/conexao';
 import { limparExportacoesAntigas } from '../estado/exportacao';
 import { Provedores } from '../estado/provedores';
 import { useSessao } from '../estado/sessao';
@@ -18,7 +23,8 @@ SplashScreen.preventAutoHideAsync().catch(() => undefined);
 /**
  * Pilha raiz, por status da sessão: `(publico)` sem sessão e `(app)` com
  * sessão (`Stack.Protected`). Enquanto a sessão carrega, não desenha nada e a
- * splash continua. Exportada à parte para os testes de rota a montarem sobre
+ * splash continua. Acima da pilha fica a única faixa de "sem conexão" do app
+ * (CA56), com e sem sessão. Exportada à parte para os testes de rota a montarem sobre
  * provedores com fakes.
  */
 export function NavegacaoRaiz() {
@@ -30,6 +36,15 @@ export function NavegacaoRaiz() {
   // não tem `redirectTo`: o destino do login é navegado aqui, por cima da
   // Entrada, para o "Voltar" do login continuar levando a ela.
   const [houveSessao, setHouveSessao] = useState(false);
+  // A faixa ocupa a margem segura de cima; enquanto aparece, as telas recebem
+  // `top: 0` para o `Cabecalho` não somar a margem de novo.
+  const { online } = useConexao();
+  const semConexao = !online;
+  const margens = useContext(SafeAreaInsetsContext);
+  const margensDasTelas = useMemo(
+    () => (semConexao && margens ? { ...margens, top: 0 } : margens),
+    [semConexao, margens],
+  );
 
   useEffect(() => {
     if (status === 'autenticado') {
@@ -51,19 +66,29 @@ export function NavegacaoRaiz() {
     return null;
   }
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: opcoesDoCabecalho.contentStyle,
-      }}
-    >
-      <Stack.Protected guard={status === 'anonimo'}>
-        <Stack.Screen name="(publico)" />
-      </Stack.Protected>
-      <Stack.Protected guard={status === 'autenticado'}>
-        <Stack.Screen name="(app)" />
-      </Stack.Protected>
-    </Stack>
+    <View style={{ flex: 1 }}>
+      {/* Sempre montada: o anúncio de "Conexão de volta." depende disso. */}
+      <FaixaSemConexao visivel={semConexao} />
+      {/* Ícones claros sobre a faixa escura; sem ela, o padrão do app. */}
+      <StatusBar style={semConexao ? 'light' : 'auto'} />
+      <View style={{ flex: 1 }}>
+        <SafeAreaInsetsContext.Provider value={margensDasTelas}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: opcoesDoCabecalho.contentStyle,
+            }}
+          >
+            <Stack.Protected guard={status === 'anonimo'}>
+              <Stack.Screen name="(publico)" />
+            </Stack.Protected>
+            <Stack.Protected guard={status === 'autenticado'}>
+              <Stack.Screen name="(app)" />
+            </Stack.Protected>
+          </Stack>
+        </SafeAreaInsetsContext.Provider>
+      </View>
+    </View>
   );
 }
 

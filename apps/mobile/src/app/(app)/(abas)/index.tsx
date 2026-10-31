@@ -1,5 +1,6 @@
-import { useRouter } from 'expo-router';
+import { useIsFocused, useRouter } from 'expo-router';
 import type { Categoria, ItemDaBusca } from '../../../api/tipos';
+import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useCategorias, useRecentes } from '../../../estado/consultas/busca';
 import { useMeuPerfil } from '../../../estado/consultas/perfil';
@@ -66,6 +67,9 @@ export default function InicioRota() {
   const trampos = useRecentes('trampos');
   const servicos = useRecentes('servicos');
   const { categorias } = useCategorias();
+  // CA63: o aviso que uma tela de cima deixou ao voltar (excluído, já não
+  // existe, alterações salvas) aparece aqui quando a aba está em foco.
+  const aviso = useAvisoDeRetorno(useIsFocused());
 
   function abrirItem(item: ItemParaExibir) {
     router.push({
@@ -94,6 +98,8 @@ export default function InicioRota() {
       recentesTrampos={estadoDosRecentes(trampos, categorias, online)}
       recentesServicos={estadoDosRecentes(servicos, categorias, online)}
       semConexao={!online}
+      toast={aviso.texto}
+      onFecharToast={aviso.limpar}
       onBuscar={() => router.navigate('/buscar')}
       onVerTodos={verTodos}
       onAbrirItem={abrirItem}

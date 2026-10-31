@@ -99,11 +99,42 @@ export async function excluirTrampo(
   await cliente.delete<void>(`/trampos/${segmentoDaUrl(id)}`);
 }
 
-/** `GET /trampos/meus`: os trampos da conta, com o `status` de cada um. */
+/**
+ * Cursor de `GET /trampos/meus` (D47): o `criadoEm` e o `id` do último
+ * trampo da página anterior, como vieram da API.
+ */
+export interface CursorDeMeusTrampos {
+  readonly criadoEm: string;
+  readonly id: string;
+}
+
+/** Página pedida a `GET /trampos/meus`. */
+export interface PaginaDeMeusTrampos {
+  /** De 1 a 50; sem ele, a API assume 20. */
+  readonly limite?: number;
+  /** Sem cursor, vem a primeira página. */
+  readonly antesDe?: CursorDeMeusTrampos;
+}
+
+/**
+ * `GET /trampos/meus` (D47): uma página dos trampos da conta, na visão do
+ * autor, dos mais recentes para os mais antigos. O cursor vai em
+ * `antesDeCriadoEm` e `antesDeId`, sempre os dois juntos (a API recusa um só
+ * com 400). Sem opções, vem a primeira página, com o limite da API.
+ */
 export async function listarMeusTrampos(
   cliente: ClienteHttp,
+  { limite, antesDe }: PaginaDeMeusTrampos = {},
 ): Promise<readonly Trampo[]> {
-  return cliente.get<readonly Trampo[]>('/trampos/meus');
+  return cliente.get<readonly Trampo[]>('/trampos/meus', {
+    query: {
+      limite,
+      ...(antesDe !== undefined && {
+        antesDeCriadoEm: antesDe.criadoEm,
+        antesDeId: antesDe.id,
+      }),
+    },
+  });
 }
 
 /**

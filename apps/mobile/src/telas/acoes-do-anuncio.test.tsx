@@ -57,6 +57,25 @@ function telaDeAnuncios(
 }
 
 describe('folha "Mais opções" do anúncio', () => {
+  it('atualizando: desabilita as três ações e diz o motivo', async () => {
+    await render(telaDeAnuncios(folha({ atualizando: true })));
+    expect(screen.getByText(textos.anuncio.folhaAtualizando)).toBeOnTheScreen();
+    for (const nome of [
+      textos.anuncio.editar,
+      textos.anuncio.encerrarTrampo,
+      textos.anuncio.excluirTrampo,
+    ]) {
+      expect(screen.getByRole('button', { name: nome })).toBeDisabled();
+    }
+  });
+
+  it('depois do 409, mostra o aviso de que o anúncio mudou', async () => {
+    await render(
+      telaDeAnuncios(folha({ erro: textos.anuncio.folhaAtualizada })),
+    );
+    expect(screen.getByText(textos.anuncio.folhaAtualizada)).toBeOnTheScreen();
+  });
+
   it('Meus anúncios mostra o botão de 44x44 e o chama com o item', async () => {
     const abrir = jest.fn();
     await render(telaDeAnuncios(undefined, { onMaisOpcoes: abrir }));

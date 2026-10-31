@@ -255,7 +255,10 @@ export function criarFetchDoMundo(mundo: Mundo): FetchFalso {
             },
           };
     })
-    .responder('GET /trampos/t1', { corpo: TRAMPO })
+    // D46: só o autor recebe a visão do autor (`versao`).
+    .responder('GET /trampos/t1', (req) => ({
+      corpo: quem(req)?.id === AUTOR.id ? { ...TRAMPO, versao: 1 } : TRAMPO,
+    }))
     .responder('GET /trampos/meus', (req) => ({
       corpo: quem(req)?.id === AUTOR.id ? [TRAMPO] : [],
     }))

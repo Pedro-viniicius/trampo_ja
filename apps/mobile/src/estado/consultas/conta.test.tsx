@@ -192,6 +192,73 @@ describe('useEntrar e useCadastrar: impressão da conta (CA50)', () => {
   );
 });
 
+describe('useEntrar e useCadastrar sem conexão (CA58)', () => {
+  const EMAIL = 'maria.silva@exemplo.com';
+
+  afterEach(async () => {
+    await act(async () => onlineManager.setOnline(true));
+  });
+
+  it.each([
+    ['useEntrar', useEntrar, 'POST /sessoes'],
+    ['useCadastrar', useCadastrar, 'POST /contas'],
+  ] as const)(
+    '%s falha na hora com ErroDeRede, não fica pausada e nada sai quando a rede volta',
+    async (_nome, hook, rota) => {
+      const armazenamento = criarArmazenamentoEmMemoria();
+      const provedores = criarProvedoresBase({
+        queryClient: criarQueryClient(),
+        armazenamento,
+      });
+      // Sem rede, o fetch do aparelho falha; o que importa é a mutação não
+      // esperar a rede voltar.
+      provedores.fetch.responder(rota, { falhaDeRede: true });
+      const { result, unmount } = await renderHook(
+        () => ({ sessao: useSessao(), dados: hook() }),
+        { wrapper: provedores.wrapper },
+      );
+      await waitFor(() => expect(result.current.sessao.status).toBe('anonimo'));
+      await act(async () => onlineManager.setOnline(false));
+
+      let pedido: Promise<unknown> = Promise.resolve();
+      await act(async () => {
+        pedido = result.current.dados
+          .mutateAsync({ email: EMAIL, senha: SENHA })
+          .catch(() => undefined);
+      });
+
+      await waitFor(() =>
+        expect(result.current.dados.error).toBeInstanceOf(ErroDeRede),
+      );
+      expect(chaveDoErro(result.current.dados.error, 'nenhum').geral).toBe(
+        'sem_conexao',
+      );
+      expect(result.current.dados.isPaused).toBe(false);
+      const mutacoes = provedores.queryClient.getMutationCache().getAll();
+      expect(mutacoes.map((m) => m.state.isPaused)).toEqual([false]);
+      // Sem nova tentativa, mesmo com o padrão do cliente pedindo 3.
+      expect(provedores.fetch.requisicoes).toHaveLength(1);
+
+      await act(async () => onlineManager.setOnline(true));
+      await act(async () => {
+        await pedido;
+      });
+
+      expect(provedores.fetch.requisicoes).toHaveLength(1);
+      expect(result.current.sessao.status).toBe('anonimo');
+      expect(armazenamento.atual()).toBeNull();
+
+      // A senha sai da memória quando a tela deixa de observar (`gcTime: 0`).
+      await act(async () => unmount());
+      await waitFor(() =>
+        expect(provedores.queryClient.getMutationCache().getAll()).toHaveLength(
+          0,
+        ),
+      );
+    },
+  );
+});
+
 describe('useSair sem esperar a rede (CA51)', () => {
   it('com o DELETE pendurado, a mutação termina, a saída local já aconteceu e o DELETE levou o token antigo', async () => {
     const base = criarFetchFalso().responder('DELETE /sessoes', {

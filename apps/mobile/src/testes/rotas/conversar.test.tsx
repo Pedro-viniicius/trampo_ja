@@ -166,6 +166,7 @@ function criarFake(): FetchFalso {
 /** Autor do trampo `t1` com três candidaturas (pendente, aceita e recusada). */
 function criarFakeDoAutor(): FetchFalso {
   return criarFake()
+    .responder('GET /trampos/t1', { corpo: { ...TRAMPO, versao: 1 } })
     .responder('GET /trampos/meus', { corpo: [TRAMPO] })
     .responder('GET /candidaturas/minhas', { corpo: [] })
     .responder('GET /trampos/t1/candidaturas', {

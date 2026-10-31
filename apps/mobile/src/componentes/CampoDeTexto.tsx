@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { type ComponentRef, type Ref, useState } from 'react';
 import {
+  type ComponentRef,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import {
+  AccessibilityInfo,
+  Platform,
   Pressable,
   type ReturnKeyTypeOptions,
   Text,
@@ -10,7 +18,12 @@ import {
 } from 'react-native';
 import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { estiloDeFoco, useFoco } from './utilitarios';
+import {
+  contarPontosDeCodigo,
+  cortarEmPontosDeCodigo,
+  estiloDeFoco,
+  useFoco,
+} from './utilitarios';
 
 export type TipoDeTeclado =
   | 'texto'
@@ -36,7 +49,15 @@ export type PropsDoCampoDeTexto = {
   rotuloMostrarSenha?: string;
   rotuloOcultarSenha?: string;
   multiline?: boolean;
+  /** Só para campos ASCII (valor e prazo). Texto livre usa `limite`. */
   maxLength?: number;
+  /**
+   * Limite em pontos de código, como a API. Corta ao digitar ou colar, mostra
+   * "n de limite" e anuncia o limite atingido.
+   */
+  limite?: number;
+  /** `perto` (padrão): a partir de 80% do limite. `sempre` ou `nunca`. */
+  contadorDoLimite?: 'perto' | 'sempre' | 'nunca';
   editable?: boolean;
   onBlur?: () => void;
   onSubmitEditing?: () => void;
@@ -86,6 +107,8 @@ export function CampoDeTexto({
   rotuloOcultarSenha = textos.entrar.ocultarSenha,
   multiline = false,
   maxLength,
+  limite,
+  contadorDoLimite = 'perto',
   editable = true,
   onBlur,
   onSubmitEditing,
@@ -98,6 +121,74 @@ export function CampoDeTexto({
   const botaoFoco = useFoco();
   const [senhaVisivel, setSenhaVisivel] = useState(false);
   const temErro = Boolean(erro);
+  const [cortou, setCortou] = useState(false);
+  const [cortes, setCortes] = useState(0);
+  const total = limite === undefined ? 0 : contarPontosDeCodigo(valor);
+  const faixa =
+    limite === undefined || limite <= 0
+      ? 'nenhuma'
+      : cortou && total >= limite
+        ? 'cortou'
+        : total >= limite
+          ? 'limite'
+          : total >= limite * 0.9
+            ? 'faltam'
+            : total >= limite * 0.8
+              ? 'perto'
+              : 'nenhuma';
+  const textoDoContador =
+    limite === undefined || contadorDoLimite === 'nunca'
+      ? null
+      : faixa === 'cortou'
+        ? textos.gerais.contadorCortado(limite)
+        : faixa === 'limite'
+          ? textos.gerais.contadorLimite(limite)
+          : faixa === 'faltam'
+            ? `${textos.gerais.contador(total, limite)}. ${textos.gerais.contadorFaltam(limite - total)}`
+            : faixa === 'perto' || contadorDoLimite === 'sempre'
+              ? textos.gerais.contador(total, limite)
+              : null;
+  const aoMudar = (texto: string) => {
+    if (limite !== undefined && contarPontosDeCodigo(texto) > limite) {
+      setCortou(true);
+      setCortes((n) => n + 1);
+      onChangeText(cortarEmPontosDeCodigo(texto, limite));
+      return;
+    }
+    setCortou(false);
+    onChangeText(texto);
+  };
+
+  // Anúncio uma vez por mudança de faixa (não por tecla). `n` remonta o
+  // <Text> para repetir o mesmo texto (ex.: colar de novo além do limite).
+  const [anuncio, setAnuncio] = useState<{ texto: string; n: number } | null>(
+    null,
+  );
+  const ultimaFaixa = useRef(faixa);
+  const colagens = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reage só à mudança de faixa e de corte; o resto é lido no momento.
+  useEffect(() => {
+    if (limite === undefined) return;
+    const anterior = ultimaFaixa.current;
+    ultimaFaixa.current = faixa;
+    if (faixa === anterior && faixa !== 'cortou') return;
+    let texto: string | null = null;
+    if (faixa === 'cortou') {
+      texto = textos.gerais.contadorCortado(limite);
+    } else if (faixa === 'limite') {
+      texto = textos.gerais.contadorLimite(limite);
+    } else if (faixa === 'faltam') {
+      texto = textos.gerais.contadorFaltam(limite - total);
+    }
+    if (!texto) {
+      setAnuncio(null);
+      return;
+    }
+    colagens.current += 1;
+    setAnuncio({ texto, n: colagens.current });
+    if (Platform.OS === 'ios')
+      AccessibilityInfo.announceForAccessibility(texto);
+  }, [faixa, valor, limite, cortes]);
 
   return (
     <View style={{ gap: espaco[1] }}>
@@ -132,7 +223,7 @@ export function CampoDeTexto({
           accessibilityLabel={rotulo}
           accessibilityHint={erro ?? ajuda}
           value={valor}
-          onChangeText={onChangeText}
+          onChangeText={aoMudar}
           placeholder={placeholder}
           placeholderTextColor={cores.textoSecundario}
           secureTextEntry={secureTextEntry && !senhaVisivel}
@@ -224,6 +315,49 @@ export function CampoDeTexto({
           </View>
         ) : null}
       </View>
+      {textoDoContador ? (
+        <View
+          accessible
+          accessibilityLabel={textoDoContador}
+          style={{
+            alignSelf: 'flex-end',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: espaco[1],
+          }}
+        >
+          {faixa === 'limite' || faixa === 'cortou' ? (
+            <Ionicons name="information-circle" size={14} color={cores.texto} />
+          ) : null}
+          <Text
+            style={{
+              color:
+                faixa === 'perto' || faixa === 'nenhuma'
+                  ? cores.textoSecundario
+                  : cores.texto,
+              fontSize: tipografia.tamanho.legenda,
+              lineHeight: tipografia.lineHeight.legenda,
+              fontWeight:
+                faixa === 'limite' || faixa === 'cortou'
+                  ? tipografia.peso.semibold
+                  : faixa === 'faltam'
+                    ? tipografia.peso.medio
+                    : tipografia.peso.normal,
+            }}
+          >
+            {textoDoContador}
+          </Text>
+        </View>
+      ) : null}
+      {anuncio ? (
+        <Text
+          key={anuncio.n}
+          accessibilityLiveRegion="polite"
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+        >
+          {anuncio.texto}
+        </Text>
+      ) : null}
       {contador ? (
         <Text
           style={{

@@ -131,12 +131,33 @@ describe('Buscar: texto e filtros (CA7)', () => {
     ]);
   });
 
-  it('o campo de texto limita a 100 caracteres', async () => {
+  // Desde a L4 (CA55, D45) o campo corta no próprio `onChangeText`, em pontos
+  // de código, no lugar do `maxLength` (que o RN conta em unidades UTF-16).
+  it('o campo de texto limita a 100 caracteres: corta ao digitar ou colar, nunca antes', async () => {
     await abrirApp('/buscar');
+    await screen.findByLabelText(textos.buscar.campo);
+    const valor = () => screen.getByLabelText(textos.buscar.campo).props.value;
 
-    const entrada = await screen.findByLabelText(textos.buscar.campo);
+    // Exatamente no limite: nada é cortado e o aviso de corte não aparece.
+    await fireEvent.changeText(campo(), 'a'.repeat(100));
+    expect(valor()).toBe('a'.repeat(100));
+    expect(screen.queryByText(textos.gerais.contadorCortado(100))).toBeNull();
 
-    expect(entrada.props.maxLength).toBe(100);
+    // Colar além do limite corta nos 100.
+    await fireEvent.changeText(campo(), 'a'.repeat(101));
+    expect(valor()).toBe('a'.repeat(100));
+    // O texto aparece no contador e na região que o leitor de tela anuncia.
+    expect(
+      (await screen.findAllByText(textos.gerais.contadorCortado(100))).length,
+    ).toBeGreaterThan(0);
+
+    // Emoji conta 1 (2 unidades UTF-16): 100 emojis cabem, o 101º é cortado.
+    await fireEvent.changeText(campo(), '😀'.repeat(100));
+    expect(valor()).toBe('😀'.repeat(100));
+    await fireEvent.changeText(campo(), '😀'.repeat(101));
+    expect(valor()).toBe('😀'.repeat(100));
+    // O corte é do componente; o `maxLength` do RN (UTF-16) não é usado.
+    expect(campo().props.maxLength).toBeUndefined();
   });
 
   it('combina texto, categoria, cidade e aba de serviços numa busca só, com E', async () => {

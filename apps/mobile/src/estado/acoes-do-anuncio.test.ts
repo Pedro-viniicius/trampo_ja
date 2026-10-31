@@ -11,6 +11,7 @@ import {
   type AnuncioDaFolha,
   type AnuncioParaAcoes,
   acoesDoAnuncio,
+  type OpcoesDasAcoesDoAnuncio,
   useAcoesDoAnuncio,
 } from './acoes-do-anuncio';
 import { criarArmazenamentoEmMemoria } from './armazenamento-token';
@@ -788,6 +789,377 @@ describe('useAcoesDoAnuncio: erros e toque duplo', () => {
     await act(async () => montado.result.current.acoes.fecharToast());
 
     expect(montado.result.current.acoes.toast).toBeNull();
+  });
+});
+
+describe('useAcoesDoAnuncio: folha viva (CA61, R8)', () => {
+  /** O que a rota faz: o trampo do cache de `useTrampo` sobre o aberto. */
+  function doDetalhe(trampo: ReturnType<typeof useTrampo>['trampo']) {
+    return (aberto: AnuncioDaFolha): AnuncioDaFolha | null =>
+      trampo === null || aberto.tipo !== 'trampo'
+        ? null
+        : {
+            ...aberto,
+            titulo: trampo.titulo,
+            status: trampo.status,
+            ...(trampo.candidaturasRecebidas !== undefined && {
+              candidaturasRecebidas: trampo.candidaturasRecebidas,
+            }),
+          };
+  }
+
+  function trampoDaApi(
+    status: 'aberto' | 'em_andamento',
+    titulo = TRAMPO.titulo,
+  ) {
+    return {
+      id: 't1',
+      autorId: 'conta-eu',
+      titulo,
+      descricao: 'Descrição',
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 10_000,
+      prazo: null,
+      status,
+      criadoEm: '2026-10-21T10:00:00.000Z',
+      versao: 1,
+      candidaturasRecebidas: status === 'aberto' ? 0 : 1,
+    };
+  }
+
+  async function montarComDetalhe(
+    provedores: ReturnType<typeof montarHook>['provedores'],
+    aoEditar = jest.fn(),
+    extras: Pick<OpcoesDasAcoesDoAnuncio, 'aoExcluir' | 'consultaDoAtual'> = {},
+  ) {
+    const resultado = await renderHook(
+      () => {
+        const { trampo } = useTrampo('t1');
+        return {
+          sessao: useSessao(),
+          trampo,
+          meus: useMeusTrampos(),
+          acoes: useAcoesDoAnuncio({
+            aoEditar,
+            anuncioAtual: doDetalhe(trampo),
+            ...extras,
+          }),
+        };
+      },
+      { wrapper: provedores.wrapper },
+    );
+    await waitFor(() => expect(resultado.result.current.trampo).not.toBeNull());
+    return resultado;
+  }
+
+  it('depois do 409 trampo_nao_aberto, a folha aberta mostra Excluir indisponível com o motivo, sem fechar e reabrir', async () => {
+    const { provedores } = montarHook();
+    provedores.fetch
+      .responder('GET /trampos/t1', [
+        { corpo: trampoDaApi('aberto') },
+        { corpo: trampoDaApi('em_andamento') },
+      ])
+      .responder('DELETE /trampos/t1', {
+        status: 409,
+        corpo: { erro: 'trampo_nao_aberto' },
+      });
+    const montado = await montarComDetalhe(provedores);
+    await act(async () => {
+      montado.result.current.acoes.abrir(TRAMPO);
+    });
+    expect(montado.result.current.acoes.folha?.excluir).toEqual(OK);
+
+    await act(async () => montado.result.current.acoes.folha?.onExcluir());
+
+    await waitFor(() =>
+      expect(montado.result.current.acoes.folha?.excluir).toEqual(
+        nao(t.motivoExcluirNaoAberto),
+      ),
+    );
+    const folha = montado.result.current.acoes.folha;
+    expect(folha?.visivel).toBe(true);
+    expect(folha?.editar).toEqual(nao(t.motivoEditarEmAndamento));
+    expect(folha?.efeitoDoEncerrar).toBe(t.encerrarTextoEmAndamento);
+    expect(contar(provedores, 'GET', '/trampos/t1')).toBe(2);
+
+    // E o toque em Excluir não faz outro DELETE.
+    await act(async () => montado.result.current.acoes.folha?.onExcluir());
+    expect(contar(provedores, 'DELETE', '/trampos/t1')).toBe(1);
+  });
+
+  it('a troca do anúncio no cache chega à folha aberta, e as ações usam o anúncio atual', async () => {
+    const { provedores } = montarHook();
+    provedores.fetch.responder('GET /trampos/t1', {
+      corpo: trampoDaApi('em_andamento'),
+    });
+    const aoEditar = jest.fn();
+    const montado = await montarComDetalhe(provedores, aoEditar);
+    await act(async () => {
+      montado.result.current.acoes.abrir(TRAMPO_ANDAMENTO);
+    });
+    expect(montado.result.current.acoes.folha?.editar).toEqual(
+      nao(t.motivoEditarEmAndamento),
+    );
+
+    await act(async () => {
+      provedores.queryClient.setQueryData(
+        chaves.trampo('t1'),
+        trampoDaApi('aberto', 'Pintar a sala e a cozinha'),
+      );
+    });
+
+    await waitFor(() =>
+      expect(montado.result.current.acoes.folha?.editar).toEqual(OK),
+    );
+    expect(montado.result.current.acoes.folha?.titulo).toBe(
+      'Pintar a sala e a cozinha',
+    );
+    await act(async () => montado.result.current.acoes.folha?.onEditar());
+    expect(aoEditar).toHaveBeenCalledWith({
+      ...TRAMPO,
+      titulo: 'Pintar a sala e a cozinha',
+    });
+  });
+
+  it('anuncioAtual que devolve null ou outro anúncio é ignorado: vale o do abrir', async () => {
+    const { provedores } = montarHook();
+    let resposta: AnuncioDaFolha | null = null;
+    const { result, rerender } = await renderHook(
+      () => ({
+        sessao: useSessao(),
+        acoes: useAcoesDoAnuncio({
+          aoEditar: jest.fn(),
+          anuncioAtual: () => resposta,
+        }),
+      }),
+      { wrapper: provedores.wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.sessao.status).toBe('autenticado'),
+    );
+    await act(async () => {
+      result.current.acoes.abrir(TRAMPO);
+    });
+    expect(result.current.acoes.folha?.excluir).toEqual(OK);
+
+    for (const outro of [
+      { ...TRAMPO_ANDAMENTO, id: 't2' },
+      { ...SERVICO, id: 't1' },
+    ]) {
+      resposta = outro;
+      await rerender({});
+      expect(result.current.acoes.folha?.excluir).toEqual(OK);
+      expect(result.current.acoes.folha?.tipo).toBe('trampo');
+    }
+
+    // Controle: a mesma resposta, com o id e o tipo do aberto, vale.
+    resposta = TRAMPO_ANDAMENTO;
+    await rerender({});
+    expect(result.current.acoes.folha?.excluir).toEqual(
+      nao(t.motivoExcluirNaoAberto),
+    );
+  });
+
+  describe('conflito: o desfecho da releitura depois do 409 (CA61, Q3, R2)', () => {
+    const CONFLITO_409: RespostaFalsa = {
+      status: 409,
+      corpo: { erro: 'trampo_nao_aberto' },
+    };
+
+    async function excluirComConflito(montado: {
+      result: { current: { acoes: { folha?: { onExcluir: () => void } } } };
+    }) {
+      await act(async () => montado.result.current.acoes.folha?.onExcluir());
+    }
+
+    it('relendo enquanto o detalhe é relido; relido quando ele volta, com as ações do dado novo', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          { corpo: trampoDaApi('em_andamento'), demoraMs: 50 },
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const montado = await montarComDetalhe(provedores);
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+      expect(montado.result.current.acoes.conflito).toBeNull();
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('relendo'),
+      );
+      expect(montado.result.current.acoes.folha?.erro).toBe(
+        t.motivoExcluirNaoAberto,
+      );
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('relido'),
+      );
+      // Quando o sinal chega, as ações já seguem o dado relido.
+      expect(montado.result.current.acoes.folha?.excluir).toEqual(
+        nao(t.motivoExcluirNaoAberto),
+      );
+      expect(montado.result.current.acoes.folha?.visivel).toBe(true);
+    });
+
+    it('a releitura falha (500): falhou, com o texto do 409 e a folha aberta', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          { status: 500, corpo: { erro: 'erro_interno' } },
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const aoExcluir = jest.fn();
+      const montado = await montarComDetalhe(provedores, jest.fn(), {
+        aoExcluir,
+      });
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('falhou'),
+      );
+      const folha = montado.result.current.acoes.folha;
+      expect(folha?.erro).toBe(t.motivoExcluirNaoAberto);
+      expect(folha?.visivel).toBe(true);
+      expect(montado.result.current.acoes.toast).toBeNull();
+      expect(aoExcluir).not.toHaveBeenCalled();
+    });
+
+    it('a releitura dá 404: o anúncio sumiu, a folha fecha com "já não existe" e a rota é avisada', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          ERRO_404,
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const aoExcluir = jest.fn();
+      const montado = await montarComDetalhe(provedores, jest.fn(), {
+        aoExcluir,
+      });
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.toast).toBe(t.jaNaoExiste),
+      );
+      expect(montado.result.current.acoes.folha?.visivel).toBe(false);
+      expect(montado.result.current.acoes.folha?.erro).toBeUndefined();
+      expect(montado.result.current.acoes.conflito).toBeNull();
+      expect(aoExcluir).toHaveBeenCalledTimes(1);
+      expect(aoExcluir).toHaveBeenCalledWith(TRAMPO, 'ja_removido');
+      expect(contar(provedores, 'DELETE', '/trampos/t1')).toBe(1);
+    });
+
+    it('o desfecho é o da consultaDoAtual: a lista falha e o detalhe volta, então falhou', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', [
+          { corpo: [] },
+          { status: 500, corpo: { erro: 'erro_interno' } },
+        ])
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          { corpo: trampoDaApi('em_andamento') },
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const montado = await montarComDetalhe(provedores, jest.fn(), {
+        consultaDoAtual: chaves.meusTrampos(),
+      });
+      await waitFor(() =>
+        expect(montado.result.current.meus.trampos).not.toBeNull(),
+      );
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('falhou'),
+      );
+      expect(contar(provedores, 'GET', '/trampos/t1')).toBe(2);
+    });
+
+    it('sem resposta nova da consultaDoAtual (fora do cache), falhou: não dá para dizer que atualizou', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          { corpo: trampoDaApi('em_andamento') },
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const montado = await montarComDetalhe(provedores, jest.fn(), {
+        consultaDoAtual: ['consulta-sem-tela'],
+      });
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('falhou'),
+      );
+      expect(contar(provedores, 'GET', '/trampos/t1')).toBe(2);
+    });
+
+    it('abrir de novo enquanto relê descarta o desfecho antigo', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', [
+          { corpo: trampoDaApi('aberto') },
+          { ...ERRO_404, demoraMs: 50 },
+        ])
+        .responder('DELETE /trampos/t1', CONFLITO_409);
+      const aoExcluir = jest.fn();
+      const montado = await montarComDetalhe(provedores, jest.fn(), {
+        aoExcluir,
+      });
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+      await excluirComConflito(montado);
+      await waitFor(() =>
+        expect(montado.result.current.acoes.conflito).toBe('relendo'),
+      );
+
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+      expect(montado.result.current.acoes.conflito).toBeNull();
+      await waitFor(() =>
+        expect(contar(provedores, 'GET', '/trampos/t1')).toBe(2),
+      );
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 100));
+      });
+
+      expect(montado.result.current.acoes.conflito).toBeNull();
+      expect(montado.result.current.acoes.toast).toBeNull();
+      expect(montado.result.current.acoes.folha?.visivel).toBe(true);
+      expect(aoExcluir).not.toHaveBeenCalled();
+    });
+
+    it('outro erro (500 no DELETE) não é conflito, mesmo com a folha aberta', async () => {
+      const { provedores } = montarHook();
+      provedores.fetch
+        .responder('GET /trampos/meus', { corpo: [] })
+        .responder('GET /trampos/t1', { corpo: trampoDaApi('aberto') })
+        .responder('DELETE /trampos/t1', { status: 500 });
+      const montado = await montarComDetalhe(provedores);
+      await act(async () => montado.result.current.acoes.abrir(TRAMPO));
+
+      await excluirComConflito(montado);
+
+      await waitFor(() =>
+        expect(montado.result.current.acoes.folha?.erro).toBe(t.erroAoExcluir),
+      );
+      expect(montado.result.current.acoes.conflito).toBeNull();
+      expect(contar(provedores, 'GET', '/trampos/t1')).toBe(1);
+    });
   });
 });
 

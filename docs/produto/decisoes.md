@@ -89,3 +89,20 @@ Aprovado pelo dono o plano `docs/produto/planos/pre-lancamento-l3.md` (ADR-007: 
 42. **Tempos fixos:** espera máxima de 10 s na fila do scrypt e na da exportação, com 503 `servico_ocupado` e `retry-after` de 10 s. No banco, `statement_timeout` de 10 s, conexão em 5 s e transação ociosa em 30 s.
 43. **Retorno depois de "sessão expirada"** só vale para a mesma conta, comparada por uma impressão do e-mail guardada no secure-store junto com o token.
 44. **Banco fora da máquina** só com `sslmode=verify-full`. O `semear` só roda em banco local, a não ser com `--permitir-banco-remoto`.
+
+Riscos da L3 aceitos pelo dono em 2026-10-26:
+- reverter a `0008` apaga os contadores de tentativas, que vencem em 1 h;
+- toda tentativa de login de uma conta existente conta para o teto de 100/h, inclusive a com senha certa;
+- depois de 100 tentativas, o 429 de uma conta existente, contra o 401 de uma inexistente, revela que a conta existe. É o mesmo que o 409 `email_em_uso` do cadastro já revela.
+
+## 2026-10-26 — Pré-lançamento L4 (qualidade)
+
+Aprovados pelo dono o plano `docs/produto/planos/pre-lancamento-l4.md` (ADR-008) e a spec `docs/produto/specs/pre-lancamento-l4.md`, com as recomendações.
+
+45. **Limite dos campos de texto** contado em pontos de código, como na API. Ao passar do limite, o texto é cortado e o leitor de tela anuncia.
+46. **Autor do trampo** reconhecido pelo detalhe (visão do autor no `GET /trampos/:id`), não mais pela lista "meus". Revê a D19 só para o trampo.
+47. **"Meus anúncios" paginado:** 20 por página, até 50, dos mais recentes para os mais antigos, com cursor `(criadoEm, id)`.
+48. **Ordem das mensagens (R2)** corrigida no app: a cada ciclo, ele relê os últimos 60 s. A API não muda.
+49. **Retirar candidatura** trava o trampo, como encerrar e excluir, e nunca responde `conflito_de_versao`.
+50. **Exclusão de conta grande** (condicional): se a medida passar de 5 s, a transação da exclusão ganha `statement_timeout` próprio de 60 s, como exceção à D42.
+51. **Faixa sem conexão:** uma só, na raiz, com o texto "Sem conexão. Ações que precisam de internet ficam indisponíveis."

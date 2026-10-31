@@ -233,19 +233,18 @@ describe('texto do anúncio (CA4, CA5)', () => {
     });
   });
 
-  it('título com 80 emojis (80 pontos de código) vale; com 81 não envia', async () => {
+  // Desde a L4 (CA55, D45) o campo corta no limite, em pontos de código: o
+  // 81º não chega a entrar. A regra de domínio (recusar acima do limite) segue
+  // provada em `estado/validacao.test.ts`.
+  it('título com 80 emojis (80 pontos de código) vale; o 81º é cortado no campo', async () => {
     const fetch = fakeQuePublica();
     await abrirApp('/trampos/novo', { fetch });
     await preencherTrampo({ titulo: '🔨'.repeat(81) });
-    await fireEvent.press(botaoPublicar());
-    expect(
-      await screen.findByText(textos.erros.titulo_tamanho),
-    ).toBeOnTheScreen();
-    expect(posts(fetch, '/trampos')).toHaveLength(0);
-
-    await digitar(t.titulo, '🔨'.repeat(80));
+    expect(screen.getByLabelText(t.titulo).props.value).toBe('🔨'.repeat(80));
     await fireEvent.press(botaoPublicar());
     await screen.findByText(t.publicadoTrampo);
+    expect(screen.queryByText(textos.erros.titulo_tamanho)).toBeNull();
+    expect(posts(fetch, '/trampos')).toHaveLength(1);
     expect(corpoDoPost(fetch).titulo).toBe('🔨'.repeat(80));
   });
 
@@ -267,19 +266,20 @@ describe('texto do anúncio (CA4, CA5)', () => {
     expect(posts(fetch, '/trampos')).toHaveLength(0);
   });
 
-  it('descrição de 2001 caracteres não envia; de 2000 envia', async () => {
+  it('descrição de 2001 caracteres é cortada em 2000 no campo e é o que se envia', async () => {
     const fetch = fakeQuePublica();
     await abrirApp('/trampos/novo', { fetch });
     await preencherTrampo({ descricao: 'a'.repeat(2001) });
-    await fireEvent.press(botaoPublicar());
-    expect(
-      await screen.findByText(textos.erros.descricao_anuncio_tamanho),
-    ).toBeOnTheScreen();
-    expect(posts(fetch, '/trampos')).toHaveLength(0);
-
-    await digitar(t.descricao, 'a'.repeat(2000));
+    expect(screen.getByLabelText(t.descricao).props.value).toBe(
+      'a'.repeat(2000),
+    );
     await fireEvent.press(botaoPublicar());
     await screen.findByText(t.publicadoTrampo);
+    expect(
+      screen.queryByText(textos.erros.descricao_anuncio_tamanho),
+    ).toBeNull();
+    expect(posts(fetch, '/trampos')).toHaveLength(1);
+    expect(corpoDoPost(fetch).descricao).toBe('a'.repeat(2000));
   });
 
   it('caractere nulo na descrição é recusado localmente', async () => {
@@ -680,7 +680,8 @@ describe('jornada: publicar e ver o trampo em todo lugar (CA4)', () => {
           proximoCursor: null,
         },
       }))
-      .responder('GET /trampos/t-novo', { corpo: NOVO })
+      // D46: o autor recebe a visão do autor (`versao`) no detalhe.
+      .responder('GET /trampos/t-novo', { corpo: { ...NOVO, versao: 1 } })
       .responder('GET /trampos/t-novo/candidaturas', { corpo: [] })
       .responder('GET /perfis/c-eu', {
         corpo: { contaId: 'c-eu', ...PERFIL_COMPLETO },

@@ -119,7 +119,11 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     expect(pedidosA(fetch, 'POST', '/contas')).toHaveLength(0);
   });
 
-  it('senha de 128 pontos de código é enviada; 129 é recusada sem requisição', async () => {
+  // Desde a L4 (CA55, D45) o campo de senha corta em 128 pontos de código,
+  // sem contador (`contadorDoLimite="nunca"`): a 129ª entrada não chega ao
+  // estado, e o que vai à API são 128. A regra de domínio (recusar acima de
+  // 128) segue provada em `estado/validacao.test.ts`.
+  it('senha de 128 pontos de código é enviada; a 129ª é cortada no campo, sem contador, e vão 128', async () => {
     const fetch = fakeComCategorias().responder('POST /contas', {
       status: 409,
       corpo: { erro: 'email_em_uso' },
@@ -128,16 +132,38 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await screen.findByText(textos.cadastro.privacidade);
 
     await preencher(EMAIL, 'ç'.repeat(129));
-    await fireEvent.press(botaoCriarConta());
-    expect(await screen.findByText(textos.erros.senha_curta)).toBeOnTheScreen();
-    expect(pedidosA(fetch, 'POST', '/contas')).toHaveLength(0);
-
-    await preencher(EMAIL, 'ç'.repeat(128));
+    expect(screen.getByLabelText(textos.entrar.senha).props.value).toBe(
+      'ç'.repeat(128),
+    );
+    // Sem contador visível no campo de senha; só a região invisível que o
+    // leitor de tela anuncia diz que o texto foi cortado.
+    expect(screen.queryByText(textos.gerais.contador(128, 128))).toBeNull();
+    expect(screen.queryByText(textos.gerais.contadorLimite(128))).toBeNull();
     await fireEvent.press(botaoCriarConta());
     expect(
       await screen.findByText(textos.erros.email_em_uso),
     ).toBeOnTheScreen();
-    expect(pedidosA(fetch, 'POST', '/contas')).toHaveLength(1);
+    expect(screen.queryByText(textos.erros.senha_curta)).toBeNull();
+    const envios = pedidosA(fetch, 'POST', '/contas');
+    expect(envios).toHaveLength(1);
+    expect(envios[0]?.corpo).toMatchObject({ senha: 'ç'.repeat(128) });
+  });
+
+  it('senha de exatamente 128 pontos de código vai inteira', async () => {
+    const fetch = fakeComCategorias().responder('POST /contas', {
+      status: 409,
+      corpo: { erro: 'email_em_uso' },
+    });
+    await abrirApp('/cadastro', { fetch, token: null });
+    await screen.findByText(textos.cadastro.privacidade);
+
+    await preencher(EMAIL, 'ç'.repeat(128));
+    await fireEvent.press(botaoCriarConta());
+
+    await screen.findByText(textos.erros.email_em_uso);
+    expect(pedidosA(fetch, 'POST', '/contas')[0]?.corpo).toMatchObject({
+      senha: 'ç'.repeat(128),
+    });
   });
 
   it('senha só de espaços com 8 caracteres não é aparada: vai como digitada', async () => {

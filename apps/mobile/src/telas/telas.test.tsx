@@ -338,6 +338,22 @@ describe('Inicio', () => {
     expect(screen.getByText('Aulas de violão')).toBeOnTheScreen();
   });
 
+  it('toast de retorno aparece e fecha pelo botão', async () => {
+    const onFecharToast = jest.fn();
+    await render(
+      <Inicio
+        {...base}
+        toast="Trampo excluído."
+        onFecharToast={onFecharToast}
+      />,
+    );
+    expect(screen.getByText('Trampo excluído.')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.toastFechar }),
+    );
+    expect(onFecharToast).toHaveBeenCalledTimes(1);
+  });
+
   it('atalhos da 2b só aparecem com callback', async () => {
     await render(<Inicio {...base} />);
     expect(
@@ -475,9 +491,35 @@ describe('Buscar', () => {
     expect(onTentarDeNovo).toHaveBeenCalledTimes(1);
   });
 
-  it('offline: mostra a faixa', async () => {
+  it('toast de retorno aparece e fecha pelo botão', async () => {
+    const onFecharToast = jest.fn();
+    await render(
+      <Buscar
+        {...base}
+        toast="Este anúncio já não existe."
+        onFecharToast={onFecharToast}
+      />,
+    );
+    expect(screen.getByText('Este anúncio já não existe.')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.toastFechar }),
+    );
+    expect(onFecharToast).toHaveBeenCalledTimes(1);
+  });
+
+  it('corta o texto da busca em 100 pontos de código', async () => {
+    const onMudarTexto = jest.fn();
+    await render(<Buscar {...base} onMudarTexto={onMudarTexto} />);
+    await fireEvent.changeText(
+      screen.getByLabelText(textos.buscar.campo),
+      '😀'.repeat(101),
+    );
+    expect(onMudarTexto).toHaveBeenLastCalledWith('😀'.repeat(100));
+  });
+
+  it('offline: não desenha a faixa (é da raiz, CA56)', async () => {
     await render(<Buscar {...base} semConexao />);
-    expect(screen.getByText(textos.gerais.semConexaoFaixa)).toBeOnTheScreen();
+    expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
   });
 });
 
@@ -869,6 +911,63 @@ describe('EditarPerfil', () => {
     expect(
       screen.queryByRole('button', { name: textos.editarPerfil.agoraNao }),
     ).not.toBeOnTheScreen();
+  });
+
+  it('carregando: mostra o esqueleto, sem campos nem "Salvar"', async () => {
+    await render(
+      <EditarPerfil
+        {...base}
+        carregamento={{ situacao: 'carregando', onTentarDeNovo: noop }}
+      />,
+    );
+    expect(
+      screen.getByLabelText(textos.editarPerfil.carregando),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(textos.editarPerfil.nome)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: textos.editarPerfil.salvar }),
+    ).toBeNull();
+  });
+
+  it('erro: aviso com "Tentar de novo"; sem rede, o texto de conexão', async () => {
+    const onTentarDeNovo = jest.fn();
+    const { rerender } = await render(
+      <EditarPerfil
+        {...base}
+        carregamento={{ situacao: 'erro', onTentarDeNovo }}
+      />,
+    );
+    expect(
+      screen.getByText(textos.editarPerfil.erroAoCarregar),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(textos.editarPerfil.nome)).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.tentarDeNovo }),
+    );
+    expect(onTentarDeNovo).toHaveBeenCalledTimes(1);
+    await rerender(
+      <EditarPerfil
+        {...base}
+        semConexao
+        carregamento={{ situacao: 'erro', onTentarDeNovo }}
+      />,
+    );
+    expect(
+      screen.getByText(textos.editarPerfil.semConexaoParaCarregar),
+    ).toBeOnTheScreen();
+  });
+
+  it('pronta: mostra o formulário', async () => {
+    await render(
+      <EditarPerfil
+        {...base}
+        carregamento={{ situacao: 'pronta', onTentarDeNovo: noop }}
+      />,
+    );
+    expect(screen.getByLabelText(textos.editarPerfil.nome)).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: textos.editarPerfil.salvar }),
+    ).toBeOnTheScreen();
   });
 
   it('sucesso mostra o toast com botão de fechar', async () => {

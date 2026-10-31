@@ -39,6 +39,9 @@ const proposta = {
   valorPropostoCentavos: 45000,
 };
 
+/** Página que cabe todos os trampos de um autor nestes testes. */
+const PAGINA_CHEIA = { limite: 50 } as const;
+
 let app: FastifyInstance;
 let repositorio: RepositorioDeTramposEmMemoria;
 let sessoesConsultadas: string[];
@@ -205,8 +208,10 @@ describe('POST /trampos (CA4, CA5, D9)', () => {
       expect(resposta.status, Object.keys(extra)[0]).toBe(400);
       expect(resposta.corpo.erro).toBe('dados_invalidos');
     }
-    expect(await repositorio.listarDoAutor(EMPREGADOR)).toEqual([]);
-    expect(await repositorio.listarDoAutor(ANA)).toEqual([]);
+    expect(await repositorio.listarDoAutor(EMPREGADOR, PAGINA_CHEIA)).toEqual(
+      [],
+    );
+    expect(await repositorio.listarDoAutor(ANA, PAGINA_CHEIA)).toEqual([]);
   });
 
   it('CA8 — Dado campos extras no corpo da candidatura, quando candidata, então recebe 400 dados_invalidos e nada é gravado', async () => {
@@ -382,6 +387,224 @@ describe('GET /trampos/meus e /trampos/:id', () => {
       status: 404,
       corpo: { erro: 'nao_encontrado' },
     });
+  });
+});
+
+describe('CA66 — GET /trampos/meus paginado (D47)', () => {
+  type TrampoDaLista = { id: string; autorId: string; criadoEm: string };
+
+  async function publicarVarios(quantos: number, token = 'token-empregador') {
+    const ids: string[] = [];
+    for (let i = 0; i < quantos; i += 1) {
+      ids.push(await publicar(token));
+    }
+    return ids;
+  }
+
+  function query(campos: Record<string, string>): string {
+    return new URLSearchParams(campos).toString();
+  }
+
+  async function meus(token: string, campos: Record<string, string> = {}) {
+    const busca = query(campos);
+    return pedir('GET', `/trampos/meus${busca ? `?${busca}` : ''}`, token);
+  }
+
+  it('CA66 — Dado 25 trampos, quando o autor lista sem parâmetros e segue o cursor do último, então recebe 20 e depois 5, sem repetir, na visão do autor', async () => {
+    const ids = await publicarVarios(25);
+
+    const primeira = await meus('token-empregador');
+    expect(primeira.status).toBe(200);
+    expect(primeira.corpo).toHaveLength(20);
+    const ultimo = primeira.corpo.at(-1) as TrampoDaLista;
+    const segunda = await meus('token-empregador', {
+      antesDeCriadoEm: ultimo.criadoEm,
+      antesDeId: ultimo.id,
+    });
+
+    expect(segunda.status).toBe(200);
+    expect(segunda.corpo).toHaveLength(5);
+    const vistos = [...primeira.corpo, ...segunda.corpo].map(
+      (t: TrampoDaLista) => t.id,
+    );
+    expect(new Set(vistos).size).toBe(25);
+    expect([...vistos].sort()).toEqual([...ids].sort());
+    expect(vistos).toEqual([...vistos].sort().reverse());
+    for (const trampo of [...primeira.corpo, ...segunda.corpo]) {
+      expect(trampo).toMatchObject({ versao: 1, candidaturasRecebidas: 0 });
+    }
+  });
+
+  it('CA66 — Dado limite 1 ou 50, quando lista, então recebe no máximo esse número', async () => {
+    await publicarVarios(51);
+
+    expect(
+      (await meus('token-empregador', { limite: '1' })).corpo,
+    ).toHaveLength(1);
+    expect(
+      (await meus('token-empregador', { limite: '50' })).corpo,
+    ).toHaveLength(50);
+  });
+
+  it('CA66 — Dado limite 0, 51 ou fora de inteiro, quando lista, então recebe 400 dados_invalidos no limite', async () => {
+    await publicar();
+
+    for (const limite of [
+      '0',
+      '51',
+      '1000',
+      '-1',
+      '1.5',
+      'abc',
+      '',
+      '1e1',
+      '0x10',
+      '10.0',
+      ' 5',
+    ]) {
+      expect(await meus('token-empregador', { limite }), limite).toEqual({
+        status: 400,
+        corpo: {
+          erro: 'dados_invalidos',
+          campos: [{ campo: 'limite', motivo: 'invalido' }],
+        },
+      });
+    }
+  });
+
+  it('CA66 — Dado o cursor pela metade, quando lista, então recebe 400 com o campo que falta', async () => {
+    const [id] = await publicarVarios(1);
+
+    expect(
+      await meus('token-empregador', {
+        antesDeCriadoEm: '2026-10-20T12:00:00.000Z',
+      }),
+    ).toEqual({
+      status: 400,
+      corpo: {
+        erro: 'dados_invalidos',
+        campos: [{ campo: 'antesDeId', motivo: 'obrigatorio' }],
+      },
+    });
+    expect(await meus('token-empregador', { antesDeId: id as string })).toEqual(
+      {
+        status: 400,
+        corpo: {
+          erro: 'dados_invalidos',
+          campos: [{ campo: 'antesDeCriadoEm', motivo: 'obrigatorio' }],
+        },
+      },
+    );
+  });
+
+  it('CA66 — Dado o cursor fora do formato, quando lista, então recebe 400 sem ecoar o valor', async () => {
+    const [id] = await publicarVarios(1);
+
+    const resposta = await app.inject({
+      method: 'GET',
+      url: `/trampos/meus?${query({
+        antesDeCriadoEm: '2026-10-20T09:00:00-03:00',
+        antesDeId: 'id-qualquer-fulano',
+      })}`,
+      headers: { authorization: 'Bearer token-empregador' },
+    });
+    expect(resposta.statusCode).toBe(400);
+    expect(resposta.json()).toEqual({
+      erro: 'dados_invalidos',
+      campos: [
+        { campo: 'antesDeCriadoEm', motivo: 'invalido' },
+        { campo: 'antesDeId', motivo: 'invalido' },
+      ],
+    });
+    expect(resposta.body).not.toContain('fulano');
+    expect(resposta.body).not.toContain('-03:00');
+    expect(
+      await meus('token-empregador', {
+        antesDeCriadoEm: 'ontem',
+        antesDeId: id as string,
+      }),
+    ).toMatchObject({ status: 400 });
+  });
+
+  it('CA66 — Dado uma chave extra ou repetida na querystring, quando lista, então recebe 400 dados_invalidos', async () => {
+    await publicar();
+
+    for (const busca of [
+      `autorId=${ANA}`,
+      'status=aberto',
+      'antesDe=abc',
+      'limite=10&pagina=2',
+      'limite=1&limite=2',
+    ]) {
+      const resposta = await pedir(
+        'GET',
+        `/trampos/meus?${busca}`,
+        'token-empregador',
+      );
+      expect(resposta.status, busca).toBe(400);
+      expect(resposta.corpo.erro, busca).toBe('dados_invalidos');
+    }
+  });
+
+  it('CA66 — Dado uma querystring inválida sem sessão, quando lista, então recebe 401 antes do 400', async () => {
+    expect(await meus('token-desconhecido', { limite: '0' })).toEqual({
+      status: 401,
+      corpo: { erro: 'nao_autenticado' },
+    });
+  });
+
+  it('CA66 — Dado o cursor de um trampo de outra conta, quando um terceiro pagina, então nunca vê trampo de outro', async () => {
+    const doEmpregador = await publicarVarios(22);
+    const daAna = await publicarVarios(3, 'token-ana');
+    const deTodos = [...doEmpregador, ...daAna].sort().reverse();
+
+    for (const cursorId of deTodos) {
+      const resposta = await meus('token-ana', {
+        antesDeCriadoEm: '2026-10-20T12:00:00.000Z',
+        antesDeId: cursorId,
+        limite: '50',
+      });
+      expect(resposta.status).toBe(200);
+      for (const trampo of resposta.corpo as TrampoDaLista[]) {
+        expect(trampo.autorId).toBe(ANA);
+        expect(daAna).toContain(trampo.id);
+        expect(trampo.id < cursorId).toBe(true);
+      }
+    }
+    const daPrimeiraPagina = (await meus('token-ana')).corpo as TrampoDaLista[];
+    expect(daPrimeiraPagina.map((t) => t.id).sort()).toEqual([...daAna].sort());
+  });
+
+  it('CA66 e D46 — Dado um trampo fora da primeira página, quando o autor abre o detalhe, então recebe a visão do autor; o terceiro, não', async () => {
+    await publicarVarios(21);
+    const primeira = (await meus('token-empregador')).corpo as TrampoDaLista[];
+    const ultimo = primeira.at(-1) as TrampoDaLista;
+    const [foraDaPrimeira] = (
+      await meus('token-empregador', {
+        antesDeCriadoEm: ultimo.criadoEm,
+        antesDeId: ultimo.id,
+      })
+    ).corpo as TrampoDaLista[];
+    if (foraDaPrimeira === undefined) {
+      throw new Error('esperava um trampo na segunda página');
+    }
+    expect(primeira.map((t) => t.id)).not.toContain(foraDaPrimeira.id);
+
+    const doAutor = await pedir(
+      'GET',
+      `/trampos/${foraDaPrimeira.id}`,
+      'token-empregador',
+    );
+    expect(doAutor.corpo).toMatchObject({
+      versao: 1,
+      candidaturasRecebidas: 0,
+    });
+    const doTerceiro = await pedir(
+      'GET',
+      `/trampos/${foraDaPrimeira.id}`,
+      'token-ana',
+    );
+    expect(Object.keys(doTerceiro.corpo).sort()).toEqual(CHAVES_DE_TERCEIRO);
   });
 });
 

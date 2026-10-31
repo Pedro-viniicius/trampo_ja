@@ -1,8 +1,10 @@
 import {
+  type InfiniteData,
   type QueryClient,
   type QueryKey,
   type UseMutationResult,
   type UseQueryResult,
+  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
@@ -28,6 +30,7 @@ import type {
   Trampo,
 } from '../../api/tipos';
 import {
+  type CursorDeMeusTrampos,
   editarTrampo,
   encerrarTrampo,
   excluirTrampo,
@@ -69,23 +72,109 @@ export function useServico(id: string) {
   };
 }
 
+/** Tamanho da página de Meus anúncios (D47; o padrão da API é o mesmo). */
+export const LIMITE_DE_MEUS_TRAMPOS = 20;
+
 /**
- * `GET /trampos/meus`, só com a sessão autenticada. `trampos` é `null`
- * enquanto não há resposta (inclusive offline, com a consulta pausada).
+ * Uma página de Meus trampos: até `LIMITE_DE_MEUS_TRAMPOS` trampos e se a API
+ * tem mais depois deles.
+ */
+interface PaginaLidaDeMeusTrampos {
+  readonly trampos: readonly Trampo[];
+  readonly temMais: boolean;
+}
+
+/**
+ * Pede um trampo a mais que a página (`limite + 1`, a API aceita até 50) e o
+ * descarta: ele só diz se há outra página. Assim, com exatamente
+ * `LIMITE_DE_MEUS_TRAMPOS`, não aparece "Carregar mais" que traria uma página
+ * vazia.
+ */
+async function lerPaginaDeMeusTrampos(
+  cliente: ClienteHttp,
+  antesDe: CursorDeMeusTrampos | undefined,
+): Promise<PaginaLidaDeMeusTrampos> {
+  const lidos = await listarMeusTrampos(cliente, {
+    limite: LIMITE_DE_MEUS_TRAMPOS + 1,
+    ...(antesDe !== undefined && { antesDe }),
+  });
+  return {
+    trampos: lidos.slice(0, LIMITE_DE_MEUS_TRAMPOS),
+    temMais: lidos.length > LIMITE_DE_MEUS_TRAMPOS,
+  };
+}
+
+/**
+ * Cursor da página seguinte: o último trampo mostrado de uma página que tem
+ * mais depois dela; `undefined` na última.
+ */
+function cursorDaProximaPagina(
+  pagina: PaginaLidaDeMeusTrampos,
+): CursorDeMeusTrampos | undefined {
+  const ultimo = pagina.trampos.at(-1);
+  if (!pagina.temMais || ultimo === undefined) {
+    return undefined;
+  }
+  return { criadoEm: ultimo.criadoEm, id: ultimo.id };
+}
+
+/**
+ * `GET /trampos/meus` paginada (D47), só com a sessão autenticada. `trampos`
+ * junta as páginas carregadas, dos mais recentes para os mais antigos, e é
+ * `null` enquanto não há resposta (inclusive offline, com a consulta
+ * pausada). A invalidação de `chaves.meusTrampos()` recarrega todas as
+ * páginas já carregadas, cada uma com o cursor da anterior recém-lida.
  */
 export function useMeusTrampos() {
   const cliente = useCliente();
   const { status } = useSessao();
-  const consulta = useQuery<readonly Trampo[], Error>({
+  const consulta = useInfiniteQuery<
+    PaginaLidaDeMeusTrampos,
+    Error,
+    InfiniteData<PaginaLidaDeMeusTrampos, CursorDeMeusTrampos | undefined>,
+    ReturnType<typeof chaves.meusTrampos>,
+    CursorDeMeusTrampos | undefined
+  >({
     queryKey: chaves.meusTrampos(),
-    queryFn: () => listarMeusTrampos(cliente),
+    initialPageParam: undefined,
+    queryFn: ({ pageParam }) => lerPaginaDeMeusTrampos(cliente, pageParam),
+    getNextPageParam: cursorDaProximaPagina,
     enabled: status === 'autenticado',
   });
+  const paginas = consulta.data?.pages;
+  const trampos = useMemo(
+    () =>
+      paginas === undefined
+        ? null
+        : paginas.flatMap((pagina) => pagina.trampos),
+    [paginas],
+  );
+  const erroAoCarregarMais = consulta.isFetchNextPageError
+    ? consulta.error
+    : null;
   return {
-    trampos: consulta.data ?? null,
+    trampos,
     carregando: consulta.isLoading,
-    erro: consulta.error,
+    /**
+     * Erro da carga (ou recarga) da lista. O de "carregar mais" fica só em
+     * `erroAoCarregarMais`: as páginas já carregadas continuam valendo.
+     */
+    erro: erroAoCarregarMais === null ? consulta.error : null,
     recarregar: () => consulta.refetch(),
+    temMais: consulta.hasNextPage,
+    carregandoMais: consulta.isFetchingNextPage,
+    erroAoCarregarMais,
+    /**
+     * Pede a próxima página. Com uma já em andamento, a chamada é ignorada
+     * (`cancelRefetch: false`): duplo toque não pede a mesma página duas
+     * vezes.
+     */
+    carregarMais: () => {
+      if (consulta.hasNextPage) {
+        return consulta.fetchNextPage({ cancelRefetch: false });
+      }
+      return Promise.resolve();
+    },
   };
 }
 

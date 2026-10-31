@@ -18,17 +18,36 @@ export interface AmbienteDoBuild {
 
 /**
  * Mesma regra de `urlDaApi(env, false)` em `src/api/config.ts`: esquema, host
- * (com porta opcional) e caminho opcional, sem query nem fragmento.
+ * não vazio, porta opcional (grupo 1) e caminho opcional, sem query nem
+ * fragmento. O host não aceita `@` nem `:`: usuário e senha
+ * (`https://u:p@host`) iriam embutidos no APK (CA68).
  *
  * Repetida de propósito: o Expo CLI transpila só este arquivo, e o `import`
  * de `./src/api/config` não resolve (`Cannot find module`). O teste
  * `src/testes/app-config.test.ts` confere que as duas regras concordam.
  */
-const FORMATO_DA_URL = /^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i;
+const FORMATO_DA_URL =
+  /^https?:\/\/[^\s/?#@:]+(?::(\d{1,5}))?(?:\/[^\s?#]*)?$/i;
+
+/** Maior porta TCP. */
+const PORTA_MAXIMA = 65_535;
+
+/** A URL segue `FORMATO_DA_URL` e a porta, se houver, vai de 1 a 65535. */
+function ehUrlValida(valor: string): boolean {
+  const partes = FORMATO_DA_URL.exec(valor);
+  if (partes === null) {
+    return false;
+  }
+  const porta = partes[1];
+  return (
+    porta === undefined || (Number(porta) >= 1 && Number(porta) <= PORTA_MAXIMA)
+  );
+}
 
 /**
  * Lança `Error` com mensagem fixa (sem o valor) se a URL faltar, for inválida
- * ou não usar `https://`.
+ * (inclusive com usuário e senha, host vazio ou porta fora de 1 a 65535) ou
+ * não usar `https://`.
  *
  * Na `expo export`, o Expo CLI lê esta configuração uma vez antes de carregar
  * o `.env`: por isso a URL do build de produção vem do ambiente do comando.
@@ -40,9 +59,9 @@ export function conferirUrlDeProducao(url: string | undefined): void {
       'build:producao: defina EXPO_PUBLIC_API_URL com https:// no ambiente do comando',
     );
   }
-  if (!FORMATO_DA_URL.test(valor)) {
+  if (!ehUrlValida(valor)) {
     throw new Error(
-      'build:producao: EXPO_PUBLIC_API_URL inválida, use https://host[:porta], sem query',
+      'build:producao: EXPO_PUBLIC_API_URL inválida, use https://host[:porta], sem usuário, senha nem query',
     );
   }
   if (!/^https:\/\//i.test(valor)) {

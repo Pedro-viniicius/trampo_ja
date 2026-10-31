@@ -4,6 +4,7 @@ import { ehErroDaApi } from '../../../api/erros';
 import type { Mensagem } from '../../../api/tipos';
 import { useConexao } from '../../../estado/conexao';
 import {
+  TETO_DE_MENSAGENS_NO_CACHE,
   useConversas,
   useEnviarMensagem,
   useMensagens,
@@ -30,6 +31,20 @@ function ehNaoEncontrado(erro: unknown): boolean {
 
 function ehLimiteDeAcoes(erro: unknown): boolean {
   return ehErroDaApi(erro) && erro.status === 429;
+}
+
+/**
+ * A lista ainda mostra tudo o que veio depois da âncora? Âncora `null` é o
+ * começo da conversa, que só está na lista enquanto ela não chegou ao teto
+ * do cache (S1); âncora com id, só se o id ainda estiver nela.
+ */
+function listaCobreAncora(
+  lista: readonly Mensagem[],
+  ancora: string | null,
+): boolean {
+  return ancora === null
+    ? lista.length < TETO_DE_MENSAGENS_NO_CACHE
+    : lista.some((mensagem) => mensagem.id === ancora);
 }
 
 /**
@@ -84,7 +99,7 @@ export default function RotaDaConversa() {
 
   const perfis = usePerfisPublicos(outroId === null ? [] : [outroId]);
   const consulta = useMensagens(conversaId, { ativa });
-  const { mensagens, recarregar } = consulta;
+  const { mensagens, recarregar, conferirDesde } = consulta;
   const { enviar } = useEnviarMensagem(conversaId);
 
   const [rascunho, setRascunho] = useState('');
@@ -98,6 +113,15 @@ export default function RotaDaConversa() {
   const rascunhoAtual = useRef('');
   const pendentesAtuais = useRef<readonly Pendente[]>([]);
   const sequencia = useRef(0);
+  // CA60: âncora de cada pendente no momento em que ela saiu da lista (o
+  // corte do teto do cache a tirou, ou a âncora `null` e a lista chegou ao
+  // teto). `reconciliar` avança a âncora a cada GET; sem guardar a que se
+  // perdeu, o "Tentar de novo" não saberia que há mensagens que este
+  // aparelho nunca viu entre ela e o começo do cache.
+  const ancorasPerdidas = useRef(new Map<string, string | null>());
+  // Ids que já são de outra pendente desta tela: os do 201 e os achados na
+  // conferência. Não servem de prova de que uma pendente chegou.
+  const idsJaCasados = useRef(new Set<string>());
 
   const atualizarPendentes = useCallback(
     (mudar: (atuais: readonly Pendente[]) => readonly Pendente[]) => {
@@ -105,6 +129,31 @@ export default function RotaDaConversa() {
       pendentesAtuais.current = novas;
       setPendentes(novas);
       return novas;
+    },
+    [],
+  );
+
+  /**
+   * `reconciliar`, guardando antes a âncora das pendentes sem id que a
+   * `lista` já não cobre (ver `ancorasPerdidas`). Guarda só a primeira: é a
+   * mais antiga.
+   */
+  const reconciliarGuardandoAncoras = useCallback(
+    (
+      lista: readonly Mensagem[],
+      atuais: readonly Pendente[],
+      outro: string,
+    ) => {
+      for (const pendente of atuais) {
+        if (
+          pendente.id === null &&
+          !ancorasPerdidas.current.has(pendente.chave) &&
+          !listaCobreAncora(lista, pendente.ancora)
+        ) {
+          ancorasPerdidas.current.set(pendente.chave, pendente.ancora);
+        }
+      }
+      return reconciliar(lista, atuais, outro);
     },
     [],
   );
@@ -125,9 +174,11 @@ export default function RotaDaConversa() {
       return;
     }
     atualizarPendentes((atuais) =>
-      atuais.length === 0 ? atuais : reconciliar(mensagens, atuais, outroId),
+      atuais.length === 0
+        ? atuais
+        : reconciliarGuardandoAncoras(mensagens, atuais, outroId),
     );
-  }, [mensagens, outroId, atualizarPendentes]);
+  }, [mensagens, outroId, atualizarPendentes, reconciliarGuardandoAncoras]);
 
   const despachar = useCallback(
     async (chave: string, texto: string) => {
@@ -138,6 +189,7 @@ export default function RotaDaConversa() {
       }
       if (resultado.tipo === 'enviada') {
         // O hook já invalidou as mensagens: o GET que vem tira a pendente.
+        idsJaCasados.current.add(resultado.id);
         setLimiteNoEnvio(false);
         mudarSituacao(chave, {
           situacao: 'enviada',
@@ -193,6 +245,61 @@ export default function RotaDaConversa() {
     void despachar(pendente.chave, texto);
   };
 
+  /**
+   * CA60: a âncora da pendente saiu da lista, então há mensagens entre ela e
+   * o começo do cache que este aparelho não viu. Lê na API o que veio
+   * depois da âncora (`conferirDesde`, sem gravar no cache) e procura a
+   * mensagem da pendente só no que não está em `confirmadas` (o que está
+   * nela já passou por `reconciliar`) nem é de outra pendente. `null` quando
+   * não deu para conferir.
+   */
+  const conferirNaApi = async (
+    chave: string,
+    confirmadas: readonly Mensagem[],
+    outro: string,
+  ): Promise<boolean | null> => {
+    const ancora = ancorasPerdidas.current.get(chave) ?? null;
+    const lidas = await conferirDesde(ancora);
+    if (lidas === null) {
+      return null;
+    }
+    const alvo = pendentesAtuais.current.find((p) => p.chave === chave);
+    if (alvo === undefined) {
+      // Já saiu por outro GET: não reenvia.
+      return true;
+    }
+    const naLista = new Set(confirmadas.map((m) => m.id));
+    const deOutras = new Set(
+      pendentesAtuais.current.flatMap((p) => (p.id === null ? [] : [p.id])),
+    );
+    const naoVistas = lidas.filter(
+      (m) =>
+        !naLista.has(m.id) &&
+        !deOutras.has(m.id) &&
+        !idsJaCasados.current.has(m.id),
+    );
+    // Só a pendente conferida, desde o começo do que não foi visto, como
+    // uma que falhou (a que está no ar não disputa com ela).
+    const ficou = reconciliar(
+      naoVistas,
+      [{ ...alvo, ancora: null, situacao: 'falhou' }],
+      outro,
+    );
+    if (ficou.length > 0) {
+      return false;
+    }
+    // A mensagem achada passa a ser desta pendente (mesma regra de
+    // `reconciliar`: a primeira minha com o mesmo texto aparado).
+    const texto = alvo.texto.trim();
+    const casada = naoVistas.find(
+      (m) => m.autorId !== outro && m.texto.trim() === texto,
+    );
+    if (casada !== undefined) {
+      idsJaCasados.current.add(casada.id);
+    }
+    return true;
+  };
+
   const aoTentarDeNovo = async (chave: string) => {
     const pendente = pendentesAtuais.current.find((p) => p.chave === chave);
     if (pendente === undefined || pendente.situacao !== 'falhou') {
@@ -210,10 +317,26 @@ export default function RotaDaConversa() {
       return;
     }
     const restantes = atualizarPendentes((atuais) =>
-      reconciliar(confirmadas, atuais, outroId),
+      reconciliarGuardandoAncoras(confirmadas, atuais, outroId),
     );
     if (!restantes.some((p) => p.chave === chave)) {
       return;
+    }
+    if (ancorasPerdidas.current.has(chave)) {
+      const chegou = await conferirNaApi(chave, confirmadas, outroId);
+      if (chegou === null) {
+        // Não deu para conferir: reenviar arriscaria duplicata (CA60).
+        mudarSituacao(chave, { situacao: 'falhou' });
+        return;
+      }
+      if (chegou) {
+        atualizarPendentes((atuais) => atuais.filter((p) => p.chave !== chave));
+        return;
+      }
+      // Um GET do polling pode tê-la tirado durante a conferência.
+      if (!pendentesAtuais.current.some((p) => p.chave === chave)) {
+        return;
+      }
     }
     await despachar(chave, pendente.texto);
   };

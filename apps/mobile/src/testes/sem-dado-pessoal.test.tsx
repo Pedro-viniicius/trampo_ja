@@ -581,7 +581,11 @@ function criarApiDa2b() {
     publicado: false,
     ofertado: false,
     candidatou: false,
-    /** Fase A: `GET /trampos/meus` da autora falha e a API decide (409). */
+    /**
+     * Fase A: `GET /trampos/meus` da autora falha e o detalhe chega sem a
+     * visão do autor (sem `versao`); o app oferece "Candidatar-se" e a API
+     * decide (409).
+     */
     meusTramposFalham: true,
     fase: 'pendentes' as FaseDoAceite,
   };
@@ -659,8 +663,12 @@ function criarApiDa2b() {
       if (doFreelancer(r)) return SESSAO_EXPIRADA;
       return { corpo: estado.ofertado ? [SERVICO_NOVO] : [] };
     })
-    .responder('GET /trampos/t-novo', () => ({
-      corpo: trampoNovo(estado.fase),
+    .responder('GET /trampos/t-novo', (r) => ({
+      corpo: {
+        ...trampoNovo(estado.fase),
+        // D46: só o autor recebe a visão do autor, que traz `versao`.
+        ...(daAutora(r) && !estado.meusTramposFalham && { versao: 1 }),
+      },
     }))
     .responder('GET /candidaturas/minhas', (r) => ({
       corpo: doFreelancer(r) && estado.candidatou ? [MINHA_CANDIDATURA] : [],
@@ -1568,8 +1576,8 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       trampoEsperado,
     ]);
 
-    // A3. "Ver trampo": a lista Meus trampos falha, então o rodapé oferece
-    // "Candidatar-se" e a API recusa (409 autor_nao_pode_candidatar).
+    // A3. "Ver trampo": o detalhe veio sem a visão do autor, então o rodapé
+    // oferece "Candidatar-se" e a API recusa (409 autor_nao_pode_candidatar).
     await fireEvent.press(screen.getByRole('button', { name: T.verTrampo }));
     await waitFor(() => expect(getPathname()).toBe('/trampos/t-novo'));
     await fireEvent.press(

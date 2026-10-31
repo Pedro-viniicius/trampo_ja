@@ -147,14 +147,22 @@ function ServicoComAutor({
   // "Mais opções" (CA33), só para o autor. Excluir não mostra o toast do hook:
   // o aviso vai para a tela de destino, e esta para de ouvir antes de avisar
   // (senão consumiria o próprio aviso).
+  // A folha aberta segue o detalhe vivo (`anuncioAtual`, CA61): o título de
+  // uma edição que chegou depois da abertura aparece sem reabrir.
+  const anuncio: AnuncioDaFolha = {
+    tipo: 'servico',
+    id: servico.id,
+    titulo: servico.titulo,
+  };
   const [saida, setSaida] = useState<MotivoDaSaida | null>(null);
   const acoes = useAcoesDoAnuncio({
-    aoEditar: (anuncio) =>
+    aoEditar: (aberto) =>
       abrirEdicao({
         pathname: '/servicos/editar/[id]',
-        params: { id: anuncio.id },
+        params: { id: aberto.id },
       }),
-    aoExcluir: (_anuncio, motivo) => setSaida(motivo),
+    aoExcluir: (_aberto, motivo) => setSaida(motivo),
+    anuncioAtual: () => anuncio,
   });
   const aviso = useAvisoDeRetorno(useIsFocused() && saida === null);
   const saiu = useRef(false);
@@ -171,11 +179,6 @@ function ServicoComAutor({
 
   // Excluído: a lista já não traz o serviço, e o "Conversar" não pisca antes de sair.
   const mostrarConversar = !meusServicos.carregando && !ehMeu && saida === null;
-  const anuncio: AnuncioDaFolha = {
-    tipo: 'servico',
-    id: servico.id,
-    titulo: servico.titulo,
-  };
   return (
     <DetalheDoServico
       estado={estado}

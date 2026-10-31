@@ -93,8 +93,10 @@ rode `pnpm --filter api migrar` antes.
 entrada com a janela vencida (`tentativas_de_entrada`, D31) e, pela lápide
 `contas_excluidas` (só id e data, migração `0007`), refaz a exclusão das contas excluídas há mais de 10 min, para
 varrer o que uma escrita em voo durante a exclusão tenha gravado depois (não há FK entre módulos). Uma lápide vive de
-10 a cerca de 70 min. A tarefa é idempotente e roda em cada réplica. O log registra só o código do erro, nunca o id
-da conta. Órfãos anteriores à `0007` não são varridos, porque não têm lápide. Em `SIGINT`/`SIGTERM`, a próxima rodada
+10 a cerca de 70 min. A rodada pega as 100 lápides mais antigas; a lápide cuja exclusão falha espera 6 h na memória
+do processo antes de uma nova tentativa (L4, S5, CA67), e as outras seguem na mesma rodada, então uma lápide que
+sempre falha não segura a fila. Reiniciar o processo zera a espera e repete a tentativa, sem perda. A tarefa é
+idempotente e roda em cada réplica. O log registra só o código do erro, nunca o id da conta. Órfãos anteriores à `0007` não são varridos, porque não têm lápide. Em `SIGINT`/`SIGTERM`, a próxima rodada
 é cancelada e a que estiver em curso termina antes de a conexão com o banco fechar.
 
 ## Semente (dados fictícios)
@@ -153,7 +155,9 @@ Cuidados:
 
 - **`.env` obrigatório.** Sem `EXPO_PUBLIC_API_URL`, ou com valor inválido, a raiz do app lança erro no primeiro
   render (a mensagem diz o que falta, sem repetir o valor). Fora de desenvolvimento (`__DEV__` falso) o app só
-  aceita `https://`. O valor vai embutido no bundle: nada secreto entra ali.
+  aceita `https://`. O valor vai embutido no bundle: nada secreto entra ali. A URL também é recusada com usuário e
+  senha (`https://u:p@host`), com host vazio (`https://:3000`) e com porta fora de 1 a 65535 (L4, CA68); a regra vale
+  em runtime (`src/api/config.ts`) e no `build:producao` (`app.config.ts`), e a mensagem nunca repete o valor.
 - **Portas e firewall.** O celular precisa alcançar a porta 8081 (Metro, que entrega o bundle) e a porta 3000 (API)
   da máquina. Libere as duas no firewall; redes de visitante e alguns roteadores isolam os aparelhos. O túnel do
   Expo (`--tunnel`) não resolve, porque expõe só o Metro, não a API.
@@ -224,7 +228,7 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas, com Retirar candidatura nas pendentes |
 | `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
 | `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
-| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`), com "Mais opções" em cada anúncio |
+| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`), com "Mais opções" em cada anúncio; Meus trampos carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
 
 As abas são Início, Buscar, Publicar, Conversas e Perfil; os formulários, as listas e a conversa ficam na pilha
 `(app)`, sem a barra de abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão
@@ -244,7 +248,8 @@ Anúncios e candidaturas (L2, D30, D33 a D37):
   salva pergunta "Descartar alterações?", também no voltar do sistema (botão do Android e gesto do iOS).
 - **Aviso de retorno.** "Alterações salvas.", "Trampo excluído.", "Serviço excluído." e "Este anúncio já não
   existe." são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto, em
-  memória, por 10 s e só na mesma sessão. Se a volta cai numa tela que não mostra avisos, ele se perde.
+  memória, por 10 s e só na mesma sessão. Meus anúncios, os dois detalhes, o Início e a Busca mostram o aviso (L4,
+  CA63); se a volta cai numa tela que não o mostra, ele se perde.
 - **Retirar candidatura.** Em Minhas candidaturas e no rodapé do trampo, só para a candidatura pendente e sempre
   com o diálogo "Manter candidatura" ou "Retirar candidatura". No sucesso, ela some da lista e o rodapé volta a
   "Candidatar-se". O 409 avisa que ela já foi respondida e recarrega; o 404 a tira da lista. Toque duplo faz um
@@ -265,6 +270,41 @@ cada 30 s, só com a aba focada.
 Fora do login e do cadastro, o 429 do limite por conta (D29) mostra "Você fez muitas ações em pouco tempo. Aguarde um
 minuto e tente de novo." e mantém o que foi digitado; a mensagem enviada com 429 fica "Não enviada", com o mesmo
 aviso. No login e no cadastro, o 429 continua "Muitas tentativas seguidas…".
+
+Qualidade do app (L4, D45, D48, D51):
+
+- **Limite dos campos (D45, CA55).** Nos campos de texto livre com limite (título, descrição, cidade, mensagem da
+  candidatura, mensagem da conversa, nome, sobre você, habilidade, texto e cidade da busca), o limite e o contador
+  contam pontos de código, como a API, e não unidades UTF-16: um emoji conta 1. Digitar ou colar além do limite
+  **corta** no limite (nunca antes) e o leitor de tela anuncia "Limite de n caracteres atingido." ou, se o texto
+  colado foi cortado, "O texto passou de n caracteres e foi cortado.". O corte é por ponto de código, não por grafema:
+  uma família (emoji com ZWJ) ou uma letra com acento composto pode ser partida no limite. `maxLength` só fica em
+  campo ASCII (valor e prazo); a senha usa o mesmo `limite` (128), sem contador visível.
+- **Uma só faixa "sem conexão" (D51, CA56).** Ela é desenhada na raiz (`src/app/_layout.tsx`), no topo e com a margem
+  segura, com e sem sessão; nenhuma tela desenha a sua (a prop `semConexao` só desabilita ações). Some quando a rede
+  volta, com o anúncio "Conexão de volta.", e não se repete ao trocar de tela.
+- **Sem rede, entrar, cadastrar e salvar o perfil falham na hora (CA58)** com o aviso de falta de conexão e mantêm o
+  que foi digitado. Nada é enviado sozinho quando a rede volta, e a senha não fica pendurada numa mutação pausada.
+- **Editar perfil espera a carga (CA57).** O formulário só aparece depois da resposta de `GET /perfis/eu` (o 404 do
+  perfil novo conta); antes mostra o carregando e, com erro, o aviso com "Tentar de novo".
+- **Ordem das mensagens (D48, CA59).** Uma mensagem gravada depois de outra mais nova (os relógios do servidor
+  diferem por milissegundos) aparece no ciclo seguinte, na posição da API e sem duplicata: a cada ciclo o app relê a
+  janela dos últimos 60 s (`JANELA_DE_RELEITURA_MS`, por `enviadaEm`) e substitui a cauda do cache pela resposta, ainda
+  com 1 GET por ciclo quando há menos de 50 mensagens novas. Supõe relógios das réplicas com menos de cerca de 45 s de
+  diferença.
+- **Conversa com mais de 500 mensagens (CA60).** "Tentar de novo" de uma pendente cuja âncora saiu do teto do cache
+  confere antes na API, a partir da âncora (até 20 páginas, só por toque, sem gravar no cache), se a mensagem
+  chegou; se chegou, não reenvia. Se a conferência falhar, ou parar nas 20 páginas (1000 mensagens) com a última
+  cheia, sem chegar ao fim, a pendente continua "Não enviada" e nada é reenviado.
+- **Foco no primeiro erro (CA62).** Em cadastro, entrar, editar perfil, formulário de anúncio, excluir conta e
+  exportar dados, o primeiro campo com erro recebe o foco e a tela rola até ele.
+- **Folha "Mais opções" viva (CA61).** A folha aberta mostra o anúncio atual: depois de um 409 `trampo_nao_aberto`, o
+  "Excluir" fica desabilitado com o motivo, sem fechar e reabrir. Enquanto o anúncio é relido, as ações ficam
+  desabilitadas ("Atualizando as opções…"); o aviso "Atualizamos as opções" só aparece quando a releitura dá certo
+  (se ela falha, fica o motivo do 409; se dá 404, a folha fecha com "Este anúncio já não existe."). No detalhe do trampo, o 409
+  `candidatura_nao_pendente` do rodapé recarrega o trampo e o selo mostra o status novo (CA64).
+- **Autor no detalhe (D46).** O app reconhece o autor pela visão do autor em `GET /trampos/:id` (`versao` presente),
+  não mais pela lista Meus trampos, que agora é paginada (ver "Anúncios" em "Endpoints").
 
 Conta e privacidade (D25 a D28):
 
@@ -348,8 +388,8 @@ malformado, o app abre o Início em vez de tentar interpretá-lo.
     (`gcTime: 0`).
   - **Consultas.** O cache de consultas do TanStack guarda os dados frescos por 30 s e os remove 5 min depois que
     nenhuma tela os usa. Entram nele:
-    - as listas "minhas": Meus trampos (`/trampos/meus`), Meus serviços (`/servicos/meus`) e Minhas candidaturas
-      (`/candidaturas/minhas`, com a mensagem e o valor da própria candidatura);
+    - as listas "minhas": Meus trampos (`/trampos/meus`, página a página), Meus serviços (`/servicos/meus`) e Minhas
+      candidaturas (`/candidaturas/minhas`, com a mensagem e o valor da própria candidatura);
     - as candidaturas recebidas (`/trampos/:id/candidaturas`), com a mensagem e o valor de terceiros;
     - os nomes de terceiros, vindos de `GET /perfis/:id` (mesma chave do perfil público). Ficam no cache por
       5 min e nunca entram em texto de erro; perfil 404 aparece como "Perfil indisponível".
@@ -536,7 +576,7 @@ Trampos e candidaturas:
 | Rota | Corpo | Sucesso | Erros |
 |---|---|---|---|
 | `POST /trampos` | `{titulo, descricao, categoria, cidade, valorCentavos, prazo?}` | 201 `{id, status:"aberto"}` | 400; 409 `perfil_incompleto` |
-| `GET /trampos/meus` | — | 200 lista de trampos, em qualquer status, com `versao` e `candidaturasRecebidas` | — |
+| `GET /trampos/meus` | `?limite&antesDeCriadoEm&antesDeId` | 200 página de trampos, em qualquer status, com `versao` e `candidaturasRecebidas` (abaixo) | 400 `dados_invalidos` |
 | `GET /trampos/:id` | — | 200 trampo (com `autorId` e `status`; `versao` e `candidaturasRecebidas` só para o autor) | 404 |
 | `PUT /trampos/:id` | `{titulo, descricao, categoria, cidade, valorCentavos, prazo?, versao}` | 204 | 400; 404; 409 `trampo_nao_editavel`, `conflito_de_versao` |
 | `POST /trampos/:id/encerrar` | — | 204, também se já estava encerrado | 404 |
@@ -573,9 +613,19 @@ Anúncios (L2, D30, D33 a D35; concorrência no ADR-006 de `docs/produto/planos/
 - **Retirar candidatura:** só a pendente, e só por quem se candidatou. A linha é apagada, e a pessoa pode se
   candidatar de novo. A conversa já aberta continua.
 - **Visão do autor (D33):** `versao` e `candidaturasRecebidas` só saem para quem publicou; para os demais, as
-  respostas não mudam. Encerrar, excluir e retirar não levam versão. Encerrar e excluir travam o trampo e aplicam a
-  regra sobre o estado atual, então nunca dão `conflito_de_versao`, nem sob uma rajada de candidaturas; retirar
-  relê e reaplica a regra.
+  respostas não mudam. Encerrar, excluir e retirar não levam versão. Encerrar, excluir e retirar travam o trampo
+  (`for update`, depois as candidaturas, nessa ordem) e aplicam a regra sobre o estado atual, então nunca dão
+  `conflito_de_versao`, nem sob uma rajada de candidaturas (L4, D49, CA65). Retirar com a candidatura já respondida
+  dá 409 `candidatura_nao_pendente`, e com o trampo excluído, 404.
+- **Meus trampos paginados (L4, D47, CA66):** `GET /trampos/meus` devolve os mais recentes primeiro (`criadoEm`
+  decrescente, desempate por `id`). `limite` é inteiro de 1 a 50, com padrão 20. A página seguinte usa o cursor
+  `antesDeCriadoEm` (ISO 8601 em UTC) mais `antesDeId` (uuid), **os dois juntos e com o `criadoEm` exatamente como veio**
+  no último item da página anterior, nunca só um deles. A lista acaba quando a página volta com menos itens que o
+  `limite`. Cursor pela metade, `limite` fora de 1 a 50, valor malformado ou chave de consulta desconhecida dão 400
+  `dados_invalidos` com o nome do campo. Sem parâmetros vem a primeira página (20), o que muda o contrato anterior,
+  que listava tudo; `/servicos/meus` e `/candidaturas/minhas` continuam completas. Só trampos do autor da sessão
+  aparecem. O detalhe `GET /trampos/:id` já devolve a visão do autor só para o autor, e é por ela que o app o
+  reconhece (D46), inclusive em trampo fora da primeira página.
 - Recurso inexistente, de outra conta ou com id fora do formato uuid recebe o mesmo 404.
 
 Serviços:
@@ -723,6 +773,32 @@ escrita em voo tenha deixado com o id da conta (ADR-007). Módulo novo com dado 
 (ADR-005) e passa a ser varrido também, e implementa `medirExportacao` (a medida que a exportação confere contra o
 teto de 10 MiB, D41). O log da limpeza registra só contagens e códigos de erro, nunca o id.
 
+**Medida da exclusão no volume de referência (L4, CA69).** Comando (precisa do banco de teste migrado; só dado
+fictício, e o arquivo é pulado sem a variável):
+
+```bash
+TRAMPOJA_MEDIR=1 pnpm --filter api exec vitest run --config vitest.integracao.config.ts \
+  test/medidas/exclusao-grande.integracao.test.ts --silent=false
+```
+
+Volume: uma conta com 200 conversas e 100 000 mensagens, 5 000 trampos com 20 000 candidaturas recebidas, 2 000
+candidaturas feitas, 1 000 serviços e o perfil. Resultado (Postgres 16 local em Docker, cache quente,
+`statement_timeout` de 10 s, várias rodadas):
+
+| O que | Tempo |
+|---|---|
+| `POST /contas/eu/exclusao` inteiro | mediana 434 ms (422 a 462), dos quais cerca de 273 ms antes da transação (scrypt da senha) |
+| transação (da trava da conta até a resposta, com o commit) | 161 ms (151 a 193) |
+| por módulo | conversas 75 ms, trampos 71 ms, serviços 1 ms, contas 1,5 ms, perfis 0,5 ms |
+| consulta mais lenta | 58 ms (o `delete` de trampos, quase todo conferindo a FK de candidaturas) |
+
+Com cerca de 1 milhão de linhas de outras contas no banco, a transação foi a cerca de 645 ms, o `POST` a cerca de 930 ms
+e a pior consulta a cerca de 200 ms (varredura sequencial em `mensagens` e `candidaturas`). **Conclusão:** a D50
+(`set local statement_timeout = '60s'` na exclusão) não foi necessária: o `POST` fica muito abaixo do limite de 5 s
+e o `statement_timeout` é por consulta, cuja pior ficou em 0,2 s. Para uma migração futura, a medida recomenda dois
+índices: `trampos (autor_id, criado_em desc, id desc)`, que também serve à listagem paginada de Meus trampos, e
+`candidaturas (freelancer_id)`. Nenhuma migração foi criada na L4.
+
 Os logs (com IP e sem `contaId`) não mudam: ficam fora do banco. Escritas de terceiros que chegam durante a exclusão
 esperam as travas e nunca dão 500 nem deixam linha com o id da conta excluída: enviar mensagem e se candidatar ao
 trampo dela terminam em 201 (antes da exclusão, que depois apaga tudo) ou 404; ler a conversa com cursor dá 404, não o
@@ -749,7 +825,7 @@ cadastro, sem registro na API. Ficam fora do código: hospedar a política e a p
 Em `docs/produto/`:
 
 - `visao.md`: visão do produto;
-- `decisoes.md`: decisões do dono (D1 a D44), que não se reabrem sem fato novo;
+- `decisoes.md`: decisões do dono (D1 a D51), que não se reabrem sem fato novo;
 - `briefs/mvp-trampo-ja.md`: brief do MVP com os critérios de aceite (CA1 a CA16);
 - `planos/mvp-trampo-ja.md`: plano técnico da entrega 1 (backend), com etapas, contratos e ADR;
 - `specs/mvp-trampo-ja.md`: spec das telas do app (entrega 2);
@@ -762,4 +838,7 @@ Em `docs/produto/`:
   candidatura), com o ADR-006;
 - `planos/pre-lancamento-l3.md`: plano técnico da entrega L3 (endurecimento de segurança: banco remoto e TLS, limites
   de login, fila com espera máxima, NFC, limpeza periódica e teto da exportação), com o ADR-007;
+- `planos/pre-lancamento-l4.md` e `specs/pre-lancamento-l4.md`: plano e spec da entrega L4 (qualidade: limite dos
+  campos por ponto de código, faixa única sem conexão, ordem das mensagens, Meus trampos paginado, retirar sob trava,
+  espera da lápide e medida da exclusão), com o ADR-008 e o roteiro manual do aparelho;
 - `legal/politica-de-privacidade.md` e `legal/termos-de-uso.md`: rascunhos dos textos legais (D28).

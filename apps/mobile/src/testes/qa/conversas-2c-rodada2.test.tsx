@@ -200,7 +200,7 @@ describe('teto de 500 mensagens no cache (S1)', () => {
     });
   }
 
-  it('520 mensagens no servidor: a tela guarda só as últimas 500, em ordem, e o cursor do polling é o último id', async () => {
+  it('520 mensagens no servidor: a tela guarda só as últimas 500, em ordem, e o cursor do polling é a última fora da janela de 60 s (D48)', async () => {
     const mundo = mundoCom(520);
     const fetch = criarFetchDoMundo(mundo);
     await abrirApp(`/conversas/${CONVERSA}`, { fetch, token: FREELA.token });
@@ -216,7 +216,9 @@ describe('teto de 500 mensagens no cache (S1)', () => {
     await avancar(5_200);
     const gets = GETS_DAS_MENSAGENS(fetch);
     expect(gets).toHaveLength(1);
-    expect(gets[0]?.query).toEqual({ depoisDe: 'm520' });
+    // As mensagens do mundo vêm de 60 em 60 s: a última com 60 s ou mais
+    // antes de `m520` é `m519` (D48 relê a janela).
+    expect(gets[0]?.query).toEqual({ depoisDe: 'm519' });
     expect(dadosDaLista()).toHaveLength(500);
   });
 

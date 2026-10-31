@@ -4,7 +4,7 @@ import { Text, View } from 'react-native';
 import { Aviso, Botao, CampoDeTexto } from '../componentes';
 import { cores, espaco, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { Formulario, useFocarPrimeiroErro } from './base';
+import { FocarPrimeiroErro, Formulario } from './base';
 import type { PropsDeCadastro } from './tipos';
 
 const LIMITE_DA_SENHA = 128;
@@ -25,10 +25,6 @@ export function Cadastro({
 }: PropsDeCadastro) {
   const refEmail = useRef<ComponentRef<typeof TextInput>>(null);
   const refSenha = useRef<ComponentRef<typeof TextInput>>(null);
-  useFocarPrimeiroErro([
-    { ref: refEmail, erro: erros.email },
-    { ref: refSenha, erro: erros.senha },
-  ]);
   const enviar = () => {
     if (!enviando) onCriarConta();
   };
@@ -50,6 +46,12 @@ export function Cadastro({
         </>
       }
     >
+      <FocarPrimeiroErro
+        campos={[
+          { ref: refEmail, erro: erros.email },
+          { ref: refSenha, erro: erros.senha },
+        ]}
+      />
       {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
       <CampoDeTexto
         rotulo={textos.cadastro.email}
@@ -65,7 +67,8 @@ export function Cadastro({
         rotulo={textos.cadastro.senha}
         tipo="novaSenha"
         secureTextEntry
-        maxLength={LIMITE_DA_SENHA}
+        limite={LIMITE_DA_SENHA}
+        contadorDoLimite="nunca"
         valor={senha}
         onChangeText={onMudarSenha}
         ajuda={textos.cadastro.ajudaSenha}

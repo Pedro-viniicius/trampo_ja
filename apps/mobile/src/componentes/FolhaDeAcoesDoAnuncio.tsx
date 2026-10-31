@@ -87,6 +87,7 @@ export function FolhaDeAcoesDoAnuncio({
   efeitoDoExcluir,
   processando,
   erro,
+  atualizando = false,
   onEditar,
   onEncerrar,
   onExcluir,
@@ -107,7 +108,7 @@ export function FolhaDeAcoesDoAnuncio({
   }, [visivel]);
 
   const ehTrampo = tipo === 'trampo';
-  const ocupado = processando !== null;
+  const ocupado = processando !== null || atualizando;
 
   return (
     <>
@@ -152,6 +153,9 @@ export function FolhaDeAcoesDoAnuncio({
             }}
             onPress={() => setConfirmando('excluir')}
           />
+          {atualizando ? (
+            <Motivo texto={textos.anuncio.folhaAtualizando} />
+          ) : null}
         </View>
       </FolhaInferior>
       <DialogoDeConfirmacao

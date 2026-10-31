@@ -24,7 +24,17 @@ export const textos = {
     voltar: 'Voltar',
     cancelar: 'Cancelar',
     carregando: 'Carregando…',
-    semConexaoFaixa: 'Sem conexão. Mostrando o que já foi carregado.',
+    semConexaoFaixa:
+      'Sem conexão. Ações que precisam de internet ficam indisponíveis.',
+    conexaoDeVolta: 'Conexão de volta.',
+    contador: (n: number, limite: number): string =>
+      `${n} de ${limite} caracteres`,
+    contadorFaltam: (faltam: number): string =>
+      faltam === 1 ? 'Falta 1 caractere.' : `Faltam ${faltam} caracteres.`,
+    contadorLimite: (limite: number): string =>
+      `Limite de ${limite} caracteres atingido.`,
+    contadorCortado: (limite: number): string =>
+      `O texto passou de ${limite} caracteres e foi cortado.`,
     verTodos: 'Ver todos',
     fechar: 'Fechar',
     tipoTrampo: 'Trampo',
@@ -213,7 +223,9 @@ export const textos = {
     avisoVisibilidade:
       'Nome, cidade, descrição e habilidades aparecem para quem usa o Trampo Já. Não coloque telefone, endereço ou documentos.',
     sucesso: 'Perfil atualizado.',
-    contador: (n: number, max: number): string => `${n} de ${max} caracteres`,
+    carregando: 'Carregando seu perfil…',
+    erroAoCarregar: 'Não foi possível carregar seu perfil. Nada foi alterado.',
+    semConexaoParaCarregar: 'Sem conexão. Conecte-se para editar seu perfil.',
   },
   avisoPerfil: {
     // Aviso D9: no lugar do formulário ou do botão quando o perfil não está completo.
@@ -251,7 +263,6 @@ export const textos = {
       'Digite dia, mês e ano; as barras entram sozinhas. Exemplo: 31/12/2026.',
     avisoVisibilidade:
       'Título, descrição e cidade aparecem para quem usa o Trampo Já. Não coloque telefone, endereço ou documentos.',
-    contador: (n: number, max: number): string => `${n} de ${max} caracteres`,
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
     enviando: 'Enviando…',
@@ -337,6 +348,13 @@ export const textos = {
     vazioServicoTexto: 'Ofereça o que você sabe fazer para ser encontrado.',
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
+    semConexaoParaCarregarMais: 'Sem conexão. Conecte-se para carregar mais.',
+    maisCarregados: (k: number, tipo: 'trampo' | 'servico'): string =>
+      tipo === 'trampo'
+        ? `${k} ${k === 1 ? 'trampo' : 'trampos'} a mais ${k === 1 ? 'carregado' : 'carregados'}.`
+        : `${k} ${k === 1 ? 'serviço' : 'serviços'} a mais ${k === 1 ? 'carregado' : 'carregados'}.`,
+    fimDaLista: (n: number, tipo: 'trampo' | 'servico'): string =>
+      `Isso é tudo: ${n} ${tipo === 'trampo' ? 'trampos' : 'serviços'}.`,
   },
   anuncio: {
     maisOpcoes: (titulo: string): string => `Mais opções de ${titulo}`,
@@ -376,6 +394,9 @@ export const textos = {
     trampoExcluido: 'Trampo excluído.',
     servicoExcluido: 'Serviço excluído.',
     jaNaoExiste: 'Este anúncio já não existe.',
+    folhaAtualizada:
+      'Este anúncio mudou enquanto você olhava. Atualizamos as opções.',
+    folhaAtualizando: 'Atualizando as opções…',
     erroAoEncerrar: 'Não foi possível encerrar. Tente de novo.',
     erroAoExcluir: 'Não foi possível excluir. Tente de novo.',
     // Edição.

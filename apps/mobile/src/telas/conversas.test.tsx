@@ -116,13 +116,34 @@ describe('Conversa', () => {
     expect(screen.getByLabelText(textos.conversas.campo)).toBeOnTheScreen();
   });
 
-  it('mostra o título, a mensagem e o campo com limite de 2000', async () => {
+  it('mostra o título, a mensagem e o campo', async () => {
     await render(<Conversa {...props()} />);
     expect(screen.getByText('Pessoa X')).toBeOnTheScreen();
     expect(screen.getByText('texto-sentinela')).toBeOnTheScreen();
-    expect(screen.getByLabelText(textos.conversas.campo).props.maxLength).toBe(
-      2000,
+    expect(screen.getByLabelText(textos.conversas.campo)).toBeOnTheScreen();
+  });
+
+  it('corta em pontos de código (emoji conta 1) e diz que cortou', async () => {
+    const onMudarRascunho = jest.fn();
+    const { rerender } = await render(
+      <Conversa {...props({ limite: 5, rascunho: '', onMudarRascunho })} />,
     );
+    const campo = screen.getByLabelText(textos.conversas.campo);
+    // 5 emojis (10 unidades UTF-16) cabem no limite de 5: nada é cortado.
+    await fireEvent.changeText(campo, '😀😀😀😀😀');
+    expect(onMudarRascunho).toHaveBeenLastCalledWith('😀😀😀😀😀');
+    // 7 pontos de código: corta em 5, nunca antes.
+    await fireEvent.changeText(campo, '😀😀😀😀😀😀😀');
+    expect(onMudarRascunho).toHaveBeenLastCalledWith('😀😀😀😀😀');
+    // O contêiner devolve o texto cortado; a tela diz que cortou.
+    await rerender(
+      <Conversa
+        {...props({ limite: 5, rascunho: '😀😀😀😀😀', onMudarRascunho })}
+      />,
+    );
+    expect(
+      screen.getAllByText(textos.gerais.contadorCortado(5)).length,
+    ).toBeGreaterThan(0);
   });
 
   it('"Enviar" só habilita com podeEnviar e chama onEnviar', async () => {
@@ -196,9 +217,12 @@ describe('Conversa', () => {
     expect(screen.getByDisplayValue('r')).toBeOnTheScreen();
   });
 
-  it('sem conexão mostra a faixa abaixo do cabeçalho', async () => {
+  it('sem conexão não desenha a faixa (é da raiz, CA56)', async () => {
     await render(<Conversa {...props({ semConexao: true })} />);
-    expect(screen.getByText(textos.gerais.semConexaoFaixa)).toBeOnTheScreen();
+    expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
+    expect(
+      screen.getByText(textos.conversas.semConexaoNoCampo),
+    ).toBeOnTheScreen();
   });
 
   it('nomeDoOutro null rotula a bolha como "Outra pessoa"; sem a prop usa o título', async () => {
@@ -210,18 +234,19 @@ describe('Conversa', () => {
 
   it('limite vem da prop e o contador só aparece perto dele', async () => {
     await render(<Conversa {...props({ limite: 1000, rascunho: 'abc' })} />);
-    expect(screen.getByLabelText(textos.conversas.campo).props.maxLength).toBe(
-      1000,
-    );
-    expect(
-      screen.queryByText(textos.formularioDeAnuncio.contador(3, 1000)),
-    ).toBeNull();
+    expect(screen.queryByText(textos.gerais.contador(3, 1000))).toBeNull();
     await render(
       <Conversa {...props({ limite: 1000, rascunho: 'a'.repeat(800) })} />,
     );
     expect(
-      screen.getByText(textos.formularioDeAnuncio.contador(800, 1000)),
+      screen.getByText(textos.gerais.contador(800, 1000)),
     ).toBeOnTheScreen();
+    await render(
+      <Conversa {...props({ limite: 1000, rascunho: 'a'.repeat(1000) })} />,
+    );
+    expect(
+      screen.getAllByText(textos.gerais.contadorLimite(1000)).length,
+    ).toBeGreaterThan(0);
   });
 
   it('chegada de mensagem do outro anuncia a novidade sem repetir o conteúdo', async () => {

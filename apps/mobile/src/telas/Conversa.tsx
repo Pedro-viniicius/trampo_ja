@@ -16,17 +16,18 @@ import {
   Botao,
   Cabecalho,
   EstadoVazio,
-  FaixaSemConexao,
 } from '../componentes';
-import { useFoco } from '../componentes/utilitarios';
+import {
+  contarPontosDeCodigo,
+  cortarEmPontosDeCodigo,
+  useFoco,
+} from '../componentes/utilitarios';
 import { cores, espaco, larguraMaxima, raio, tipografia } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Carregando, ErroDoBloco, Pagina, RodapeFixo } from './base';
 import type { MensagemParaExibir, PropsDaConversa } from './tipos';
 
 const LIMITE_PADRAO = 2000;
-/** O contador de caracteres só aparece nesta folga antes do limite. */
-const FOLGA_DO_CONTADOR = 200;
 /** Distância do fim (em pontos) que ainda conta como "perto do fim". */
 const MARGEM_DO_FIM = 120;
 
@@ -56,6 +57,13 @@ export function Conversa({
   const [anuncio, setAnuncio] = useState<{ texto: string; n: number } | null>(
     null,
   );
+  const [cortou, setCortou] = useState(false);
+  // Conta e corta em pontos de código, como a API (um emoji conta 1).
+  const mudarRascunho = (texto: string) => {
+    const passou = contarPontosDeCodigo(texto) > limite;
+    setCortou(passou);
+    onMudarRascunho(passou ? cortarEmPontosDeCodigo(texto, limite) : texto);
+  };
   const nomeDasBolhas = nomeDoOutro === undefined ? titulo : nomeDoOutro;
   const dados = mensagens.situacao === 'ok' ? mensagens.dados : null;
 
@@ -111,7 +119,6 @@ export function Conversa({
   return (
     <Pagina>
       <Cabecalho titulo={titulo} onVoltar={onVoltar} />
-      {semConexao ? <FaixaSemConexao /> : null}
       <View
         accessibilityLiveRegion="polite"
         style={{
@@ -209,20 +216,11 @@ export function Conversa({
               {textos.conversas.semConexaoNoCampo}
             </Text>
           ) : null}
-          {rascunho.length >= limite - FOLGA_DO_CONTADOR ? (
-            <Text
-              style={{
-                color: cores.textoSecundario,
-                fontSize: tipografia.tamanho.rotulo,
-                lineHeight: tipografia.lineHeight.rotulo,
-              }}
-            >
-              {textos.formularioDeAnuncio.contador(
-                Array.from(rascunho).length,
-                limite,
-              )}
-            </Text>
-          ) : null}
+          <ContadorDaMensagem
+            valor={rascunho}
+            limite={limite}
+            cortou={cortou}
+          />
           <View
             style={{
               flexDirection: 'row',
@@ -230,11 +228,7 @@ export function Conversa({
               gap: espaco[2],
             }}
           >
-            <CampoDaMensagem
-              valor={rascunho}
-              limite={limite}
-              onChangeText={onMudarRascunho}
-            />
+            <CampoDaMensagem valor={rascunho} onChangeText={mudarRascunho} />
             <Botao
               texto={textos.conversas.enviar}
               larguraCheia={false}
@@ -248,13 +242,103 @@ export function Conversa({
   );
 }
 
-function CampoDaMensagem({
+type FaixaDoContador = 'nenhuma' | 'perto' | 'faltam' | 'limite' | 'cortou';
+
+/**
+ * Contador do campo da mensagem, com as mesmas faixas do `CampoDeTexto`:
+ * aparece a partir de 80%, e o leitor de tela ouve um anúncio por mudança de
+ * faixa (90%, limite, corte), nunca por tecla.
+ */
+function ContadorDaMensagem({
   valor,
   limite,
-  onChangeText,
+  cortou,
 }: {
   valor: string;
   limite: number;
+  cortou: boolean;
+}) {
+  const total = contarPontosDeCodigo(valor);
+  // O corte só vale enquanto o texto segue no limite (o envio limpa o campo).
+  const faixa: FaixaDoContador =
+    cortou && total >= limite
+      ? 'cortou'
+      : total >= limite
+        ? 'limite'
+        : total >= limite * 0.9
+          ? 'faltam'
+          : total >= limite * 0.8
+            ? 'perto'
+            : 'nenhuma';
+  const g = textos.gerais;
+  const anunciado =
+    faixa === 'cortou'
+      ? g.contadorCortado(limite)
+      : faixa === 'limite'
+        ? g.contadorLimite(limite)
+        : faixa === 'faltam'
+          ? g.contadorFaltam(limite - total)
+          : null;
+  const [anuncio, setAnuncio] = useState<{ texto: string; n: number } | null>(
+    null,
+  );
+  const ultimaFaixa = useRef<FaixaDoContador>(faixa);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reage só à mudança de faixa e ao corte; o texto é lido no momento.
+  useEffect(() => {
+    const anterior = ultimaFaixa.current;
+    ultimaFaixa.current = faixa;
+    if (faixa === anterior && faixa !== 'cortou') return;
+    if (!anunciado) {
+      setAnuncio(null);
+      return;
+    }
+    setAnuncio((atual) => ({ texto: anunciado, n: (atual?.n ?? 0) + 1 }));
+    if (Platform.OS === 'ios')
+      AccessibilityInfo.announceForAccessibility(anunciado);
+  }, [faixa, valor]);
+
+  if (faixa === 'nenhuma') return null;
+  const texto =
+    faixa === 'cortou' || faixa === 'limite'
+      ? (anunciado as string)
+      : faixa === 'faltam'
+        ? `${g.contador(total, limite)}. ${g.contadorFaltam(limite - total)}`
+        : g.contador(total, limite);
+  return (
+    <>
+      <Text
+        style={{
+          color: faixa === 'perto' ? cores.textoSecundario : cores.texto,
+          fontSize: tipografia.tamanho.rotulo,
+          lineHeight: tipografia.lineHeight.rotulo,
+          fontWeight:
+            faixa === 'limite' || faixa === 'cortou'
+              ? tipografia.peso.semibold
+              : faixa === 'faltam'
+                ? tipografia.peso.medio
+                : tipografia.peso.normal,
+        }}
+      >
+        {texto}
+      </Text>
+      {anuncio ? (
+        <Text
+          key={anuncio.n}
+          accessibilityLiveRegion="polite"
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+        >
+          {anuncio.texto}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+function CampoDaMensagem({
+  valor,
+  onChangeText,
+}: {
+  valor: string;
   onChangeText: (texto: string) => void;
 }) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
@@ -266,7 +350,6 @@ function CampoDaMensagem({
       value={valor}
       onChangeText={onChangeText}
       multiline
-      maxLength={limite}
       onFocus={aoFocar}
       onBlur={aoDesfocar}
       style={[

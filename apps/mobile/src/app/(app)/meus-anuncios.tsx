@@ -1,3 +1,4 @@
+import type { QueryKey } from '@tanstack/react-query';
 import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Categoria, Servico, Trampo } from '../../api/tipos';
 import {
@@ -11,7 +12,10 @@ import {
   useMeusTrampos,
 } from '../../estado/consultas/anuncios';
 import { useCategorias } from '../../estado/consultas/busca';
+import { chaves } from '../../estado/consultas/chaves';
+import { mensagemDoErro } from '../../estado/erros';
 import { estadoDeConsulta } from '../../estado/estado-de-bloco';
+import { folhaDepoisDoConflito } from '../../estado/folha-atualizada';
 import { meuAnuncioParaExibir } from '../../estado/item-para-exibir';
 import { useNavegarUmaVez } from '../../estado/navegar-uma-vez';
 import {
@@ -70,10 +74,13 @@ function useAcoes(tipo: TipoDeAnuncio) {
  * "Mais opções" de Meus anúncios (CA33): a folha, o toast do resultado e o
  * aviso que a edição deixou ao voltar ("Alterações salvas."). `paraFolha`
  * monta o anúncio da folha a partir do dado cru da lista "minha" (só ele traz
- * o status e a contagem de candidaturas); `null` se o item já saiu da lista.
+ * o status e a contagem de candidaturas); `null` se o item não está entre as
+ * páginas carregadas. A folha aberta segue a lista viva (`anuncioAtual`,
+ * CA61), e `chaveDaLista` diz qual consulta é relida depois de um 409.
  */
 function useMaisOpcoes(
-  paraFolha: (id: string, titulo: string) => AnuncioDaFolha | null,
+  paraFolha: (id: string) => AnuncioDaFolha | null,
+  chaveDaLista: QueryKey,
 ) {
   const abrirEdicao = useNavegarUmaVez();
   const acoes = useAcoesDoAnuncio({
@@ -83,14 +90,19 @@ function useMaisOpcoes(
           ? { pathname: '/trampos/editar/[id]', params: { id: anuncio.id } }
           : { pathname: '/servicos/editar/[id]', params: { id: anuncio.id } },
       ),
+    anuncioAtual: (aberto) => paraFolha(aberto.id),
+    consultaDoAtual: chaveDaLista,
   });
   const aviso = useAvisoDeRetorno(useIsFocused());
   const { abrir, fecharToast } = acoes;
   const { limpar } = aviso;
   return {
-    folha: acoes.folha,
+    folha:
+      acoes.folha === undefined
+        ? undefined
+        : folhaDepoisDoConflito(acoes.folha, acoes.conflito),
     onMaisOpcoes: (item: MeuAnuncioParaExibir) => {
-      const anuncio = paraFolha(item.id, item.titulo);
+      const anuncio = paraFolha(item.id);
       if (anuncio !== null) {
         abrir(anuncio);
       }
@@ -115,20 +127,20 @@ function paraExibir(
 function MeusTrampos() {
   const acoes = useAcoes('trampo');
   const consulta = useMeusTrampos();
-  const opcoes = useMaisOpcoes((id, titulo) => {
+  const opcoes = useMaisOpcoes((id) => {
     const trampo = consulta.trampos?.find((t) => t.id === id);
     return trampo === undefined
       ? null
       : {
           tipo: 'trampo',
           id,
-          titulo,
+          titulo: trampo.titulo,
           status: trampo.status,
           ...(trampo.candidaturasRecebidas !== undefined && {
             candidaturasRecebidas: trampo.candidaturasRecebidas,
           }),
         };
-  });
+  }, chaves.meusTrampos());
   const lista = estadoDeConsulta(
     {
       dados: consulta.trampos,
@@ -149,6 +161,20 @@ function MeusTrampos() {
       onMaisOpcoes={opcoes.onMaisOpcoes}
       toast={opcoes.toast}
       onFecharToast={opcoes.onFecharToast}
+      // Só com mais páginas (D47); o erro de "carregar mais" não tira a lista.
+      carregarMais={
+        consulta.temMais
+          ? {
+              carregando: consulta.carregandoMais,
+              ...(consulta.erroAoCarregarMais !== null && {
+                erro: mensagemDoErro(consulta.erroAoCarregarMais),
+              }),
+              onCarregarMais: () => {
+                void consulta.carregarMais();
+              },
+            }
+          : undefined
+      }
     />
   );
 }
@@ -156,11 +182,12 @@ function MeusTrampos() {
 function MeusServicos() {
   const acoes = useAcoes('servico');
   const consulta = useMeusServicos();
-  const opcoes = useMaisOpcoes((id, titulo) =>
-    consulta.servicos?.some((s) => s.id === id)
-      ? { tipo: 'servico', id, titulo }
-      : null,
-  );
+  const opcoes = useMaisOpcoes((id) => {
+    const servico = consulta.servicos?.find((s) => s.id === id);
+    return servico === undefined
+      ? null
+      : { tipo: 'servico', id, titulo: servico.titulo };
+  }, chaves.meusServicos());
   const lista = estadoDeConsulta(
     {
       dados: consulta.servicos,

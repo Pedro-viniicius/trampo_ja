@@ -269,6 +269,13 @@ describe('meu perfil', () => {
       screen.getByRole('button', { name: textos.perfil.completar }),
     );
     await waitFor(() => expect(screen).toHavePathname('/perfil/editar'));
+    // O 404 já está no cache: o formulário abre vazio, sem carregando nem erro
+    // (perfil novo não é falha de carga, CA57).
+    expect(
+      await screen.findByLabelText(textos.editarPerfil.nome),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(textos.editarPerfil.carregando)).toBeNull();
+    expect(screen.queryByText(textos.editarPerfil.erroAoCarregar)).toBeNull();
   });
 
   it('sair confirma, chama DELETE /sessoes com Bearer e deixa a sessão anônima', async () => {
@@ -318,12 +325,12 @@ describe('meu perfil sem conexão', () => {
     const fetch = criarFake().responder('GET /perfis/eu', { status: 404 });
     await abrir('/perfil', fetch);
 
-    expect(
-      await screen.findByText(textos.gerais.semConexaoFaixa),
-    ).toBeOnTheScreen();
+    // A faixa é da raiz (CA56): a tela de Perfil não desenha a sua.
+    expect(await screen.findByText(textos.perfil.titulo)).toBeOnTheScreen();
     await act(async () => {
       jest.advanceTimersByTime(50);
     });
+    expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
 
     // A consulta fica pausada: nada foi pedido e nada diz "Falta: ...".
     expect(fetch.requisicoes.some((r) => r.caminho === '/perfis/eu')).toBe(
@@ -370,6 +377,25 @@ describe('editar perfil (CA3)', () => {
     fireEvent.press(
       screen.getByRole('button', { name: textos.editarPerfil.salvar }),
     );
+
+  it('vindo do perfil já carregado, o formulário abre na hora, sem carregando (CA57)', async () => {
+    const fetch = criarFake().responder('GET /perfis/eu', {
+      corpo: MEU_PERFIL,
+    });
+    await abrir('/perfil', fetch);
+    await screen.findByText('Ana Lima');
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.perfil.editar }),
+    );
+    await waitFor(() => expect(screen).toHavePathname('/perfil/editar'));
+
+    expect(await screen.findByDisplayValue('Ana Lima')).toBeOnTheScreen();
+    expect(screen.queryByLabelText(textos.editarPerfil.carregando)).toBeNull();
+    expect(
+      screen.getByRole('button', { name: textos.editarPerfil.salvar }),
+    ).toBeOnTheScreen();
+  });
 
   it('erro local (nome vazio) aparece no campo e nada é enviado', async () => {
     const fetch = criarFake().responder('GET /perfis/eu', {

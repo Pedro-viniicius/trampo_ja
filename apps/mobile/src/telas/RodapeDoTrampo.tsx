@@ -160,11 +160,7 @@ function FolhaDeCandidaturaView({
           valor={folha.mensagem}
           onChangeText={folha.onMudarMensagem}
           multiline
-          maxLength={LIMITE_DA_MENSAGEM}
-          contador={textos.formularioDeAnuncio.contador(
-            Array.from(folha.mensagem).length,
-            LIMITE_DA_MENSAGEM,
-          )}
+          limite={LIMITE_DA_MENSAGEM}
           erro={folha.erros.mensagem}
           editable={!folha.enviando}
           inputRef={mensagemRef}

@@ -136,13 +136,15 @@ describe('Início', () => {
         f.responder('GET /busca', pagina([], null));
       });
 
+      // A faixa é da raiz (CA56): esta tela não desenha a sua.
       expect(
-        await screen.findByText(textos.gerais.semConexaoFaixa),
+        await screen.findByText(textos.inicio.saudacaoSemNome),
       ).toBeOnTheScreen();
       await act(async () => {
         jest.advanceTimersByTime(50);
       });
 
+      expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
       expect(fetch.requisicoes).toHaveLength(0);
       expect(screen.queryByText(/Complete seu perfil/)).toBeNull();
       expect(
@@ -458,7 +460,7 @@ describe('Buscar', () => {
     expect(buscas(fetch)).toHaveLength(2);
   });
 
-  it('offline: mostra a faixa e não finge que não há resultados', async () => {
+  it('offline: não finge que não há resultados e não desenha a faixa (é da raiz)', async () => {
     onlineManager.setOnline(false);
     try {
       await abrir('/buscar', (f) => {
@@ -469,9 +471,11 @@ describe('Buscar', () => {
         'submitEditing',
       );
 
-      expect(
-        await screen.findByText(textos.gerais.semConexaoFaixa),
-      ).toBeOnTheScreen();
+      // A faixa é da raiz (CA56): a tela de Buscar não desenha a sua.
+      await act(async () => {
+        jest.advanceTimersByTime(50);
+      });
+      expect(screen.queryByText(textos.gerais.semConexaoFaixa)).toBeNull();
       expect(
         screen.queryByText(textos.buscar.semResultados),
       ).not.toBeOnTheScreen();

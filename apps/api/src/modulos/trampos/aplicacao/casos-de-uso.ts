@@ -19,6 +19,7 @@ import type {
   CursorDeBusca,
   FiltrosDeBusca,
   GravacaoSobTrava,
+  PaginaDoAutor,
   RepositorioDeTrampos,
   VerificadorDePerfil,
 } from '../dominio/portas.js';
@@ -33,6 +34,9 @@ import {
 export const LIMITE_PADRAO_DE_BUSCA = 20;
 export const LIMITE_MAXIMO_DE_BUSCA = 50;
 export const TEXTO_DE_BUSCA_MAXIMO = 100;
+/** Página de `GET /trampos/meus` (D47): 20 por padrão, no máximo 50. */
+export const LIMITE_PADRAO_DOS_MEUS_TRAMPOS = 20;
+export const LIMITE_MAXIMO_DOS_MEUS_TRAMPOS = 50;
 /**
  * Quantas vezes candidatar e aceitar releem o trampo e tentam gravar de novo
  * quando perdem a trava otimista. Cada candidatura sobe a versão do trampo,
@@ -54,6 +58,17 @@ export interface EntradaDeBusca {
   readonly cidade?: unknown;
   readonly antesDe?: CursorDeBusca;
   readonly limite?: unknown;
+}
+
+/**
+ * Página de "meus trampos" como chega da API (D47), ainda não validada. O
+ * cursor é o `criadoEm` e o `id` do último item da página anterior, e os dois
+ * vêm juntos ou nenhum.
+ */
+export interface EntradaDaListaDoAutor {
+  readonly limite?: unknown;
+  readonly antesDeCriadoEm?: unknown;
+  readonly antesDeId?: unknown;
 }
 
 export interface CandidaturaVisao {
@@ -99,6 +114,109 @@ function visaoDaCandidatura(candidatura: Candidatura): CandidaturaVisao {
  */
 function normalizarId(id: string): string {
   return id.toLowerCase();
+}
+
+const FORMATO_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Faixa de datas aceita no cursor, como na busca: todo trampo é criado depois
+ * de 1970, e fora do ano 1 a 9999 o `timestamptz` do Postgres recusaria o
+ * parâmetro (500).
+ */
+const DATA_MINIMA_DO_CURSOR = Date.UTC(1970, 0, 1);
+const DATA_MAXIMA_DO_CURSOR = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+/** `limite` de uma página: ausente vale o padrão; fora de 1 a `maximo`, `invalido`. */
+function lerLimite(
+  bruto: unknown,
+  padrao: number,
+  maximo: number,
+  problemas: CampoInvalido[],
+): number {
+  if (bruto === undefined || bruto === null) {
+    return padrao;
+  }
+  if (
+    typeof bruto === 'number' &&
+    Number.isInteger(bruto) &&
+    bruto >= 1 &&
+    bruto <= maximo
+  ) {
+    return bruto;
+  }
+  problemas.push({ campo: 'limite', motivo: 'invalido' });
+  return padrao;
+}
+
+/**
+ * `antesDeCriadoEm` do cursor: só o ISO 8601 em UTC que a API devolve no
+ * `criadoEm` (`toISOString`, com milissegundos e `Z`), dentro da faixa.
+ */
+function lerDataDoCursor(bruta: string): Date | undefined {
+  const data = new Date(bruta);
+  if (
+    Number.isNaN(data.getTime()) ||
+    data.getTime() < DATA_MINIMA_DO_CURSOR ||
+    data.getTime() > DATA_MAXIMA_DO_CURSOR ||
+    data.toISOString() !== bruta
+  ) {
+    return undefined;
+  }
+  return data;
+}
+
+/**
+ * Valida a página pedida (D47) antes de qualquer leitura. Os dois campos do
+ * cursor vêm juntos: o que falta é `obrigatorio`; o fora do formato,
+ * `invalido`. O id do cursor é guardado em minúsculas, como os ids gerados.
+ * Os erros levam só o nome do campo, nunca o valor.
+ */
+function lerPaginaDoAutor(entrada: EntradaDaListaDoAutor): PaginaDoAutor {
+  const problemas: CampoInvalido[] = [];
+  const limite = lerLimite(
+    entrada.limite,
+    LIMITE_PADRAO_DOS_MEUS_TRAMPOS,
+    LIMITE_MAXIMO_DOS_MEUS_TRAMPOS,
+    problemas,
+  );
+
+  const { antesDeCriadoEm, antesDeId } = entrada;
+  const temData = antesDeCriadoEm !== undefined && antesDeCriadoEm !== null;
+  const temId = antesDeId !== undefined && antesDeId !== null;
+  let criadoEm: Date | undefined;
+  let id: string | undefined;
+  if (temData) {
+    criadoEm =
+      typeof antesDeCriadoEm === 'string'
+        ? lerDataDoCursor(antesDeCriadoEm)
+        : undefined;
+    if (criadoEm === undefined) {
+      problemas.push({ campo: 'antesDeCriadoEm', motivo: 'invalido' });
+    }
+  } else if (temId) {
+    problemas.push({ campo: 'antesDeCriadoEm', motivo: 'obrigatorio' });
+  }
+  if (temId) {
+    if (typeof antesDeId === 'string' && FORMATO_UUID.test(antesDeId)) {
+      id = normalizarId(antesDeId);
+    } else {
+      problemas.push({ campo: 'antesDeId', motivo: 'invalido' });
+    }
+  } else if (temData) {
+    problemas.push({ campo: 'antesDeId', motivo: 'obrigatorio' });
+  }
+
+  if (problemas.length > 0) {
+    throw new ErroDeValidacao(problemas);
+  }
+  return {
+    limite,
+    ...(criadoEm !== undefined &&
+      id !== undefined && {
+        antesDe: { criadoEm, id },
+      }),
+  };
 }
 
 /**
@@ -167,19 +285,12 @@ function lerFiltros(entrada: EntradaDeBusca): FiltrosDeBusca {
     }
   }
 
-  let limite = LIMITE_PADRAO_DE_BUSCA;
-  if (entrada.limite !== undefined && entrada.limite !== null) {
-    if (
-      typeof entrada.limite === 'number' &&
-      Number.isInteger(entrada.limite) &&
-      entrada.limite >= 1 &&
-      entrada.limite <= LIMITE_MAXIMO_DE_BUSCA
-    ) {
-      limite = entrada.limite;
-    } else {
-      problemas.push({ campo: 'limite', motivo: 'invalido' });
-    }
-  }
+  const limite = lerLimite(
+    entrada.limite,
+    LIMITE_PADRAO_DE_BUSCA,
+    LIMITE_MAXIMO_DE_BUSCA,
+    problemas,
+  );
 
   const cursor = entrada.antesDe;
   if (
@@ -259,8 +370,9 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
   }
 
   /**
-   * Ação de estado do autor sob a trava pessimista do trampo (D33, S1): sem
-   * releitura nem teto de tentativas. Trampo inexistente: 404.
+   * Ação sob a trava pessimista do trampo: as do autor (D33, S1) e a retirada
+   * do freelancer (D49). Sem releitura nem teto de tentativas. Trampo
+   * inexistente: 404.
    */
   async function alterarSobTrava(
     trampoId: string,
@@ -345,9 +457,18 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
       return trampo.autorId === quem ? trampo.resumoDoAutor() : trampo.resumo();
     },
 
-    /** Os trampos do autor, em qualquer status, na visão do autor (D33). */
-    async listarMeusTrampos(autorId: string): Promise<TrampoDoAutor[]> {
-      return repositorio.listarDoAutor(autorId);
+    /**
+     * Uma página dos trampos do autor, em qualquer status, na visão do autor
+     * (D33), mais recentes primeiro (D47, CA66). Sem cursor, a primeira
+     * página; com ele, os estritamente mais antigos que `(antesDeCriadoEm,
+     * antesDeId)`. Só os do `autorId` da sessão. Página inválida: 400 antes
+     * de ler.
+     */
+    async listarMeusTrampos(
+      autorId: string,
+      entrada: EntradaDaListaDoAutor = {},
+    ): Promise<TrampoDoAutor[]> {
+      return repositorio.listarDoAutor(autorId, lerPaginaDoAutor(entrada));
     },
 
     /**
@@ -417,8 +538,12 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
     /**
      * CA29: o freelancer retira a própria candidatura pendente; a linha é
      * apagada e ele pode se candidatar de novo. Inexistente ou de outra conta
-     * dá 404; aceita ou recusada, `candidatura_nao_pendente`. Passa pela trava
-     * do trampo, como o aceite: os dois nunca gravam sobre a mesma leitura.
+     * dá 404; aceita ou recusada, `candidatura_nao_pendente`. A regra roda no
+     * servidor sob a trava do trampo, como encerrar e excluir (D49, CA65): a
+     * escrita que gravou antes é vista (o aceite vira
+     * `candidatura_nao_pendente`; o trampo excluído, 404); a que chega durante
+     * espera e relê o estado novo. Sem releitura nem teto de tentativas, nunca
+     * dá `conflito_de_versao`, nem sob uma rajada de candidaturas.
      */
     async retirarCandidatura(
       quem: string,
@@ -429,7 +554,10 @@ export function criarCasosDeUsoDeTrampos(deps: DependenciasDeTrampos) {
       if (trampoId === null) {
         throw new ErroNaoEncontrado();
       }
-      await alterarTrampo(trampoId, (trampo) => trampo.retirar(id, quem));
+      await alterarSobTrava(trampoId, (trampo) => {
+        trampo.retirar(id, quem);
+        return 'salvar';
+      });
     },
 
     /** CA4 e CA7 (parte de trampos): filtros com E lógico, mais recentes primeiro. */
