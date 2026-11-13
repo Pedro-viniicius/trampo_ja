@@ -90,6 +90,10 @@ describe('CA19 — conta sem nada e campos opcionais', () => {
       servicos: [],
       candidaturas: [],
       conversas: [],
+      // V2b (CA93): as listas de avaliações e favoritos também vêm vazias.
+      avaliacoesFeitas: [],
+      avaliacoesRecebidas: [],
+      favoritos: [],
     });
   });
 

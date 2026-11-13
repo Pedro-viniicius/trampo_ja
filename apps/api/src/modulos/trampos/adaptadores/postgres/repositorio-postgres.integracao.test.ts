@@ -631,6 +631,159 @@ describe('listagens e vínculo', () => {
   });
 });
 
+describe('vinculoParaAvaliacao (contrato com avaliacoes, CA87, ADR-011)', () => {
+  const modulo = () =>
+    criarModuloDeTrampos({
+      db: db(),
+      verificadorDePerfil: new VerificadorDePerfilEmMemoria(),
+    });
+
+  /** Trampo com ANA aceita e BRUNO recusado (em andamento). */
+  async function emAndamento(): Promise<string> {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+    return id;
+  }
+
+  const vinculo = (trampoId: string, contaId: string) =>
+    repositorio.vinculoParaAvaliacao(trampoId, contaId);
+
+  it('CA87 — encerrado com aceita: o autor avalia o freela e o freela avalia o autor; recusado e terceiro, null', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await vinculo(id, EMPREGADOR)).toEqual({
+      avaliadoId: ANA,
+      papelDoAvaliado: 'freela',
+    });
+    expect(await vinculo(id, ANA)).toEqual({
+      avaliadoId: EMPREGADOR,
+      papelDoAvaliado: 'contratante',
+    });
+    expect(await vinculo(id, BRUNO)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+    // A fachada, sem transação, faz a mesma consulta na conexão do módulo.
+    expect(await modulo().vinculoParaAvaliacao(id, ANA)).toEqual({
+      avaliadoId: EMPREGADOR,
+      papelDoAvaliado: 'contratante',
+    });
+  });
+
+  it('CA87 — em andamento: as partes recebem nao_encerrado; recusado e terceiro, null', async () => {
+    const id = await emAndamento();
+
+    expect(await vinculo(id, EMPREGADOR)).toBe('nao_encerrado');
+    expect(await vinculo(id, ANA)).toBe('nao_encerrado');
+    expect(await vinculo(id, BRUNO)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+  });
+
+  it('CA87 — aberto: o autor recebe nao_encerrado; o candidato pendente e o terceiro, null', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+
+    expect(await vinculo(id, EMPREGADOR)).toBe('nao_encerrado');
+    expect(await vinculo(id, ANA)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+  });
+
+  it('CA87 — encerrado sem candidatura aceita: ninguém tem a quem avaliar', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await vinculo(id, EMPREGADOR)).toBeNull();
+    expect(await vinculo(id, ANA)).toBeNull();
+  });
+
+  it('CA87 — terceiro recebe null em todo estado, igual ao trampo inexistente; ids fora do formato uuid dão null sem erro de banco', async () => {
+    const aberto = await publicar();
+    const andamento = await emAndamento();
+    const encerrado = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, encerrado);
+    const encerradoSemAceita = await publicar();
+    await casos.encerrarTrampo(EMPREGADOR, encerradoSemAceita);
+
+    const respostas = await Promise.all(
+      [aberto, andamento, encerrado, encerradoSemAceita, randomUUID()].map(
+        (id) => vinculo(id, CARLA),
+      ),
+    );
+
+    expect(respostas).toEqual([null, null, null, null, null]);
+    expect(await vinculo('nao-uuid', EMPREGADOR)).toBeNull();
+    expect(await vinculo(encerrado, 'nao-uuid')).toBeNull();
+    expect(await vinculo("'; drop table trampos; --", ANA)).toBeNull();
+  });
+
+  it('duas candidaturas aceitas no mesmo trampo (estado que a regra não produz): ninguém avalia', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+    await db()
+      .updateTable('candidaturas')
+      .set({ status: 'aceita' })
+      .where('trampo_id', '=', id)
+      .execute();
+
+    expect(await vinculo(id, EMPREGADOR)).toBeNull();
+    expect(await vinculo(id, ANA)).toBeNull();
+    expect(await vinculo(id, BRUNO)).toBeNull();
+  });
+
+  it('a fachada consulta na transação recebida (a da gravação da avaliação), vendo o que só ela vê', async () => {
+    const id = await emAndamento();
+    class Desfazer extends Error {}
+    const vistos: unknown[] = [];
+
+    await db()
+      .transaction()
+      .execute(async (trx) => {
+        // Encerrado só dentro desta transação, ainda sem commit.
+        await trx
+          .updateTable('trampos')
+          .set({ status: 'encerrado' })
+          .where('id', '=', id)
+          .execute();
+        vistos.push(await modulo().vinculoParaAvaliacao(id, ANA, trx));
+        vistos.push(await modulo().vinculoParaAvaliacao(id, ANA));
+        throw new Desfazer();
+      })
+      .catch((erro: unknown) => {
+        if (!(erro instanceof Desfazer)) {
+          throw erro;
+        }
+      });
+
+    expect(vistos).toEqual([
+      { avaliadoId: EMPREGADOR, papelDoAvaliado: 'contratante' },
+      'nao_encerrado',
+    ]);
+  });
+
+  it('lê sem trava: com o trampo travado (for update) por outra transação, a consulta responde sem esperar', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+    const vistos: unknown[] = [];
+
+    await db()
+      .transaction()
+      .execute(async (trx) => {
+        await trx
+          .selectFrom('trampos')
+          .select('id')
+          .where('id', '=', id)
+          .forUpdate()
+          .execute();
+        // Outra conexão do pool: se a consulta travasse, esperaria este commit.
+        vistos.push(await modulo().vinculoParaAvaliacao(id, EMPREGADOR));
+      });
+
+    expect(vistos).toEqual([{ avaliadoId: ANA, papelDoAvaliado: 'freela' }]);
+  });
+});
+
 describe('exclusão e exportação da conta (D25, D26, ADR-005)', () => {
   const modulo = () =>
     criarModuloDeTrampos({

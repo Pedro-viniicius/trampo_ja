@@ -1,8 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { estiloDeFoco, useFoco } from './utilitarios';
+import { estiloDeFoco, useFoco, useReduzirMovimento } from './utilitarios';
 
 export type PropsDoCartaoDeAnuncio = {
   tipo: 'trampo' | 'servico';
@@ -12,9 +13,15 @@ export type PropsDoCartaoDeAnuncio = {
   /** Ex.: "R$ 1.234,56". */
   valorFormatado: string;
   dataFormatada: string;
+  /** Nome de quem publicou, quando a lista trouxer. */
+  autor?: string | null;
   onPress: () => void;
 };
 
+/**
+ * Cartão de trampo ou serviço (V2): branco, raio 24, sombra leve. O cartão
+ * inteiro é um botão; a seta redonda é só visual.
+ */
 export function CartaoDeAnuncio({
   tipo,
   titulo,
@@ -22,9 +29,11 @@ export function CartaoDeAnuncio({
   cidade,
   valorFormatado,
   dataFormatada,
+  autor,
   onPress,
 }: PropsDoCartaoDeAnuncio) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
+  const reduzirMovimento = useReduzirMovimento();
   const ehTrampo = tipo === 'trampo';
   const nomeDoTipo = ehTrampo
     ? textos.gerais.tipoTrampo
@@ -34,6 +43,7 @@ export function CartaoDeAnuncio({
     titulo,
     categoria,
     cidade,
+    autor,
     valorFormatado,
     dataFormatada,
   ]
@@ -49,85 +59,109 @@ export function CartaoDeAnuncio({
       onBlur={aoDesfocar}
       style={({ pressed }) => [
         {
-          gap: espaco[2],
-          padding: espaco[4],
-          borderRadius: raio.md,
-          borderWidth: 1,
-          borderColor: cores.borda,
-          backgroundColor: pressed ? cores.superficie : cores.fundo,
+          gap: espaco.s,
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: cores.superficie,
+          transform: [{ translateY: pressed && !reduzirMovimento ? -2 : 0 }],
         },
+        pressed ? sombra.md : sombra.sm,
         focado && estiloDeFoco,
       ]}
     >
       <View
-        style={{ flexDirection: 'row', alignItems: 'center', gap: espaco[1] }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.xs }}
       >
-        <Ionicons
-          name={ehTrampo ? 'briefcase-outline' : 'construct-outline'}
-          size={16}
+        <Feather
+          name={ehTrampo ? 'briefcase' : 'tool'}
+          size={14}
           color={cores.acento}
         />
         <Text
-          style={{
-            color: cores.acento,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
-            fontWeight: tipografia.peso.semibold,
-          }}
+          style={[
+            estiloDeTexto('sobretitulo', 'negrito'),
+            { color: cores.acento },
+          ]}
         >
           {nomeDoTipo}
         </Text>
       </View>
       <Text
         numberOfLines={2}
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.tituloDeSeção,
-          lineHeight: tipografia.lineHeight.tituloDeSeção,
-          fontWeight: tipografia.peso.semibold,
-        }}
+        style={[estiloDeTexto('h3'), { color: cores.texto }]}
       >
         {titulo}
       </Text>
-      <Text
-        numberOfLines={2}
-        style={{
-          color: cores.textoSecundario,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-        }}
+      <View
+        style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.xs }}
       >
-        {cidade ? `${categoria} · ${cidade}` : categoria}
-      </Text>
+        <Feather name="map-pin" size={14} color={cores.textoSecundario} />
+        <Text
+          numberOfLines={2}
+          style={[
+            estiloDeTexto('legenda'),
+            { flex: 1, color: cores.textoSecundario },
+          ]}
+        >
+          {cidade ? `${categoria} · ${cidade}` : categoria}
+        </Text>
+      </View>
+      {autor ? (
+        <Text
+          numberOfLines={1}
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+        >
+          {autor}
+        </Text>
+      ) : null}
+      <View
+        style={{
+          height: 1,
+          backgroundColor: cores.divisor,
+          marginVertical: espaco.xs,
+        }}
+      />
       <View
         style={{
           flexDirection: 'row',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'baseline',
-          columnGap: espaco[2],
+          alignItems: 'center',
+          gap: espaco.s,
         }}
       >
-        <Text
+        <View
           style={{
-            flexShrink: 1,
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-            fontWeight: tipografia.peso.negrito,
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: espaco.xs,
           }}
         >
+          <Feather name="calendar" size={14} color={cores.textoSecundario} />
+          <Text
+            numberOfLines={1}
+            style={[
+              estiloDeTexto('legenda'),
+              { flexShrink: 1, color: cores.textoSecundario },
+            ]}
+          >
+            {dataFormatada}
+          </Text>
+        </View>
+        <Text style={[estiloDeTexto('h3'), { color: cores.texto }]}>
           {valorFormatado}
         </Text>
-        <Text
+        <View
           style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
+            width: 32,
+            height: 32,
+            borderRadius: raio.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: cores.primaria,
           }}
         >
-          {dataFormatada}
-        </Text>
+          <Feather name="chevron-right" size={18} color={cores.branco} />
+        </View>
       </View>
     </Pressable>
   );

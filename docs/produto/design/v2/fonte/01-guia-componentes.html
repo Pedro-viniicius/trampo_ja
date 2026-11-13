@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Guia de estilo — Componentes</title>
+<script src="e2ca7952-ec0b-44ec-b7b2-b7c74782c38f"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, box-shadow .16s ease, background-color .16s ease;cursor:pointer}
+.tj-press:active{transform:scale(.97)}
+.tj-lift{transition:transform .16s ease, box-shadow .16s ease}
+.tj-lift:hover{transform:translateY(-2px);box-shadow:0 6px 16px -4px rgba(22,26,43,.12)}
+@keyframes tj-spin{to{transform:rotate(360deg)}}
+@keyframes tj-pop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+@keyframes tj-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+@keyframes tj-heart{0%,100%{transform:scale(1)}40%{transform:scale(1.28)}}
+@keyframes tj-rise{0%{transform:translateY(24px);opacity:0}100%{transform:translateY(0);opacity:1}}
+.tj-spin{animation:tj-spin .8s linear infinite}
+.tj-pop{animation:tj-pop .6s cubic-bezier(.2,.8,.2,1.2) infinite alternate}
+.tj-shimmer{background:linear-gradient(90deg,#EEF0F5 0,#F6F7FA 50%,#EEF0F5 100%);background-size:400px 100%;animation:tj-shimmer 1.2s linear infinite}
+.tj-heart{animation:tj-heart 1.2s ease-in-out infinite}
+.tj-rise{animation:tj-rise 1.4s cubic-bezier(.2,.8,.2,1) infinite alternate}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 2760px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #161A2B; padding: 80px; display: flex; flex-direction: column; gap: 96px;">
+
+  <header style="display: flex; justify-content: space-between; align-items: flex-end;">
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <span style="font-weight: 700; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #0F6AD8;">Guia de estilo · Componentes</span>
+      <h1 style="margin: 0; font-family: 'Bricolage Grotesque', 'Avenir Next', system-ui, sans-serif; font-weight: 800; font-size: 72px; line-height: 76px; letter-spacing: -0.03em;">Peças que se encaixam.</h1>
+    </div>
+    <p style="margin: 0; max-width: 420px; font-size: 17px; line-height: 26px; color: #555B73;">Cada componente com seus estados: padrão, hover, pressionado, desabilitado e erro. Todos os espaçamentos em múltiplos de 8px.</p>
+  </header>
+
+  <!-- 05 Botões -->
+  <section style="display: flex; flex-direction: column; gap: 32px;">
+    <div style="display: flex; align-items: baseline; gap: 16px;">
+      <span style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 20px; color: #0F6AD8;">05</span>
+      <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 48px; line-height: 56px; letter-spacing: -0.02em;">Botões</h2>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 32px; padding: 40px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 24px;">
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; font-size: 13px; font-weight: 600; color: #555B73; text-transform: uppercase; letter-spacing: 0.06em;">
+        <span></span><span>Padrão</span><span>Hover</span><span>Pressionado</span><span>Desabilitado</span><span>Carregando</span>
+      </div>
+      <!-- Primário -->
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">Primário</b><span style="font-size: 13px; color: #555B73;">Gradiente Já · 1 por tela</span></div>
+        <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; box-shadow: 0 12px 24px -10px rgba(122,59,191,.6);">Quero me candidatar</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: linear-gradient(135deg, #0B54AD 0%, #7A3BBF 100%); color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; box-shadow: 0 16px 28px -10px rgba(122,59,191,.7);">Quero me candidatar</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: linear-gradient(135deg, #0C4588 0%, #632F9A 100%); color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; transform: scale(.97);">Quero me candidatar</button>
+        <button disabled="" style="height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px/20px Figtree, system-ui, sans-serif;">Quero me candidatar</button>
+        <button aria-label="Carregando" style="height: 56px; border: 0; border-radius: 999px; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); display: flex; align-items: center; justify-content: center;"><span class="tj-spin" style="width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.35); border-top-color: #FFFFFF; display: block;"></span></button>
+      </div>
+      <!-- Tinta -->
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">Secundário</b><span style="font-size: 13px; color: #555B73;">Tinta 900</span></div>
+        <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: #161A2B; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif;">Ver propostas</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #262B3F; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif;">Ver propostas</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #0D0F1A; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; transform: scale(.97);">Ver propostas</button>
+        <button disabled="" style="height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px/20px Figtree, system-ui, sans-serif;">Ver propostas</button>
+        <button aria-label="Carregando" style="height: 56px; border: 0; border-radius: 999px; background: #161A2B; display: flex; align-items: center; justify-content: center;"><span class="tj-spin" style="width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.3); border-top-color: #FFFFFF; display: block;"></span></button>
+      </div>
+      <!-- Tonal -->
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">Tonal</b><span style="font-size: 13px; color: #555B73;">Ações de apoio</span></div>
+        <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: #EEF5FF; color: #0F6AD8; font: 600 16px/20px Figtree, system-ui, sans-serif;">Enviar mensagem</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #D9E9FE; color: #0B54AD; font: 600 16px/20px Figtree, system-ui, sans-serif;">Enviar mensagem</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #B3D3FD; color: #0C4588; font: 600 16px/20px Figtree, system-ui, sans-serif; transform: scale(.97);">Enviar mensagem</button>
+        <button disabled="" style="height: 56px; border: 0; border-radius: 999px; background: #EEF0F5; color: #6B7189; font: 600 16px/20px Figtree, system-ui, sans-serif;">Enviar mensagem</button>
+        <button aria-label="Carregando" style="height: 56px; border: 0; border-radius: 999px; background: #EEF5FF; display: flex; align-items: center; justify-content: center;"><span class="tj-spin" style="width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid #B3D3FD; border-top-color: #0F6AD8; display: block;"></span></button>
+      </div>
+      <!-- Contorno -->
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">Contorno</b><span style="font-size: 13px; color: #555B73;">Neutro, terciário</span></div>
+        <button class="tj-press" style="height: 56px; border: 1.5px solid #C4C8D5; border-radius: 999px; background: #FFFFFF; color: #161A2B; font: 600 16px/20px Figtree, system-ui, sans-serif;">Agendar</button>
+        <button style="height: 56px; border: 1.5px solid #9AA0B4; border-radius: 999px; background: #F6F7FA; color: #161A2B; font: 600 16px/20px Figtree, system-ui, sans-serif;">Agendar</button>
+        <button style="height: 56px; border: 1.5px solid #0F6AD8; border-radius: 999px; background: #EEF5FF; color: #0F6AD8; font: 600 16px/20px Figtree, system-ui, sans-serif; transform: scale(.97);">Agendar</button>
+        <button disabled="" style="height: 56px; border: 1.5px solid #E1E4EC; border-radius: 999px; background: #FFFFFF; color: #9AA0B4; font: 600 16px/20px Figtree, system-ui, sans-serif;">Agendar</button>
+        <button aria-label="Carregando" style="height: 56px; border: 1.5px solid #C4C8D5; border-radius: 999px; background: #FFFFFF; display: flex; align-items: center; justify-content: center;"><span class="tj-spin" style="width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid #E1E4EC; border-top-color: #161A2B; display: block;"></span></button>
+      </div>
+      <!-- Urgente -->
+      <div style="display: grid; grid-template-columns: 160px repeat(5, minmax(0, 1fr)); gap: 24px; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">Urgente</b><span style="font-size: 13px; color: #555B73;">Roxo · "é já"</span></div>
+        <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: #7A3BBF; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 10px 24px -8px rgba(175,111,241,.6);"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Pedir urgente</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #632F9A; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Pedir urgente</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #4F2A78; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px; transform: scale(.97);"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Pedir urgente</button>
+        <button disabled="" style="height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px/20px Figtree, system-ui, sans-serif;">Pedir urgente</button>
+        <button style="height: 56px; border: 0; border-radius: 999px; background: #FEE4E2; color: #B42318; font: 600 16px/20px Figtree, system-ui, sans-serif;">Cancelar pedido</button>
+      </div>
+      <div style="display: flex; gap: 32px; align-items: center; padding-top: 16px; border-top: 1px solid #EEF0F5;">
+        <span style="font-size: 14px; color: #555B73;">Tamanhos</span>
+        <button class="tj-press" style="height: 56px; padding: 0 32px; border: 0; border-radius: 999px; background: #0F6AD8; color: #FFFFFF; font: 600 16px/20px Figtree, system-ui, sans-serif;">Grande · 56</button>
+        <button class="tj-press" style="height: 48px; padding: 0 24px; border: 0; border-radius: 999px; background: #0F6AD8; color: #FFFFFF; font: 600 15px/20px Figtree, system-ui, sans-serif;">Médio · 48</button>
+        <button class="tj-press" style="height: 40px; padding: 0 16px; border: 0; border-radius: 999px; background: #EEF5FF; color: #0F6AD8; font: 600 14px/18px Figtree, system-ui, sans-serif;">Pequeno · 40</button>
+        <button class="tj-press" aria-label="Favoritar" style="width: 48px; height: 48px; border: 1.5px solid #E1E4EC; border-radius: 50%; background: #FFFFFF; color: #161A2B; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></button>
+        <span style="font-size: 14px; color: #555B73;">Pequeno só em linha com outros controles. A área de toque continua com 48px.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 Campos e seleção -->
+  <section style="display: flex; flex-direction: column; gap: 32px;">
+    <div style="display: flex; align-items: baseline; gap: 16px;">
+      <span style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 20px; color: #0F6AD8;">06</span>
+      <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 48px; line-height: 56px; letter-spacing: -0.02em;">Campos e seleção</h2>
+    </div>
+    <div style="display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px;">
+      <div style="background: #FFFFFF; border-radius: 32px; padding: 40px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 24px;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c1" style="font-size: 14px; font-weight: 600;">CPF <span style="color: #6B7189; font-weight: 500;">· padrão</span></label>
+          <input id="c1" placeholder="000.000.000-00" style="height: 56px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFFFF; outline: none;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c2" style="font-size: 14px; font-weight: 600;">CPF <span style="color: #6B7189; font-weight: 500;">· hover</span></label>
+          <input id="c2" placeholder="000.000.000-00" style="height: 56px; box-sizing: border-box; border: 1.5px solid #9AA0B4; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFFFF; outline: none;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c3" style="font-size: 14px; font-weight: 600;">CPF <span style="color: #6B7189; font-weight: 500;">· foco</span></label>
+          <input id="c3" value="123.456.78" style="height: 56px; box-sizing: border-box; border: 1.5px solid #1A7FF6; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFFFF; outline: none; box-shadow: 0 0 0 4px rgba(26,127,246,.18);">
+          <span style="font-size: 13px; color: #555B73;">Só números, a máscara é aplicada sozinha.</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c4" style="font-size: 14px; font-weight: 600;">CPF <span style="color: #6B7189; font-weight: 500;">· válido</span></label>
+          <div style="position: relative; display: flex;">
+            <input id="c4" value="123.456.789-09" style="flex: 1; height: 56px; box-sizing: border-box; border: 1.5px solid #16A34A; border-radius: 16px; padding: 0 48px 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFFFF; outline: none;">
+            <svg style="position: absolute; right: 16px; top: 16px;" width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="#0B7A3D" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c5" style="font-size: 14px; font-weight: 600;">CNPJ <span style="color: #6B7189; font-weight: 500;">· erro</span></label>
+          <input id="c5" value="12.345.678/0001-0" aria-invalid="true" style="height: 56px; box-sizing: border-box; border: 1.5px solid #F04438; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFBFA; outline: none; box-shadow: 0 0 0 4px rgba(240,68,56,.12);">
+          <span style="font-size: 13px; color: #B42318; font-weight: 600; display: flex; align-items: center; gap: 6px;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>Faltou um dígito no CNPJ.</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="c6" style="font-size: 14px; font-weight: 600; color: #6B7189;">E-mail <span style="font-weight: 500;">· desabilitado</span></label>
+          <input id="c6" disabled="" value="pedro@empresa.com.br" style="height: 56px; box-sizing: border-box; border: 1.5px solid #EEF0F5; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #6B7189; background: #F6F7FA; outline: none;">
+        </div>
+        <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 8px;">
+          <label for="c7" style="font-size: 14px; font-weight: 600;">Busca</label>
+          <div style="height: 56px; box-sizing: border-box; border-radius: 999px; background: #F6F7FA; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 20px; color: #555B73;">
+            <svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+            <input id="c7" placeholder="O que você precisa hoje?" style="flex: 1; border: 0; background: transparent; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+            <button aria-label="Filtros" style="width: 40px; height: 40px; border: 0; border-radius: 50%; background: #161A2B; color: #FFFFFF; display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"></path></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div style="background: #FFFFFF; border-radius: 32px; padding: 40px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 32px;">
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <span style="font-size: 14px; font-weight: 600;">Abas segmentadas</span>
+          <div role="tablist" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: #EEF0F5; border-radius: 999px;">
+            <button role="tab" aria-selected="true" style="height: 44px; border: 0; border-radius: 999px; background: #FFFFFF; color: #161A2B; font: 600 15px Figtree, system-ui, sans-serif; box-shadow: 0 1px 3px rgba(22,26,43,.12); display: flex; align-items: center; justify-content: center; gap: 8px;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Pessoa física</button>
+            <button role="tab" aria-selected="false" style="height: 44px; border: 0; border-radius: 999px; background: transparent; color: #555B73; font: 600 15px Figtree, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4"></path></svg>Empresa</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <span style="font-size: 14px; font-weight: 600;">Abas sublinhadas</span>
+          <div role="tablist" style="display: flex; gap: 24px; border-bottom: 1px solid #E1E4EC;">
+            <button role="tab" aria-selected="true" style="height: 44px; border: 0; background: transparent; padding: 0; color: #161A2B; font: 700 15px Figtree, system-ui, sans-serif; box-shadow: inset 0 -3px 0 #1A7FF6;">Em andamento</button>
+            <button role="tab" aria-selected="false" style="height: 44px; border: 0; background: transparent; padding: 0; color: #555B73; font: 600 15px Figtree, system-ui, sans-serif;">Agendados</button>
+            <button role="tab" aria-selected="false" style="height: 44px; border: 0; background: transparent; padding: 0; color: #555B73; font: 600 15px Figtree, system-ui, sans-serif;">Concluídos</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <span style="font-size: 14px; font-weight: 600;">Chips · padrão, selecionado, desabilitado</span>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="tj-press" style="height: 40px; padding: 0 16px; border: 1.5px solid #E1E4EC; border-radius: 999px; background: #FFFFFF; color: #161A2B; font: 600 14px Figtree, system-ui, sans-serif;">Hoje</button>
+            <button class="tj-press" aria-pressed="true" style="height: 40px; padding: 0 16px 0 12px; border: 1.5px solid #161A2B; border-radius: 999px; background: #161A2B; color: #FFFFFF; font: 600 14px Figtree, system-ui, sans-serif; display: flex; align-items: center; gap: 6px;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Até 3 km</button>
+            <button class="tj-press" style="height: 40px; padding: 0 16px; border: 1.5px solid #E1E4EC; border-radius: 999px; background: #FFFFFF; color: #161A2B; font: 600 14px Figtree, system-ui, sans-serif;">4,5+ estrelas</button>
+            <button disabled="" style="height: 40px; padding: 0 16px; border: 1.5px dashed #E1E4EC; border-radius: 999px; background: #F6F7FA; color: #9AA0B4; font: 600 14px Figtree, system-ui, sans-serif;">Com nota fiscal</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <span style="font-size: 14px; font-weight: 600;">Controles</span>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 15px;">Avisar quando aceitarem</span>
+            <button role="switch" aria-checked="true" aria-label="Avisar quando aceitarem" style="width: 52px; height: 32px; border: 0; border-radius: 999px; background: #0F6AD8; padding: 3px; display: flex; justify-content: flex-end;"><span style="width: 26px; height: 26px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(22,26,43,.25); display: block;"></span></button>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 15px;">Modo prestador</span>
+            <button role="switch" aria-checked="false" aria-label="Modo prestador" style="width: 52px; height: 32px; border: 0; border-radius: 999px; background: #C4C8D5; padding: 3px; display: flex; justify-content: flex-start;"><span style="width: 26px; height: 26px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(22,26,43,.25); display: block;"></span></button>
+          </div>
+          <div style="display: flex; gap: 24px;">
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 15px;"><span style="width: 24px; height: 24px; border-radius: 8px; background: #0F6AD8; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>Li e aceito</label>
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 15px;"><span style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid #0F6AD8; box-sizing: border-box; display: flex; align-items: center; justify-content: center;"><span style="width: 12px; height: 12px; border-radius: 50%; background: #0F6AD8; display: block;"></span></span>Pix</label>
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 15px;"><span style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid #9AA0B4; box-sizing: border-box; display: block;"></span>Cartão</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 Cards, navegação e modais -->
+  <section style="display: flex; flex-direction: column; gap: 32px;">
+    <div style="display: flex; align-items: baseline; gap: 16px;">
+      <span style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 20px; color: #0F6AD8;">07</span>
+      <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 48px; line-height: 56px; letter-spacing: -0.02em;">Cards, navegação e modais</h2>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start;">
+
+      <!-- Card prestador -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <span style="font-size: 14px; font-weight: 600; color: #555B73;">Card de freela · hover eleva 2px</span>
+        <div class="tj-lift" style="background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 1px 2px rgba(22,26,43,.06), 0 1px 3px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="width: 56px; height: 56px; border-radius: 18px; background: #D9E9FE; color: #0B54AD; display: flex; align-items: center; justify-content: center; font: 700 20px 'Bricolage Grotesque', system-ui, sans-serif;">AS</div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; align-items: center; gap: 6px;"><b style="font-size: 17px;">Amanda Silva</b><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="#1A7FF6" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Verificada"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"></path><path d="m9 12 2 2 4-4"></path></svg></div>
+              <span style="font-size: 14px; color: #555B73;">Garçonete · 2 anos de experiência</span>
+            </div>
+            <button aria-label="Favoritar" style="width: 44px; height: 44px; border: 0; border-radius: 50%; background: #F6F7FA; color: #161A2B; display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></button>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <span style="display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: 8px; background: #FEF0C7; color: #93370D; font-size: 13px; font-weight: 700;"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>4,9 (128)</span>
+            <span style="display: flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 8px; background: #DDF5E6; color: #0B7A3D; font-size: 13px; font-weight: 700;">Disponível hoje</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid #EEF0F5;">
+            <span style="font-size: 14px; color: #555B73;">Proativa · Agilidade</span>
+            <a href="#" class="tj-press" style="height: 44px; padding: 0 20px; border-radius: 999px; background: #EEF5FF; color: #0F6AD8; font-weight: 600; font-size: 15px; display: flex; align-items: center; text-decoration: none;">Convidar</a>
+          </div>
+        </div>
+        <span style="font-size: 14px; font-weight: 600; color: #555B73; margin-top: 16px;">Carregando · skeleton com brilho</span>
+        <div style="background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; gap: 12px; align-items: center;">
+          <div class="tj-shimmer" style="width: 56px; height: 56px; border-radius: 18px;"></div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;"><div class="tj-shimmer" style="height: 14px; width: 70%; border-radius: 6px;"></div><div class="tj-shimmer" style="height: 12px; width: 45%; border-radius: 6px;"></div></div>
+        </div>
+      </div>
+
+      <!-- Navegação -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <span style="font-size: 14px; font-weight: 600; color: #555B73;">Barra superior</span>
+        <div style="background: #FFFFFF; border-radius: 24px; padding: 8px 12px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; align-items: center; gap: 8px;">
+          <button aria-label="Voltar" style="width: 44px; height: 44px; border: 0; border-radius: 50%; background: #F6F7FA; color: #161A2B; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+          <b style="flex: 1; text-align: center; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 18px;">Detalhes</b>
+          <button aria-label="Compartilhar" style="width: 44px; height: 44px; border: 0; border-radius: 50%; background: #F6F7FA; color: #161A2B; display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><path d="m16 6-4-4-4 4M12 2v13"></path></svg></button>
+        </div>
+        <span style="font-size: 14px; font-weight: 600; color: #555B73; margin-top: 16px;">Barra inferior · ativo com pílula + ícone preenchido</span>
+        <nav aria-label="Principal" style="background: #FFFFFF; border-radius: 28px; padding: 8px; box-shadow: 0 8px 24px -8px rgba(22,26,43,.16); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;">
+          <a href="#" aria-current="page" style="height: 56px; border-radius: 20px; background: #EEF5FF; color: #0F6AD8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 700;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Início</a>
+          <a href="#" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Buscar</a>
+          <a href="#" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600; position: relative;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>Conversas<span style="position: absolute; top: 6px; right: 18px; min-width: 18px; height: 18px; border-radius: 999px; background: #7A3BBF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #FFFFFF;">2</span></a>
+          <a href="#" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Perfil</a>
+        </nav>
+        <span style="font-size: 14px; font-weight: 600; color: #555B73; margin-top: 16px;">Aviso rápido (toast) · sobe de baixo, some em 4s</span>
+        <div class="tj-rise" role="status" style="background: #161A2B; color: #FFFFFF; border-radius: 20px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; box-shadow: 0 16px 40px -8px rgba(22,26,43,.35);">
+          <span style="width: 32px; height: 32px; border-radius: 50%; background: #16A34A; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1; font-size: 15px; font-weight: 500;">Candidatura enviada para a Pizzaria BiLo</span>
+          <a href="#" style="color: #B3D3FD; font-weight: 700; font-size: 15px; text-decoration: none;">Desfazer</a>
+        </div>
+      </div>
+
+      <!-- Modal / bottom sheet -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <span style="font-size: 14px; font-weight: 600; color: #555B73;">Bottom sheet · confirmação</span>
+        <div style="background: rgba(13,15,26,.5); border-radius: 32px; padding: 120px 0 0; overflow: hidden;">
+          <div role="dialog" aria-label="Confirmar candidatos" style="background: #FFFFFF; border-radius: 32px 32px 0 0; padding: 12px 24px 24px; display: flex; flex-direction: column; gap: 20px;">
+            <div style="width: 40px; height: 5px; border-radius: 999px; background: #E1E4EC; align-self: center;"></div>
+            <div style="width: 56px; height: 56px; border-radius: 18px; background: #F8F2FE; color: #7A3BBF; display: flex; align-items: center; justify-content: center;"><svg width="28" height="28" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <b style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 24px; line-height: 30px;">Confirmar 2 candidatos?</b>
+              <span style="font-size: 15px; line-height: 22px; color: #555B73;">João e Joana recebem o aviso na hora. O pagamento só é liberado depois que você finalizar o trampo.</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: #0F6AD8; color: #FFFFFF; font: 600 16px Figtree, system-ui, sans-serif;">Confirmar selecionados</button>
+              <button class="tj-press" style="height: 56px; border: 0; border-radius: 999px; background: transparent; color: #161A2B; font: 600 16px Figtree, system-ui, sans-serif;">Agora não</button>
+            </div>
+          </div>
+        </div>
+        <span style="font-size: 14px; color: #555B73;">Fundo escurecido 50%, o sheet sobe com mola (320ms). Arrastar para baixo fecha.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 Microinterações -->
+  <section style="display: flex; flex-direction: column; gap: 32px;">
+    <div style="display: flex; align-items: baseline; gap: 16px;">
+      <span style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 20px; color: #0F6AD8;">08</span>
+      <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 48px; line-height: 56px; letter-spacing: -0.02em;">Movimento e microinterações</h2>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px;">
+      <div style="background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 16px;">
+        <div style="height: 120px; border-radius: 16px; background: #F6F7FA; display: flex; align-items: center; justify-content: center;"><button class="tj-press" style="height: 48px; padding: 0 24px; border: 0; border-radius: 999px; background: #0F6AD8; color: #FFFFFF; font: 600 15px Figtree, system-ui, sans-serif;">Toque aqui</button></div>
+        <b style="font-size: 17px;">Pressionar</b>
+        <span style="font-size: 14px; line-height: 20px; color: #555B73;">Escala 0.97 em 120ms + vibração leve. Volta com ease-out. Vale para botões, cards e chips.</span>
+      </div>
+      <div style="background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 16px;">
+        <div style="height: 120px; border-radius: 16px; background: #F6F7FA; display: flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden;">
+          <div style="width: 72px; height: 96px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 1px 3px rgba(22,26,43,.1); opacity: .5; transform: translateX(-12px);"></div>
+          <svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="#0F6AD8" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
+          <div class="tj-rise" style="width: 72px; height: 96px; border-radius: 14px; background: #1A7FF6;"></div>
+        </div>
+        <b style="font-size: 17px;">Trocar de tela</b>
+        <span style="font-size: 14px; line-height: 20px; color: #555B73;">Avançar: desliza da direita, 280ms, cubic-bezier(.2,.8,.2,1). A tela anterior recua 30% e esmaece. Sheets e modais sobem de baixo.</span>
+      </div>
+      <div style="background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 16px;">
+        <div style="height: 120px; border-radius: 16px; background: #F6F7FA; display: flex; align-items: center; justify-content: center;"><span class="tj-pop" style="width: 64px; height: 64px; border-radius: 50%; background: #16A34A; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 10px #DDF5E6;"><svg width="32" height="32" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span></div>
+        <b style="font-size: 17px;">Ação concluída</b>
+        <span style="font-size: 14px; line-height: 20px; color: #555B73;">O check entra com mola (600ms) e soltam faíscas das formas da marca. Vibração de sucesso. Só em momentos-chave: pagamento e trampo confirmado.</span>
+      </div>
+      <div style="background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 1px 2px rgba(22,26,43,.06); display: flex; flex-direction: column; gap: 16px;">
+        <div style="height: 120px; border-radius: 16px; background: #F6F7FA; display: flex; align-items: center; justify-content: center;"><span class="tj-heart" style="color: #7A3BBF; display: flex;"><svg width="44" height="44" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></span></div>
+        <b style="font-size: 17px;">Favoritar e carregar</b>
+        <span style="font-size: 14px; line-height: 20px; color: #555B73;">O coração pulsa 1 → 1.28 → 1 ao favoritar. Listas carregam com skeleton brilhante, nunca com spinner de tela cheia. Respeita "reduzir movimento".</span>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2760}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+
+
+</body></html>

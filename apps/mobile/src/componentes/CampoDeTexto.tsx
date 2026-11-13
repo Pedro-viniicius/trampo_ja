@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import {
   type ComponentRef,
   type Ref,
@@ -16,7 +16,8 @@ import {
   type TextInputProps,
   View,
 } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
   contarPontosDeCodigo,
@@ -67,6 +68,9 @@ export type PropsDoCampoDeTexto = {
   autoComplete?: TextInputProps['autoComplete'];
   textContentType?: TextInputProps['textContentType'];
 };
+
+/** Altura do campo de uma linha (spec: 56). */
+const ALTURA_DO_CAMPO = 56;
 
 const propsPorTipo: Record<TipoDeTeclado, Partial<TextInputProps>> = {
   texto: {},
@@ -122,7 +126,6 @@ export function CampoDeTexto({
   const [senhaVisivel, setSenhaVisivel] = useState(false);
   const temErro = Boolean(erro);
   const [cortou, setCortou] = useState(false);
-  const [cortes, setCortes] = useState(0);
   const total = limite === undefined ? 0 : contarPontosDeCodigo(valor);
   const faixa =
     limite === undefined || limite <= 0
@@ -151,7 +154,6 @@ export function CampoDeTexto({
   const aoMudar = (texto: string) => {
     if (limite !== undefined && contarPontosDeCodigo(texto) > limite) {
       setCortou(true);
-      setCortes((n) => n + 1);
       onChangeText(cortarEmPontosDeCodigo(texto, limite));
       return;
     }
@@ -159,19 +161,19 @@ export function CampoDeTexto({
     onChangeText(texto);
   };
 
-  // Anúncio uma vez por mudança de faixa (não por tecla). `n` remonta o
-  // <Text> para repetir o mesmo texto (ex.: colar de novo além do limite).
+  // Anúncio uma vez por mudança de faixa (não por tecla), inclusive o corte:
+  // continuar digitando além do limite não repete. `n` remonta o <Text>.
   const [anuncio, setAnuncio] = useState<{ texto: string; n: number } | null>(
     null,
   );
   const ultimaFaixa = useRef(faixa);
   const colagens = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reage só à mudança de faixa e de corte; o resto é lido no momento.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reage só à mudança de faixa; o resto é lido no momento.
   useEffect(() => {
     if (limite === undefined) return;
     const anterior = ultimaFaixa.current;
     ultimaFaixa.current = faixa;
-    if (faixa === anterior && faixa !== 'cortou') return;
+    if (faixa === anterior) return;
     let texto: string | null = null;
     if (faixa === 'cortou') {
       texto = textos.gerais.contadorCortado(limite);
@@ -188,35 +190,38 @@ export function CampoDeTexto({
     setAnuncio({ texto, n: colagens.current });
     if (Platform.OS === 'ios')
       AccessibilityInfo.announceForAccessibility(texto);
-  }, [faixa, valor, limite, cortes]);
+  }, [faixa, limite]);
 
   return (
-    <View style={{ gap: espaco[1] }}>
+    <View style={{ gap: espaco.s - 2 }}>
       <Text
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.medio,
-        }}
+        style={[estiloDeTexto('legenda', 'negrito'), { color: cores.texto }]}
       >
         {rotulo}
       </Text>
       <View
-        style={{
-          flexDirection: 'row',
-          alignItems: multiline ? 'flex-start' : 'center',
-          minHeight: multiline ? 96 : toqueMinimo + 4,
-          borderWidth: 2,
-          borderRadius: raio.sm,
-          borderColor: temErro
-            ? cores.erro
-            : focado
-              ? cores.primaria
-              : cores.borda,
-          backgroundColor: cores.superficie,
-          opacity: editable ? 1 : 0.6,
-        }}
+        style={[
+          {
+            flexDirection: 'row',
+            alignItems: multiline ? 'flex-start' : 'center',
+            minHeight: multiline ? 120 : ALTURA_DO_CAMPO,
+            // A borda engrossa no foco e no erro; o padding compensa para o texto não pular.
+            borderWidth: temErro || focado ? 2 : 1.5,
+            paddingHorizontal: temErro || focado ? 0 : 0.5,
+            borderRadius: raio.campo,
+            borderColor: temErro
+              ? cores.feedback.erro.base
+              : focado
+                ? cores.primaria
+                : cores.bordaDeCampo,
+            backgroundColor: !editable
+              ? cores.tinta[100]
+              : temErro
+                ? cores.feedback.erro.fundo
+                : cores.superficie,
+          },
+          focado && !temErro && estiloDeFoco,
+        ]}
       >
         <TextInput
           ref={inputRef}
@@ -225,7 +230,7 @@ export function CampoDeTexto({
           value={valor}
           onChangeText={aoMudar}
           placeholder={placeholder}
-          placeholderTextColor={cores.textoSecundario}
+          placeholderTextColor={cores.tinta[500]}
           secureTextEntry={secureTextEntry && !senhaVisivel}
           multiline={multiline}
           maxLength={maxLength}
@@ -240,14 +245,17 @@ export function CampoDeTexto({
           {...propsPorTipo[tipo]}
           {...(autoComplete ? { autoComplete } : {})}
           {...(textContentType ? { textContentType } : {})}
-          style={{
-            flex: 1,
-            paddingHorizontal: espaco[3],
-            paddingVertical: espaco[2],
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            textAlignVertical: multiline ? 'top' : 'center',
-          }}
+          style={[
+            estiloDeTexto('corpo'),
+            {
+              flex: 1,
+              minHeight: multiline ? 116 : ALTURA_DO_CAMPO - 4,
+              paddingHorizontal: espaco.m,
+              paddingVertical: multiline ? espaco.m - 2 : espaco.s,
+              color: editable ? cores.texto : cores.tinta[500],
+              textAlignVertical: multiline ? 'top' : 'center',
+            },
+          ]}
         />
         {secureTextEntry ? (
           <Pressable
@@ -268,8 +276,8 @@ export function CampoDeTexto({
               botaoFoco.focado && estiloDeFoco,
             ]}
           >
-            <Ionicons
-              name={senhaVisivel ? 'eye-off-outline' : 'eye-outline'}
+            <Feather
+              name={senhaVisivel ? 'eye-off' : 'eye'}
               size={22}
               color={cores.textoSecundario}
             />
@@ -278,11 +286,7 @@ export function CampoDeTexto({
       </View>
       {ajuda && !erro ? (
         <Text
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
-          }}
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
         >
           {ajuda}
         </Text>
@@ -296,19 +300,14 @@ export function CampoDeTexto({
               alignItems: 'flex-start',
             }}
           >
-            <Ionicons
+            <Feather
               name="alert-circle"
               size={16}
               color={cores.erro}
-              style={{ marginTop: 2 }}
+              style={{ marginTop: 1 }}
             />
             <Text
-              style={{
-                flex: 1,
-                color: cores.erro,
-                fontSize: tipografia.tamanho.rotulo,
-                lineHeight: tipografia.lineHeight.rotulo,
-              }}
+              style={[estiloDeTexto('legenda'), { flex: 1, color: cores.erro }]}
             >
               {erro}
             </Text>
@@ -327,23 +326,25 @@ export function CampoDeTexto({
           }}
         >
           {faixa === 'limite' || faixa === 'cortou' ? (
-            <Ionicons name="information-circle" size={14} color={cores.texto} />
+            <Feather name="info" size={14} color={cores.texto} />
           ) : null}
           <Text
-            style={{
-              color:
-                faixa === 'perto' || faixa === 'nenhuma'
-                  ? cores.textoSecundario
-                  : cores.texto,
-              fontSize: tipografia.tamanho.legenda,
-              lineHeight: tipografia.lineHeight.legenda,
-              fontWeight:
+            style={[
+              estiloDeTexto(
+                'legenda',
                 faixa === 'limite' || faixa === 'cortou'
-                  ? tipografia.peso.semibold
+                  ? 'semibold'
                   : faixa === 'faltam'
-                    ? tipografia.peso.medio
-                    : tipografia.peso.normal,
-            }}
+                    ? 'medio'
+                    : 'normal',
+              ),
+              {
+                color:
+                  faixa === 'perto' || faixa === 'nenhuma'
+                    ? cores.textoSecundario
+                    : cores.texto,
+              },
+            ]}
           >
             {textoDoContador}
           </Text>
@@ -360,12 +361,10 @@ export function CampoDeTexto({
       ) : null}
       {contador ? (
         <Text
-          style={{
-            alignSelf: 'flex-end',
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
-          }}
+          style={[
+            estiloDeTexto('legenda'),
+            { alignSelf: 'flex-end', color: cores.textoSecundario },
+          ]}
         >
           {contador}
         </Text>

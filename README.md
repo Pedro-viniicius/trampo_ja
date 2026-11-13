@@ -116,19 +116,23 @@ conferências de TLS de "Banco local" acima (`sslmode=verify-full`, sem `NODE_TL
 Aplica as migrações pendentes e cria, pela própria API (com as mesmas validações de uma requisição real):
 
 - 4 contas com perfil completo (nome, cidade e de 2 a 3 habilidades, D9);
-- 5 trampos de categorias e cidades variadas, um com prazo e um em andamento;
+- 8 trampos de categorias e cidades variadas: 4 abertos (um com prazo), 1 em andamento e 3 encerrados;
 - 4 serviços, um sem cidade;
-- 3 candidaturas: uma aceita, uma recusada pelo aceite e uma pendente;
-- 2 conversas com 5 mensagens.
+- 6 candidaturas: quatro aceitas (a do trampo em andamento e as dos três encerrados), uma recusada pelo aceite e
+  uma pendente;
+- 2 conversas com 5 mensagens;
+- 4 avaliações, todas em trampo encerrado e entre as duas partes da candidatura aceita (CA87): num trampo os dois
+  lados avaliaram, nos outros dois só um, para o app mostrar "Avaliar" a quem falta;
+- 3 favoritos, todos entre contas com candidatura em comum (CA92).
 
 Contas (todas com a senha de desenvolvimento **`Semente#2026`**):
 
 | E-mail | Papel nos dados |
 |---|---|
-| `ana.empregadora@exemplo.test` | publica a pintura (em andamento) e a faxina; aceitou o Bruno |
-| `bruno.freela@exemplo.test` | contratado na pintura; oferta pintura residencial |
-| `carla.design@exemplo.test` | candidata ao logo do Diego; oferta identidade visual (sem cidade) e fotografia |
-| `diego.aulas@exemplo.test` | publica o logo; candidatura recusada na pintura; oferta aulas |
+| `ana.empregadora@exemplo.test` | publica a pintura (em andamento) e a faxina; aceitou o Bruno; encerrou as tomadas (Bruno) e a placa (Carla) e avaliou os dois; favoritou o Bruno e a Carla |
+| `bruno.freela@exemplo.test` | contratado na pintura; oferta pintura residencial; avaliou a Ana (tomadas) e o Diego (estante) |
+| `carla.design@exemplo.test` | candidata ao logo do Diego; oferta identidade visual (sem cidade) e fotografia; ainda não avaliou a Ana (placa) |
+| `diego.aulas@exemplo.test` | publica o logo; candidatura recusada na pintura; oferta aulas; encerrou a estante (Bruno) sem avaliar; favoritou o Bruno |
 
 A senha só serve para a máquina local. É idempotente: se a conta da Ana já existir, o script avisa "Semente já
 aplicada" e sai sem criar nada. Se uma execução parar no meio, apague os dados (`docker compose down -v`, depois
@@ -209,11 +213,16 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 |---|---|---|
 | `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão); a entrada e o cadastro levam aos documentos legais, e o cadastro mostra o aceite por texto (D27) e o aviso de perfil público |
 | `/politica-de-privacidade`, `/termos-de-uso` | `politica-de-privacidade.tsx`, `termos-de-uso.tsx` (raiz) | documentos legais, com e sem sessão |
-| `/` | `(app)/(abas)/index.tsx` | aba Início: saudação, recentes e atalhos (Publicar trampo, Ofertar serviço, Minhas candidaturas) |
-| `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar |
-| `/publicar` | `(app)/(abas)/publicar.tsx` | aba Publicar: escolha entre publicar trampo e ofertar serviço |
-| `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas: nome do outro, prévia de uma linha e hora, última atividade primeiro |
-| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil, com os atalhos Minhas candidaturas, Meus trampos, Meus serviços e Conta e privacidade, e Sair |
+| `/` | `(app)/(abas)/index.tsx` | aba Início, nos dois modos. Freela: saudação, recentes, "Buscar" e "Ver todos" (levam a `/buscar-trampos`) e atalhos. Contratante: destaque "+" para publicar e até 3 demandas abertas com os interessados (CA82) |
+| `/meus-trampos` | `(app)/(abas)/meus-trampos.tsx` | aba Meus trampos (freela, CA78): as candidaturas nos segmentos Em análise, Confirmados e Encerrados, com Mensagem e Retirar |
+| `/demandas` | `(app)/(abas)/demandas.tsx` | aba Demandas (contratante, CA79): os trampos publicados nos segmentos Abertas, Em andamento e Encerradas, com "+" e "Mais opções" |
+| `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar (contratante, CA84): busca de serviços ("Buscar freelancers") |
+| `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas (freela) ou Mensagens (contratante): nome do outro, prévia de uma linha e hora, última atividade primeiro |
+| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil. Freela: cartão de modo, números de candidaturas enviadas e confirmadas, Editar perfil, Meus serviços, Dicas & minicursos, Conta e privacidade e Sair. Contratante (Perfil da empresa): nome, cidade, sobre, cartão de modo, Editar, Conta e privacidade e Sair (CA83) |
+| `/buscar-trampos` | `(app)/buscar-trampos.tsx` | busca de trampos do freela (CA84), tela de pilha com voltar |
+| `/candidatura-enviada?trampoId=` | `(app)/candidatura-enviada.tsx` | Candidatura enviada (CA80), em tela cheia depois do 201: título, autor, prazo e valor do cache, os passos, "Ver em Meus trampos" e "Buscar mais trampos"; voltar leva ao detalhe |
+| `/dicas`, `/dicas/:id` | `(app)/dicas/index.tsx`, `(app)/dicas/[id].tsx` | Dicas & minicursos (CA81): lista com filtro por categoria e leitura; conteúdo local em `src/textos/dicas.ts`, sem rede |
+| `/publicar` | `(app)/publicar.tsx` | caminho antigo: redireciona para `/trampos/novo` (D56, CA77) |
 | `/perfil/editar` | `(app)/perfil/editar.tsx` | editar ou completar o perfil |
 | `/perfil/conta` | `(app)/perfil/conta.tsx` | Conta e privacidade: exportar os dados, excluir a conta, política, termos e Sair |
 | `/perfil/exportar` | `(app)/perfil/exportar.tsx` | Exportar meus dados: senha e "Gerar e compartilhar" |
@@ -225,13 +234,17 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço, com Conversar para quem não é o autor e "Mais opções" para o autor |
 | `/trampos/editar/:id` | `(app)/trampos/editar/[id].tsx` | Editar trampo: o formulário de publicar, preenchido, com "Salvar alterações" |
 | `/servicos/editar/:id` | `(app)/servicos/editar/[id].tsx` | Editar serviço, como o de trampo |
-| `/candidaturas` | `(app)/candidaturas/index.tsx` | Minhas candidaturas, com Retirar candidatura nas pendentes |
+| `/candidaturas` | `(app)/candidaturas/index.tsx` | caminho antigo: redireciona para a aba `/meus-trampos` (CA77) |
 | `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
 | `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
-| `/meus-anuncios?tipo=trampo\|servico` | `(app)/meus-anuncios.tsx` | Meus trampos e Meus serviços (valor inválido vira `trampo`), com "Mais opções" em cada anúncio; Meus trampos carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
+| `/meus-anuncios?tipo=servico` | `(app)/meus-anuncios.tsx` | Meus serviços, com "Mais opções" em cada anúncio. Qualquer outro `tipo` (ausente, `trampo` ou inválido) redireciona para a aba `/demandas` (CA77, CA79), que carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
 
-As abas são Início, Buscar, Publicar, Conversas e Perfil; os formulários, as listas e a conversa ficam na pilha
-`(app)`, sem a barra de abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão
+As abas dependem do modo (D54, ADR-010), numa `Tabs` só: o freela vê Início, Meus trampos, Conversas e Perfil; o
+contratante vê Início, Demandas, Buscar, Mensagens e Perfil. As rotas do outro modo continuam declaradas e saem da
+barra com `href: null`, então as URLs não mudam. O modo fica guardado no aparelho (`src/estado/modo.tsx`, sem API);
+o cadastro grava o objetivo escolhido, e o cartão de modo no Perfil troca na hora. Abrir uma aba exclusiva do outro
+modo (link ou URL) troca o modo: o link vence (CA77). Os formulários, as listas, a conversa e as telas novas ficam
+na pilha `(app)`, sem a barra de abas. Os parâmetros de rota levam só ids e o `tipo`: título, mensagem, valor e nome nunca vão
 na URL.
 
 Anúncios e candidaturas (L2, D30, D33 a D37):
@@ -250,7 +263,7 @@ Anúncios e candidaturas (L2, D30, D33 a D37):
   existe." são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto, em
   memória, por 10 s e só na mesma sessão. Meus anúncios, os dois detalhes, o Início e a Busca mostram o aviso (L4,
   CA63); se a volta cai numa tela que não o mostra, ele se perde.
-- **Retirar candidatura.** Em Minhas candidaturas e no rodapé do trampo, só para a candidatura pendente e sempre
+- **Retirar candidatura.** Em Meus trampos (aba do freela) e no rodapé do trampo, só para a candidatura pendente e sempre
   com o diálogo "Manter candidatura" ou "Retirar candidatura". No sucesso, ela some da lista e o rodapé volta a
   "Candidatar-se". O 409 avisa que ela já foi respondida e recarrega; o 404 a tira da lista. Toque duplo faz um
   pedido só. Em trampo encerrado, a folha de candidatura mostra "fechado".
@@ -446,6 +459,7 @@ Monólito modular hexagonal com núcleo DDD. Cada módulo é um bounded context 
 | `servicos` | ofertas de serviço dos freelancers | `servicos` |
 | `conversas` | conversas entre quem tem candidatura em comum e as mensagens | `conversas`, `mensagens` |
 | `busca` | só leitura: junta trampos e serviços, mais recentes primeiro, com cursor | nenhuma |
+| `avaliacoes` | avaliações mútuas depois do trampo encerrado e a equipe favorita do contratante (ADR-011) | `avaliacoes`, `favoritos` |
 
 Camadas de cada módulo:
 
@@ -457,8 +471,8 @@ Camadas de cada módulo:
 Regras que ligam os módulos:
 
 - **Composição:** `src/composicao.ts` (`montarAplicacao`) é o único lugar que conhece todos os módulos. Ela liga
-  `perfis.perfilEstaCompleto` a `trampos` e `servicos` (D9), `trampos.existeVinculoEntre` a `conversas` (CA13),
-  as buscas de `trampos` e `servicos` a `busca` e `contas.validarSessao` ao hook de autenticação. O entrypoint é
+  `perfis.perfilEstaCompleto` a `trampos` e `servicos` (D9), `trampos.existeVinculoEntre` a `conversas` (CA13)
+  e aos favoritos de `avaliacoes` (CA92), `trampos.vinculoParaAvaliacao` a `avaliacoes` (CA87), as buscas de `trampos` e `servicos` a `busca` e `contas.validarSessao` ao hook de autenticação. O entrypoint é
   `src/servidor.ts`.
 - **Banco:** cada módulo é dono das suas tabelas e recebe uma visão `Kysely<TabelasDoModulo>`. Não há FK entre
   módulos: a referência é só pelo id (FK só dentro do módulo).
@@ -544,8 +558,9 @@ No máximo duas derivações scrypt rodam ao mesmo tempo por processo (CA23); as
   sessão falhar, nenhuma conta fica gravada, e repetir o cadastro é seguro.
 
 - **Exclusão (D25, CA17):** apaga na hora, numa só transação, a conta, as sessões de todos os aparelhos, o perfil,
-  os trampos (com as candidaturas recebidas), os serviços, as candidaturas da conta e as conversas inteiras de que
-  ela participa. O que os outros veem está em "Dados pessoais (LGPD) e logs".
+  os trampos (com as candidaturas recebidas), os serviços, as candidaturas da conta, as conversas inteiras de que
+  ela participa, as avaliações feitas e recebidas e os favoritos dos dois lados (os da conta e os que a têm como
+  favorita). O que os outros veem está em "Dados pessoais (LGPD) e logs".
 - **Exportação (D26, D41, CA19):** o teto é 10 MiB (`TETO_DA_EXPORTACAO_BYTES`), medido no banco antes de coletar
   (soma dos bytes dos textos exportados mais 256 bytes por linha): acima disso, 409 `exportacao_grande` e nada é
   coletado nem serializado. O app orienta a pedir os dados pelo e-mail de contato da política, com resposta manual
@@ -560,8 +575,14 @@ No máximo duas derivações scrypt rodam ao mesmo tempo por processo (CA23); as
   "trampos": [{ "id", "titulo", "descricao", "categoria", "cidade", "valorCentavos", "prazo", "status", "criadoEm", "candidaturasRecebidas" }],
   "servicos": [{ "id", "titulo", "descricao", "categoria", "cidade", "precoBaseCentavos", "status", "criadoEm" }],
   "candidaturas": [{ "id", "trampoId", "mensagem", "valorPropostoCentavos", "status", "criadaEm" }],
-  "conversas": [{ "id", "outroUsuarioId", "criadaEm", "minhasMensagens": [{ "id", "texto", "enviadaEm" }] }] }
+  "conversas": [{ "id", "outroUsuarioId", "criadaEm", "minhasMensagens": [{ "id", "texto", "enviadaEm" }] }],
+  "avaliacoesFeitas": [{ "trampoId", "nota", "destaques", "comentario", "criadaEm" }],
+  "avaliacoesRecebidas": [{ "nota", "destaques", "criadaEm" }],
+  "favoritos": [{ "contaId", "criadoEm" }] }
 ```
+
+Das avaliações recebidas saem só a nota, os destaques e a data: o comentário e o avaliador são de terceiros
+(CA93). `favoritos` traz só os ids da equipe favorita da conta, nunca quem a favoritou.
 
 Perfis:
 
@@ -665,6 +686,37 @@ Conversas:
 Só abre conversa quem tem candidatura em comum, em qualquer estado (CA13). Quem não participa da conversa recebe
 404, não 403, para não confirmar que ela existe.
 
+Avaliações e equipe favorita (V2b, ADR-011 em `docs/produto/planos/visual-v2.md`):
+
+| Rota | Corpo ou consulta | Sucesso | Erros |
+|---|---|---|---|
+| `POST /avaliacoes` | `{trampoId, nota, destaques?, comentario?}` | 201 `{id}` | 400; 404 (não é parte, trampo inexistente ou sem candidatura aceita); 409 `trampo_nao_encerrado`, `avaliacao_ja_feita` |
+| `GET /avaliacoes` | `?contaId&papel&antesDe&limite` | 200 `{itens: [{nota, destaques, comentario, avaliadorId, criadaEm}], proximoCursor}` | 400 |
+| `GET /avaliacoes/resumos` | `?contas=<id>,<id>…` (até 50) | 200 `[{contaId, comoFreela, comoContratante}]`, cada papel com `{media, total, destaques}` | 400 |
+| `GET /avaliacoes/feitas` | `?trampos=<id>,<id>…` (até 50) | 200 `[{trampoId, nota, criadaEm}]`, só as da conta da sessão | 400 |
+| `GET /favoritos` | — | 200 `[{contaId, criadoEm}]`, mais recentes primeiro | — |
+| `PUT /favoritos/:contaId` | — | 204, também se já era favorito | 404 (sem vínculo ou id fora do formato); 409 `favorito_invalido`, `limite_de_favoritos` |
+| `DELETE /favoritos/:contaId` | — | 204, também se não era favorito | 404 (id fora do formato) |
+
+- **Quem avalia (CA87):** só as duas partes de um trampo `encerrado` com candidatura `aceita`. O autor avalia o
+  freela aceito (papel `freela`) e o freela avalia o autor (papel `contratante`). Para qualquer outra pessoa, o mesmo
+  404, sem dizer se o trampo existe. Cada conta avalia uma vez por trampo: a unicidade é da constraint
+  `(trampo_id, avaliador_id)`, e numa rajada só um pedido grava; os outros recebem `avaliacao_ja_feita`. A avaliação
+  não se edita nem se apaga.
+- **Campos (CA88):** `nota` é inteiro de 1 a 5. `destaques` (opcional, até 5, sem repetição) vêm da lista do papel
+  avaliado: freela `pontual`, `organizado`, `rapido`, `educado`, `proativo`; contratante `pagamento_em_dia`,
+  `ambiente_organizado`, `instrucoes_claras`, `respeitoso`, `pontual`. `comentario` é opcional, aparado, com 1 a
+  500 caracteres e sem o caractere nulo; é dado pessoal. O 400 lista os campos e nunca devolve o valor.
+- **Lista (CA90):** `contaId` (uuid) e `papel` (`freela` ou `contratante`) são obrigatórios. Vêm as mais recentes
+  primeiro, 20 por página (`limite` de 1 a 50); a próxima página usa `antesDe=<proximoCursor>`, que é `null` na
+  última. Conta sem avaliação dá lista vazia, sem dizer se a conta existe.
+- **Resumos e feitas (CA89, CA91):** os ids vão separados por vírgula ou com a chave repetida. Mais de 50 ou a chave
+  ausente dão 400; id fora do formato uuid é ignorado. A `media` tem uma casa decimal (`null` sem avaliação), e os
+  `destaques` do resumo são os até 3 mais frequentes. `feitas` nunca devolve avaliação de outra conta.
+- **Favoritos (CA92):** favoritar exige candidatura em comum, em qualquer estado (como a conversa, D4); sem ela,
+  404. Favoritar a si mesmo dá 409 `favorito_invalido`, e o teto é de 200 por conta (409 `limite_de_favoritos`). A
+  lista é privada: a pessoa favoritada não é avisada nem vê quem a favoritou.
+
 ### Rate limit (D2, D29)
 
 `POST /contas` e `POST /sessoes` aceitam até 10 requisições por minuto por IP, com contador separado por rota
@@ -703,9 +755,9 @@ próprio por conta (`LIMITES_PADRAO_POR_CONTA`, `grupoDaRota` e `gruposDaRota` e
 | `leitura` | todo `GET` autenticado | 600 por minuto |
 | `mensagens` | `POST /conversas/:id/mensagens` | 30 por minuto |
 | `mensagens_dia` | `POST /conversas/:id/mensagens` (teto diário, somado a `mensagens`) | 1000 a cada 24 h |
-| `publicacao` | `POST /trampos`, `POST /servicos`, `POST /trampos/:id/candidaturas`, `PUT /trampos/:id`, `PUT /servicos/:id` (D36) | 30 por hora |
+| `publicacao` | `POST /trampos`, `POST /servicos`, `POST /trampos/:id/candidaturas`, `PUT /trampos/:id`, `PUT /servicos/:id` (D36), `POST /avaliacoes` (CA94) | 30 por hora |
 | `senha` | `POST /contas/eu/exclusao`, `POST /contas/eu/exportacao` | 5 a cada 15 minutos |
-| `escrita` | os demais `POST`, `PUT` e `DELETE` autenticados, como `PUT /perfis/eu`, `POST /trampos/:id/encerrar`, `DELETE /trampos/:id`, `DELETE /servicos/:id` e `DELETE /candidaturas/:id` (D36; rota nova sem grupo cai aqui) | 60 por minuto |
+| `escrita` | os demais `POST`, `PUT` e `DELETE` autenticados, como `PUT /perfis/eu`, `POST /trampos/:id/encerrar`, `DELETE /trampos/:id`, `DELETE /servicos/:id`, `DELETE /candidaturas/:id` (D36), `PUT` e `DELETE /favoritos/:contaId` (CA94; rota nova sem grupo cai aqui) | 60 por minuto |
 
 `DELETE /sessoes` (sair) fica fora do limite por conta: o logout nunca recebe 429 nem gasta o contador de `escrita`.
 
@@ -732,7 +784,8 @@ direto, qualquer cliente forjaria o IP e escaparia do limite.
 ## Dados pessoais (LGPD) e logs
 
 Dado pessoal fica em `contas.email`, em `perfis` (nome, cidade, descrição, habilidades), em `mensagens.texto`, em
-`candidaturas.mensagem` e nos textos livres de `trampos` e `servicos`. O telefone não é coletado. A senha só existe
+`candidaturas.mensagem`, em `avaliacoes.comentario` e nos textos livres de `trampos` e `servicos`. O telefone não é
+coletado. A senha só existe
 como hash scrypt; o token, só como SHA-256.
 
 Regras (CA15):
@@ -766,6 +819,8 @@ transação; se falhar, nada é apagado e repetir é seguro. Para quem interagiu
 | candidaturas da conta | some das recebidas; se era a aceita, o trampo fica em andamento sem contratado, e o autor o resolve encerrando (D34) |
 | conversas inteiras, com as mensagens dos dois lados | some da lista; com a conversa aberta, a próxima consulta dá 404 (nunca o 400 do cursor) e a tela mostra "indisponível" |
 | sessões de todos os aparelhos | outro aparelho da conta recebe 401 no próximo pedido e vai ao login com "sessão expirada" |
+| avaliações feitas e recebidas | a avaliação que a conta deu some da lista e do resumo de quem a recebeu; a que a conta recebeu some junto |
+| favoritos dos dois lados | a conta some da equipe favorita de quem a tinha favoritado |
 
 A transação da exclusão grava também a lápide `contas_excluidas` (só o id e a data, sem dado pessoal; D40). A limpeza
 periódica (ver "Rodar a API") refaz a exclusão das lápides com mais de 10 min e as apaga, para varrer o que uma
@@ -819,6 +874,57 @@ marcadores para a identidade do controlador até a revisão jurídica. O app emp
 `apps/mobile/src/textos/legal.ts` (um teste confere versões e títulos com os `.md`). O aceite é só pelo texto do
 cadastro, sem registro na API. Ficam fora do código: hospedar a política e a página de pedido de exclusão na web
 (exigência das lojas) e o prazo de guarda dos registros de acesso.
+
+### Remover uma avaliação a pedido do titular
+
+A avaliação é imutável pela API (D59) e só some com a exclusão da conta de um dos lados. Se quem avaliou ou quem foi
+avaliado pedir a remoção de uma avaliação específica (LGPD, art. 18), o operador a apaga à mão pelo id, com o roteiro
+abaixo. Regras:
+
+- Nunca rode `select *` nem selecione `comentario`: o texto é dado pessoal e não deve aparecer no terminal, em
+  histórico nem em anexo do pedido. As consultas abaixo mostram só se há comentário.
+- Rode no `psql` com `-v ON_ERROR_STOP=1`, para um erro (id fora do formato, por exemplo) parar o roteiro com a
+  transação desfeita. A URL do banco vem do ambiente; não a cole na linha de comando.
+- Registre o pedido (data, quem pediu e o id da avaliação) fora do banco, sem o comentário.
+
+1. Ache o id. A API não expõe o id da avaliação; procure pelas duas contas (os ids vêm de `contas`, pelo e-mail de
+   quem pediu, sem imprimir o e-mail):
+
+   ```sql
+   \set avaliador 'uuid-de-quem-avaliou'
+   \set avaliado 'uuid-de-quem-foi-avaliado'
+   select id, trampo_id, papel_do_avaliado, nota, criada_em,
+          comentario is not null as tem_comentario
+     from avaliacoes
+    where avaliador_id = :'avaliador' and avaliado_id = :'avaliado'
+    order by criada_em desc;
+   ```
+
+2. Confira e apague numa transação. A primeira consulta trava a linha e tem de devolver exatamente uma; a segunda tem
+   de devolver `apagadas = 1`. Qualquer outro resultado: `rollback`.
+
+   ```sql
+   \set id 'uuid-da-avaliacao'
+   begin;
+   select id, trampo_id, avaliador_id, avaliado_id, papel_do_avaliado, nota, criada_em,
+          comentario is not null as tem_comentario
+     from avaliacoes
+    where id = :'id'
+      for update;
+   with apagada as (delete from avaliacoes where id = :'id' returning id)
+   select count(*) as apagadas from apagada;
+   ```
+
+3. Só depois de ver `apagadas = 1`, num passo separado (não cole junto com o bloco acima):
+
+   ```sql
+   commit;
+   ```
+
+   Se algo não bateu, rode `rollback;` no lugar.
+
+O resumo e a lista de avaliações são calculados na hora: a avaliação some deles no pedido seguinte. Depois de apagada,
+quem avaliou pode avaliar o mesmo trampo de novo, porque a regra de uma por avaliador e trampo é a própria linha.
 
 ## Documentos de produto
 

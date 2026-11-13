@@ -1,7 +1,17 @@
-import type { Mensagem, PerfilPublico, ResumoDeConversa } from '../api/tipos';
+import type {
+  CandidaturaRecebida,
+  Mensagem,
+  MinhaCandidatura,
+  PerfilPublico,
+  ResumoDeConversa,
+  StatusDaCandidatura,
+  StatusDoTrampo,
+  Trampo,
+} from '../api/tipos';
 import type { ConversaParaExibir, MensagemParaExibir } from '../telas/tipos';
+import { textos } from '../textos/pt-BR';
 import type { MapaPorId } from './consultas/anuncios';
-import { formatarHoraDaMensagem } from './formatacao';
+import { formatarDiaDaMensagem, formatarHoraDaMensagem } from './formatacao';
 
 /**
  * Estado puro das conversas (ADR-004): validação do texto, mensagens em envio
@@ -183,6 +193,23 @@ function horaOuNulo(iso: string | null, agora: Date): string | null {
   return iso === null ? null : formatarHoraDaMensagem(iso, agora);
 }
 
+const ROTULOS_DO_DIA = {
+  hoje: textos.conversas.diaHoje,
+  ontem: textos.conversas.diaOntem,
+} as const;
+
+/**
+ * Dia do separador. A pendente sem hora confirmada está saindo agora: conta
+ * como de hoje, para não ficar sob o separador de um dia anterior.
+ */
+function diaDaMensagem(iso: string | null, agora: Date): string | null {
+  return formatarDiaDaMensagem(
+    iso ?? agora.toISOString(),
+    agora,
+    ROTULOS_DO_DIA,
+  );
+}
+
 /**
  * Mensagens da tela da conversa: as confirmadas na ordem de envio (como vêm
  * do GET), com a chave igual ao `id`, e depois as pendentes que ainda não
@@ -204,6 +231,7 @@ export function mensagensParaExibir(
         texto: mensagem.texto,
         horaFormatada: formatarHoraDaMensagem(mensagem.enviadaEm, agora),
         situacao: 'enviada',
+        diaFormatado: diaDaMensagem(mensagem.enviadaEm, agora),
       }),
     ),
     ...reconciliar(confirmadas, pendentes, outroId).map(
@@ -213,6 +241,7 @@ export function mensagensParaExibir(
         texto: pendente.texto,
         horaFormatada: horaOuNulo(pendente.enviadaEm, agora),
         situacao: pendente.situacao,
+        diaFormatado: diaDaMensagem(pendente.enviadaEm, agora),
       }),
     ),
   ];
@@ -239,4 +268,105 @@ export function conversaParaExibir(
       agora,
     ),
   };
+}
+
+/**
+ * O trampo que liga a conversa ao outro participante. A conversa da API é do
+ * par, sem trampo: o vínculo sai das candidaturas que o app já tem em cache.
+ * `candidato`: eu me candidatei a um trampo do outro; `autor`: o outro se
+ * candidatou a um trampo meu.
+ */
+export interface VinculoDaConversa {
+  readonly trampoId: string;
+  readonly titulo: string;
+  readonly valorCentavos: number;
+  readonly statusDaCandidatura: StatusDaCandidatura;
+  readonly statusDoTrampo: StatusDoTrampo;
+  readonly papel: 'candidato' | 'autor';
+}
+
+/** O que `vinculoDaConversa` lê (tudo opcional: sem dado, sem vínculo). */
+export interface DadosDoVinculo {
+  /** `GET /candidaturas/minhas`. */
+  readonly minhasCandidaturas: readonly MinhaCandidatura[] | undefined;
+  /** `GET /trampos/:id/candidaturas` já lidas, por `trampoId`. */
+  readonly recebidas: ReadonlyMap<string, readonly CandidaturaRecebida[]>;
+  /** O trampo pelo id, se já foi lido. */
+  readonly trampo: (id: string) => Trampo | undefined;
+}
+
+/** Aceita primeiro (é a do trampo combinado), depois pendente, depois recusada. */
+const ORDEM_DO_VINCULO: Record<StatusDaCandidatura, number> = {
+  aceita: 0,
+  pendente: 1,
+  recusada: 2,
+};
+
+/**
+ * O vínculo entre mim e `outroId`, ou `null` se nenhuma candidatura em mãos
+ * liga os dois. Com mais de uma, vale a de status mais adiantado (aceita,
+ * pendente, recusada) e, no empate, a mais recente.
+ */
+export function vinculoDaConversa(
+  dados: DadosDoVinculo,
+  outroId: string,
+): VinculoDaConversa | null {
+  const achados: { vinculo: VinculoDaConversa; criadaEm: number }[] = [];
+  const guardar = (
+    trampo: Trampo,
+    candidatura: CandidaturaRecebida,
+    papel: VinculoDaConversa['papel'],
+  ) => {
+    achados.push({
+      vinculo: {
+        trampoId: trampo.id,
+        titulo: trampo.titulo,
+        valorCentavos: trampo.valorCentavos,
+        statusDaCandidatura: candidatura.status,
+        statusDoTrampo: trampo.status,
+        papel,
+      },
+      criadaEm: Date.parse(candidatura.criadaEm) || 0,
+    });
+  };
+  for (const candidatura of dados.minhasCandidaturas ?? []) {
+    const trampo = dados.trampo(candidatura.trampoId);
+    if (trampo !== undefined && trampo.autorId === outroId) {
+      guardar(trampo, candidatura, 'candidato');
+    }
+  }
+  for (const [trampoId, candidaturas] of dados.recebidas) {
+    const trampo = dados.trampo(trampoId);
+    if (trampo === undefined) {
+      continue;
+    }
+    for (const candidatura of candidaturas) {
+      if (candidatura.freelancerId === outroId) {
+        guardar(trampo, candidatura, 'autor');
+      }
+    }
+  }
+  achados.sort(
+    (a, b) =>
+      ORDEM_DO_VINCULO[a.vinculo.statusDaCandidatura] -
+        ORDEM_DO_VINCULO[b.vinculo.statusDaCandidatura] ||
+      b.criadaEm - a.criadaEm,
+  );
+  return achados[0]?.vinculo ?? null;
+}
+
+/**
+ * Respostas rápidas do chat (quadro 09): só para quem se candidatou, com a
+ * candidatura aceita e o trampo ainda não encerrado (o "Confirmados" de Meus
+ * trampos).
+ */
+export function temRespostasRapidas(
+  vinculo: VinculoDaConversa | null,
+): boolean {
+  return (
+    vinculo !== null &&
+    vinculo.papel === 'candidato' &&
+    vinculo.statusDaCandidatura === 'aceita' &&
+    vinculo.statusDoTrampo !== 'encerrado'
+  );
 }

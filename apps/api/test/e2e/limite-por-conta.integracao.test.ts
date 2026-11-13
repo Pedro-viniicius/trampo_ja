@@ -161,8 +161,9 @@ describe('CA20 — cada rota autenticada registrada consome o contador do própr
         limitesPorConta: UM_POR_GRUPO,
       });
       const autenticadas = app().rotas.filter((rota) => !ehPublica(rota));
-      // As 28 rotas autenticadas e os HEAD automáticos dos GET.
-      expect(autenticadas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(28);
+      // As 35 rotas autenticadas (28 até a L2 e 7 da V2b) e os HEAD
+      // automáticos dos GET.
+      expect(autenticadas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(35);
       expect(autenticadas.some((r) => r.metodo === 'HEAD')).toBe(true);
 
       for (const rota of autenticadas) {

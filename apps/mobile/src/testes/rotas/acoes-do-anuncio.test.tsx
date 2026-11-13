@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { Text } from 'react-native';
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
+import RotaDasDemandas from '../../app/(app)/(abas)/demandas';
 import RotaDasCandidaturasRecebidas from '../../app/(app)/candidaturas/[trampoId]';
 import RotaDosMeusAnuncios from '../../app/(app)/meus-anuncios';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
@@ -213,6 +214,7 @@ function stub(texto: string) {
 const ROTAS: MapaDeRotas = {
   '(app)/_layout': LayoutDaAreaAutenticada,
   '(app)/(abas)/index': stub('stub: início'),
+  '(app)/(abas)/demandas': RotaDasDemandas,
   '(app)/meus-anuncios': RotaDosMeusAnuncios,
   '(app)/trampos/[id]': RotaDoTrampo,
   '(app)/trampos/editar/[id]': RotaDeEditarTrampo,
@@ -263,6 +265,11 @@ function botaoDoDialogo(nome: string) {
 }
 
 /** O cartão do anúncio na lista (o nome acessível começa pelo tipo). */
+/** Demandas filtra por status (CA79): abre a aba Abertas, Em andamento ou Encerradas. */
+async function abrirAbaDeDemandas(nome: string) {
+  await fireEvent.press(await screen.findByRole('tab', { name: nome }));
+}
+
 function cartao(tipo: 'Trampo' | 'Serviço', titulo: string) {
   return screen.findByRole('button', {
     name: new RegExp(`^${tipo}, ${titulo}`),
@@ -290,20 +297,29 @@ afterEach(() => {
 
 describe('"Mais opções": só para o autor (CA33)', () => {
   it('Meus anúncios mostra um botão por trampo e por serviço', async () => {
-    await abrir('/meus-anuncios');
-    for (const titulo of [
-      'Pintar a sala',
-      'Trocar o telhado',
-      'Montar estante',
-      'Limpar o quintal',
-    ]) {
-      expect(await botaoMaisOpcoes(titulo)).toBeOnTheScreen();
+    await abrir('/demandas');
+    // Demandas mostra cada trampo na aba do seu status (CA79).
+    for (const [aba, titulos] of [
+      [textos.demandas.abaAbertas, ['Pintar a sala', 'Trocar o telhado']],
+      [textos.demandas.abaAndamento, ['Montar estante']],
+      [textos.demandas.abaEncerradas, ['Limpar o quintal']],
+    ] as const) {
+      await abrirAbaDeDemandas(aba);
+      for (const titulo of titulos) {
+        expect(await botaoMaisOpcoes(titulo)).toBeOnTheScreen();
+      }
     }
 
     await act(async () => {
       router.replace('/meus-anuncios?tipo=servico');
     });
     expect(await botaoMaisOpcoes('Aulas de violão')).toBeOnTheScreen();
+  });
+
+  it('o caminho antigo de Meus trampos (`?tipo=trampo`) leva a Demandas, com o botão (CA77)', async () => {
+    await abrir('/meus-anuncios?tipo=trampo');
+    expect(await botaoMaisOpcoes('Pintar a sala')).toBeOnTheScreen();
+    expect(screen).toHavePathname('/demandas');
   });
 
   it('o detalhe do trampo tem o botão para o autor e não para um terceiro', async () => {
@@ -344,7 +360,7 @@ describe('"Mais opções": só para o autor (CA33)', () => {
 
 describe('a folha: ação indisponível aparece desabilitada com o motivo (CA33)', () => {
   it('trampo aberto e sem candidaturas: as três ações disponíveis', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     expect(acao(a.editar)).toBeEnabled();
     expect(acao(a.encerrarTrampo)).toBeEnabled();
@@ -353,7 +369,7 @@ describe('a folha: ação indisponível aparece desabilitada com o motivo (CA33)
   });
 
   it('com candidaturas: só Editar fica desabilitado', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Trocar o telhado');
     expect(acao(a.editar)).toBeDisabled();
     expect(screen.getByText(a.motivoEditarComCandidaturas)).toBeOnTheScreen();
@@ -362,7 +378,8 @@ describe('a folha: ação indisponível aparece desabilitada com o motivo (CA33)
   });
 
   it('em andamento: Editar e Excluir desabilitados, Encerrar disponível', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
+    await abrirAbaDeDemandas(textos.demandas.abaAndamento);
     await abrirFolha('Montar estante');
     expect(acao(a.editar)).toBeDisabled();
     expect(screen.getByText(a.motivoEditarEmAndamento)).toBeOnTheScreen();
@@ -372,7 +389,8 @@ describe('a folha: ação indisponível aparece desabilitada com o motivo (CA33)
   });
 
   it('encerrado: sem Encerrar, Editar e Excluir desabilitados', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
+    await abrirAbaDeDemandas(textos.demandas.abaEncerradas);
     await abrirFolha('Limpar o quintal');
     expect(acao(a.editar)).toBeDisabled();
     expect(screen.getByText(a.motivoEditarEncerrado)).toBeOnTheScreen();
@@ -417,9 +435,11 @@ describe('a folha: ação indisponível aparece desabilitada com o motivo (CA33)
 
 describe('encerrar (CA33)', () => {
   it('o diálogo diz o efeito; confirmar encerra, mostra o toast e o selo "Encerrado"', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
+    await abrirAbaDeDemandas(textos.demandas.abaEncerradas);
     expect(await screen.findAllByText(textos.selos.encerrado)).toHaveLength(1);
 
+    await abrirAbaDeDemandas(textos.demandas.abaAbertas);
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.encerrarTrampo));
     expect(await screen.findByText(a.encerrarTitulo)).toBeOnTheScreen();
@@ -434,6 +454,13 @@ describe('encerrar (CA33)', () => {
     expect(
       requisicoes(servidor.fetch, 'POST', '/trampos/t1/encerrar'),
     ).toHaveLength(1);
+    // O trampo encerrado sai de Abertas e aparece em Encerradas.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: a.maisOpcoes('Pintar a sala') }),
+      ).toBeNull(),
+    );
+    await abrirAbaDeDemandas(textos.demandas.abaEncerradas);
     await waitFor(() =>
       expect(screen.getAllByText(textos.selos.encerrado)).toHaveLength(2),
     );
@@ -441,7 +468,8 @@ describe('encerrar (CA33)', () => {
   });
 
   it('em andamento, o diálogo traz a mensagem do status', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
+    await abrirAbaDeDemandas(textos.demandas.abaAndamento);
     await abrirFolha('Montar estante');
     await fireEvent.press(acao(a.encerrarTrampo));
     expect(
@@ -450,7 +478,7 @@ describe('encerrar (CA33)', () => {
   });
 
   it('cancelar o diálogo não encerra', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.encerrarTrampo));
     await fireEvent.press(
@@ -492,7 +520,7 @@ describe('encerrar (CA33)', () => {
 
 describe('excluir pela lista (CA33)', () => {
   it('trampo sem candidaturas: o diálogo diz o efeito; confirmar exclui, mostra o toast e tira da lista', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.excluirTrampo));
     expect(await screen.findByText(a.excluirTrampoTitulo)).toBeOnTheScreen();
@@ -515,11 +543,11 @@ describe('excluir pela lista (CA33)', () => {
     expect(
       screen.getByRole('button', { name: a.maisOpcoes('Trocar o telhado') }),
     ).toBeOnTheScreen();
-    expect(screen).toHavePathname('/meus-anuncios');
+    expect(screen).toHavePathname('/demandas');
   });
 
   it('com candidaturas, o diálogo conta quantas somem junto', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Trocar o telhado');
     await fireEvent.press(acao(a.excluirTrampo));
     expect(await screen.findByText(a.excluirTrampoTexto(2))).toBeOnTheScreen();
@@ -563,9 +591,9 @@ describe('excluir pelo detalhe: o aviso aparece na tela de destino (CA33)', () =
     return servidor;
   }
 
-  it('trampo: volta a Meus anúncios, que mostra "Trampo excluído." uma vez só', async () => {
+  it('trampo: volta a Demandas, que mostra "Trampo excluído." uma vez só', async () => {
     const servidor = await abrirPelaLista(
-      '/meus-anuncios',
+      '/demandas',
       'Trampo',
       'Pintar a sala',
       't1',
@@ -575,7 +603,7 @@ describe('excluir pelo detalhe: o aviso aparece na tela de destino (CA33)', () =
     await fireEvent.press(botaoDoDialogo(a.excluirTrampo));
 
     expect(await screen.findByText(a.trampoExcluido)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/meus-anuncios');
+    expect(screen).toHavePathname('/demandas');
     expect(screen).toHaveSearchParams({});
     expect(screen.getAllByText(a.trampoExcluido)).toHaveLength(1);
     expect(requisicoes(servidor.fetch, 'DELETE', '/trampos/t1')).toHaveLength(
@@ -629,7 +657,7 @@ describe('404 em encerrar ou excluir: "já removido" (CA33)', () => {
       if (i >= 0) servidor.trampos.splice(i, 1);
       return NAO_ENCONTRADO;
     });
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.excluirTrampo));
     await fireEvent.press(botaoDoDialogo(a.excluirTrampo));
@@ -655,7 +683,7 @@ describe('404 em encerrar ou excluir: "já removido" (CA33)', () => {
       if (i >= 0) servidor.trampos.splice(i, 1);
       return NAO_ENCONTRADO;
     });
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.encerrarTrampo));
     await fireEvent.press(botaoDoDialogo(a.encerrarConfirmar));
@@ -695,7 +723,7 @@ describe('404 em encerrar ou excluir: "já removido" (CA33)', () => {
       if (i >= 0) servidor.trampos.splice(i, 1);
       return NAO_ENCONTRADO;
     });
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await fireEvent.press(await cartao('Trampo', 'Pintar a sala'));
     await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
     await abrirFolha('Pintar a sala');
@@ -703,7 +731,7 @@ describe('404 em encerrar ou excluir: "já removido" (CA33)', () => {
     await fireEvent.press(botaoDoDialogo(a.excluirTrampo));
 
     expect(await screen.findByText(a.jaNaoExiste)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/meus-anuncios');
+    expect(screen).toHavePathname('/demandas');
     expect(screen.getAllByText(a.jaNaoExiste)).toHaveLength(1);
   });
 
@@ -734,7 +762,7 @@ describe('outro erro: a folha continua aberta com a mensagem (CA33)', () => {
       status: 500,
       corpo: { erro: 'erro_interno' },
     });
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.excluirTrampo));
     await fireEvent.press(botaoDoDialogo(a.excluirTrampo));
@@ -750,7 +778,7 @@ describe('outro erro: a folha continua aberta com a mensagem (CA33)', () => {
 
 describe('Editar (CA33, CA32)', () => {
   it('abre a rota de edição do trampo e do serviço', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.editar));
     await waitFor(() => expect(screen).toHavePathname('/trampos/editar/t1'));
@@ -768,7 +796,7 @@ describe('Editar (CA33, CA32)', () => {
   });
 
   it('o título do anúncio não vai para a URL', async () => {
-    const rotas = await abrir('/meus-anuncios');
+    const rotas = await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.editar));
     await waitFor(() => expect(screen).toHavePathname('/trampos/editar/t1'));
@@ -824,7 +852,7 @@ describe('Editar (CA33, CA32)', () => {
   });
 
   it('Meus anúncios também mostra "Alterações salvas." ao voltar da edição', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.editar));
     await screen.findByDisplayValue('Pintar a sala');
@@ -837,7 +865,7 @@ describe('Editar (CA33, CA32)', () => {
     );
 
     expect(await screen.findByText(a.alteracoesSalvas)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/meus-anuncios');
+    expect(screen).toHavePathname('/demandas');
     expect(await botaoMaisOpcoes('Pintar a sala e o quarto')).toBeOnTheScreen();
   });
 });
@@ -846,7 +874,7 @@ describe('Editar (CA33, CA32)', () => {
 
 describe('toque duplo faz um pedido só', () => {
   it('confirmar o encerramento duas vezes manda um POST', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.encerrarTrampo));
     await screen.findByText(a.encerrarTitulo);
@@ -860,7 +888,7 @@ describe('toque duplo faz um pedido só', () => {
   });
 
   it('confirmar a exclusão duas vezes manda um DELETE', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await abrirFolha('Pintar a sala');
     await fireEvent.press(acao(a.excluirTrampo));
     await screen.findByText(a.excluirTrampoTitulo);
@@ -892,7 +920,7 @@ describe('toque duplo faz um pedido só', () => {
   });
 
   it('tocar duas vezes em Editar abre uma tela só', async () => {
-    await abrir('/meus-anuncios');
+    await abrir('/demandas');
     await abrirFolha('Pintar a sala');
 
     await tocarNoMesmoTick(acao(a.editar));
@@ -902,6 +930,6 @@ describe('toque duplo faz um pedido só', () => {
     await act(async () => {
       router.back();
     });
-    await waitFor(() => expect(screen).toHavePathname('/meus-anuncios'));
+    await waitFor(() => expect(screen).toHavePathname('/demandas'));
   });
 });

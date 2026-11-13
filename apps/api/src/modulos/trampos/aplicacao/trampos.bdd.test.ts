@@ -12,7 +12,7 @@ import type {
   GravacaoSobTrava,
   RepositorioDeTrampos,
 } from '../dominio/portas.js';
-import type { EntradaDeTrampo } from '../dominio/trampo.js';
+import { type EntradaDeTrampo, Trampo } from '../dominio/trampo.js';
 import {
   type CasosDeUsoDeTrampos,
   criarCasosDeUsoDeTrampos,
@@ -75,6 +75,7 @@ function repositorioComoObjeto(): RepositorioDeTrampos {
     listarDoAutor: (a, p) => repositorio.listarDoAutor(a, p),
     buscar: (f) => repositorio.buscar(f),
     existeCandidaturaEntre: (a, b) => repositorio.existeCandidaturaEntre(a, b),
+    vinculoParaAvaliacao: (t, c) => repositorio.vinculoParaAvaliacao(t, c),
     listarCandidaturasDoFreelancer: (f) =>
       repositorio.listarCandidaturasDoFreelancer(f),
   };
@@ -781,6 +782,123 @@ describe('existeVinculoEntre (contrato com conversas)', () => {
     expect(await casos.existeVinculoEntre(EMPREGADOR, ANA)).toBe(false);
     expect(await casos.existeVinculoEntre(ANA, ANA)).toBe(false);
     expect(await casos.existeVinculoEntre(ANA, 'desconhecida')).toBe(false);
+  });
+});
+
+describe('vinculoParaAvaliacao (contrato com avaliacoes, CA87)', () => {
+  /** Trampo com ANA aceita e BRUNO recusado (em andamento). */
+  async function emAndamento(): Promise<string> {
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.candidatar(BRUNO, id, proposta);
+    await casos.aceitarCandidatura(EMPREGADOR, id, ana.id);
+    return id;
+  }
+
+  const vinculo = (trampoId: string, contaId: string) =>
+    repositorio.vinculoParaAvaliacao(trampoId, contaId);
+
+  it('CA87 — Dado um trampo encerrado com candidatura aceita, quando as partes consultam, então o autor avalia o freela e o freela avalia o autor', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await vinculo(id, EMPREGADOR)).toEqual({
+      avaliadoId: ANA,
+      papelDoAvaliado: 'freela',
+    });
+    expect(await vinculo(id, ANA)).toEqual({
+      avaliadoId: EMPREGADOR,
+      papelDoAvaliado: 'contratante',
+    });
+  });
+
+  it('CA87 — Dado um trampo encerrado, quando consulta o candidato recusado ou um terceiro, então não há vínculo', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await vinculo(id, BRUNO)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+  });
+
+  it('CA87 — Dado um trampo em andamento, quando as partes consultam, então recebem nao_encerrado; recusado e terceiro, nada', async () => {
+    const id = await emAndamento();
+
+    expect(await vinculo(id, EMPREGADOR)).toBe('nao_encerrado');
+    expect(await vinculo(id, ANA)).toBe('nao_encerrado');
+    expect(await vinculo(id, BRUNO)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+  });
+
+  it('CA87 — Dado um trampo aberto, quando o autor consulta, então recebe nao_encerrado; o candidato pendente e o terceiro, nada', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+
+    expect(await vinculo(id, EMPREGADOR)).toBe('nao_encerrado');
+    expect(await vinculo(id, ANA)).toBeNull();
+    expect(await vinculo(id, CARLA)).toBeNull();
+  });
+
+  it('CA87 — Dado um trampo encerrado sem candidatura aceita, quando consulta, então ninguém tem a quem avaliar', async () => {
+    const id = await publicar();
+    await casos.candidatar(ANA, id, proposta);
+    await casos.encerrarTrampo(EMPREGADOR, id);
+
+    expect(await vinculo(id, EMPREGADOR)).toBeNull();
+    expect(await vinculo(id, ANA)).toBeNull();
+  });
+
+  it('CA87 — Dado um trampo inexistente, excluído ou com a candidatura retirada, quando consulta, então não há vínculo', async () => {
+    expect(await vinculo('nao-existe', EMPREGADOR)).toBeNull();
+
+    const excluido = await publicar();
+    await casos.excluirTrampo(EMPREGADOR, excluido);
+    expect(await vinculo(excluido, EMPREGADOR)).toBeNull();
+
+    const id = await publicar();
+    const ana = await casos.candidatar(ANA, id, proposta);
+    await casos.retirarCandidatura(ANA, ana.id);
+    expect(await vinculo(id, ANA)).toBeNull();
+  });
+
+  it('CA87 — Dado um terceiro, quando consulta em cada estado do trampo, então a resposta é sempre a mesma do trampo inexistente (sem oráculo)', async () => {
+    const aberto = await publicar();
+    const andamento = await emAndamento();
+    const encerrado = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, encerrado);
+    const encerradoSemAceita = await publicar();
+    await casos.encerrarTrampo(EMPREGADOR, encerradoSemAceita);
+
+    const respostas = await Promise.all(
+      [aberto, andamento, encerrado, encerradoSemAceita, 'nao-existe'].map(
+        (id) => vinculo(id, CARLA),
+      ),
+    );
+
+    expect(respostas).toEqual([null, null, null, null, null]);
+  });
+
+  it('Dado duas candidaturas aceitas no mesmo trampo (estado que a regra não produz), quando consulta, então ninguém avalia', async () => {
+    const id = await emAndamento();
+    await casos.encerrarTrampo(EMPREGADOR, id);
+    const lido = await repositorio.buscarPorId(id);
+    if (!lido) {
+      throw new Error('trampo não encontrado no teste');
+    }
+    const dados = lido.dados();
+    await repositorio.salvar(
+      Trampo.reconstituir({
+        ...dados,
+        versao: dados.versao + 1,
+        candidaturas: dados.candidaturas.map((c) => ({
+          ...c,
+          status: 'aceita' as const,
+        })),
+      }),
+    );
+
+    expect(await vinculo(id, EMPREGADOR)).toBeNull();
+    expect(await vinculo(id, ANA)).toBeNull();
+    expect(await vinculo(id, BRUNO)).toBeNull();
   });
 });
 

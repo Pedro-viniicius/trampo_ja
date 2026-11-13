@@ -1,5 +1,5 @@
 import { type ComponentRef, useEffect, useRef, useState } from 'react';
-import { Text, type TextInput, View } from 'react-native';
+import { type TextInput, View } from 'react-native';
 import {
   Aviso,
   Botao,
@@ -7,9 +7,16 @@ import {
   DialogoDeConfirmacao,
   Motivo,
 } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { cores, espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { FocarPrimeiroErro, Paragrafo, Rolavel, Titulo } from './base';
+import {
+  Cartao,
+  FocarPrimeiroErro,
+  ListaComMarcadores,
+  Paragrafo,
+  Rolavel,
+  TituloDoCartao,
+} from './base';
 import type { PropsDeExcluirConta } from './tipos';
 
 export function ExcluirConta({
@@ -49,36 +56,24 @@ export function ExcluirConta({
     <Rolavel titulo={t.titulo} onVoltar={onCancelar} semConexao={semConexao}>
       <FocarPrimeiroErro campos={[{ ref: refSenha, erro: erroDaSenha }]} />
       <Aviso variante="erro" texto={t.alerta} />
-      <Titulo texto={t.oQueAcontece} />
-      <View style={{ gap: espaco[2] }}>
-        {t.itens.map((item) => (
-          <View key={item} style={{ flexDirection: 'row', gap: espaco[2] }}>
-            <Text
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-              style={{
-                color: cores.texto,
-                fontSize: tipografia.tamanho.corpo,
-                lineHeight: tipografia.lineHeight.corpo,
-              }}
-            >
-              {'•'}
-            </Text>
-            <View style={{ flex: 1 }}>
-              <Paragrafo texto={item} />
-            </View>
-          </View>
-        ))}
-      </View>
-      <View>
-        <Paragrafo texto={t.dica} secundario />
-        <Botao
-          texto={t.dicaLink}
-          variante="texto"
-          larguraCheia={false}
-          onPress={onExportar}
+      <Cartao gap={espaco.m - 4}>
+        <TituloDoCartao texto={t.oQueAcontece} />
+        <ListaComMarcadores
+          itens={t.itens}
+          icone="x-circle"
+          corDoIcone={cores.erro}
         />
-      </View>
+        <View>
+          <Paragrafo texto={t.dica} secundario />
+          <Botao
+            texto={t.dicaLink}
+            variante="texto"
+            tamanho="pequeno"
+            larguraCheia={false}
+            onPress={onExportar}
+          />
+        </View>
+      </Cartao>
       {erro ? <Aviso variante="erro" texto={erro} /> : null}
       <CampoDeTexto
         rotulo={t.senha}
@@ -93,7 +88,7 @@ export function ExcluirConta({
         rotuloOcultarSenha={t.ocultarSenha}
         returnKeyType="done"
       />
-      <View style={{ gap: espaco[2] }}>
+      <View style={{ gap: espaco.s }}>
         <Botao
           texto={t.excluir}
           variante="destrutivo"

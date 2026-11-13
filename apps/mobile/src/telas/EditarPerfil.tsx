@@ -9,14 +9,15 @@ import {
   Esqueleto,
   Toast,
 } from '../componentes';
-import { espaco } from '../tema/tokens';
+import { espaco, raio } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
+  Cartao,
   ErroDoBloco,
   FocarPrimeiroErro,
   Formulario,
   Paragrafo,
-  Titulo,
+  TituloDoCartao,
 } from './base';
 import type { PropsDoEditarPerfil } from './tipos';
 
@@ -135,72 +136,80 @@ export function EditarPerfil({
               variante="info"
               texto={textos.editarPerfil.avisoVisibilidade}
             />
-            <CampoDeTexto
-              rotulo={textos.editarPerfil.nome}
-              valor={valores.nome}
-              onChangeText={onMudarNome}
-              erro={erros.nome}
-              inputRef={refNome}
-              limite={LIMITE_DO_NOME}
-              autoComplete="name"
-              textContentType="name"
-              returnKeyType="next"
-              onSubmitEditing={() => refCidade.current?.focus()}
-            />
-            <CampoDeTexto
-              rotulo={textos.editarPerfil.cidade}
-              valor={valores.cidade}
-              onChangeText={onMudarCidade}
-              erro={erros.cidade}
-              inputRef={refCidade}
-              limite={LIMITE_DA_CIDADE}
-              autoComplete="postal-address-locality"
-              textContentType="addressCity"
-              returnKeyType="next"
-              onSubmitEditing={() => refDescricao.current?.focus()}
-            />
-            <CampoDeTexto
-              rotulo={textos.editarPerfil.descricao}
-              valor={valores.descricao}
-              onChangeText={onMudarDescricao}
-              erro={erros.descricao}
-              inputRef={refDescricao}
-              multiline
-              limite={LIMITE_DA_DESCRICAO}
-              contadorDoLimite="sempre"
-            />
-            <Titulo texto={textos.editarPerfil.habilidades} />
-            <View style={{ gap: espaco[2] }}>
+            <Cartao>
               <CampoDeTexto
-                rotulo={textos.editarPerfil.adicionarHabilidade}
-                valor={rascunho}
-                onChangeText={setRascunho}
-                erro={erros.habilidades}
-                inputRef={refHabilidade}
-                limite={LIMITE_DA_HABILIDADE}
-                returnKeyType="done"
-                onSubmitEditing={adicionar}
+                rotulo={textos.editarPerfil.nome}
+                valor={valores.nome}
+                onChangeText={onMudarNome}
+                erro={erros.nome}
+                inputRef={refNome}
+                limite={LIMITE_DO_NOME}
+                autoComplete="name"
+                textContentType="name"
+                returnKeyType="next"
+                onSubmitEditing={() => refCidade.current?.focus()}
               />
-              <Botao
-                texto={textos.editarPerfil.adicionar}
-                variante="secundario"
-                icone="add"
-                onPress={adicionar}
+              <CampoDeTexto
+                rotulo={textos.editarPerfil.cidade}
+                valor={valores.cidade}
+                onChangeText={onMudarCidade}
+                erro={erros.cidade}
+                inputRef={refCidade}
+                limite={LIMITE_DA_CIDADE}
+                autoComplete="postal-address-locality"
+                textContentType="addressCity"
+                returnKeyType="next"
+                onSubmitEditing={() => refDescricao.current?.focus()}
               />
-            </View>
-            <View
-              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}
-            >
-              {valores.habilidades.map((habilidade, i) => (
-                <Chip
-                  // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
-                  key={`${habilidade}-${i}`}
-                  texto={habilidade}
-                  rotuloRemover={textos.editarPerfil.remover(habilidade)}
-                  onRemover={() => onRemoverHabilidade(habilidade)}
+              <CampoDeTexto
+                rotulo={textos.editarPerfil.descricao}
+                valor={valores.descricao}
+                onChangeText={onMudarDescricao}
+                erro={erros.descricao}
+                inputRef={refDescricao}
+                multiline
+                limite={LIMITE_DA_DESCRICAO}
+                contadorDoLimite="sempre"
+              />
+            </Cartao>
+            <Cartao gap={espaco.m - 4}>
+              <TituloDoCartao texto={textos.editarPerfil.habilidades} />
+              <View style={{ gap: espaco.s }}>
+                <CampoDeTexto
+                  rotulo={textos.editarPerfil.adicionarHabilidade}
+                  valor={rascunho}
+                  onChangeText={setRascunho}
+                  erro={erros.habilidades}
+                  inputRef={refHabilidade}
+                  limite={LIMITE_DA_HABILIDADE}
+                  returnKeyType="done"
+                  onSubmitEditing={adicionar}
                 />
-              ))}
-            </View>
+                <Botao
+                  texto={textos.editarPerfil.adicionar}
+                  variante="tonal"
+                  icone="plus"
+                  onPress={adicionar}
+                />
+              </View>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: espaco.s,
+                }}
+              >
+                {valores.habilidades.map((habilidade, i) => (
+                  <Chip
+                    // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
+                    key={`${habilidade}-${i}`}
+                    texto={habilidade}
+                    rotuloRemover={textos.editarPerfil.remover(habilidade)}
+                    onRemover={() => onRemoverHabilidade(habilidade)}
+                  />
+                ))}
+              </View>
+            </Cartao>
           </>
         ) : null}
       </Formulario>
@@ -222,16 +231,16 @@ function CarregandoDoPerfil() {
       accessible
       accessibilityLabel={textos.editarPerfil.carregando}
       accessibilityState={{ busy: true }}
-      style={{ gap: espaco[4] }}
+      style={{ gap: espaco.m }}
     >
       {Array.from({ length: 4 }, (_, i) => (
         <View
           // biome-ignore lint/suspicious/noArrayIndexKey: esqueletos idênticos e estáticos.
           key={i}
-          style={{ gap: espaco[2] }}
+          style={{ gap: espaco.s }}
         >
           <Esqueleto largura="30%" altura={14} />
-          <Esqueleto altura={48} />
+          <Esqueleto altura={56} raioDaBorda={raio.campo} />
         </View>
       ))}
     </View>

@@ -121,6 +121,13 @@ function campoDeSenha() {
   return screen.getByLabelText(textos.entrar.senha);
 }
 
+/** CA75: o Cadastro só envia depois da escolha do objetivo (aqui, freela). */
+async function escolherObjetivo() {
+  await fireEvent.press(
+    screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
+  );
+}
+
 /** Estado guardado pelo TanStack (consultas e mutações), como texto. */
 function cacheComoTexto(queryClient: QueryClient): string {
   return JSON.stringify({
@@ -196,6 +203,7 @@ describe('Cadastro (CA1, CA2)', () => {
     );
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(`  ${EMAIL} `, SENHA);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),
@@ -228,6 +236,7 @@ describe('Cadastro (CA1, CA2)', () => {
     });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),
@@ -251,6 +260,7 @@ describe('Cadastro (CA1, CA2)', () => {
     await renderizarConta('/cadastro', { fetch });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, '1234567');
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),
@@ -266,6 +276,7 @@ describe('Cadastro (CA1, CA2)', () => {
     await renderizarConta('/cadastro', { fetch });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher('maria@', SENHA);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),

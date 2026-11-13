@@ -224,7 +224,14 @@ function TrampoComAutor({
           <RodapeDaRota
             trampo={trampo}
             semConexao={semConexao}
-            onEnviada={() => setToast(textos.candidatar.enviada)}
+            // CA80: a candidatura enviada abre a tela própria, no lugar do
+            // toast; o voltar dela traz de volta a este detalhe.
+            onEnviada={() =>
+              router.push({
+                pathname: '/candidatura-enviada',
+                params: { trampoId: trampo.id },
+              })
+            }
             onRetirada={() => setToast(textos.candidatura.retirada)}
             onRecarregarTrampo={onRecarregarTrampo}
           />
@@ -324,7 +331,7 @@ function RodapeDaRota({
 }: {
   trampo: Trampo;
   semConexao: boolean;
-  /** Candidatura criada: o detalhe mostra o toast. */
+  /** Candidatura criada: o detalhe abre Candidatura enviada (CA80). */
   onEnviada: () => void;
   /** Candidatura retirada: o detalhe mostra o toast. */
   onRetirada: () => void;
@@ -510,6 +517,9 @@ function RodapeDaRota({
       ) : null}
       <RodapeDoTrampo
         situacao={situacao}
+        // Quadro 05: o valor ao lado do "Quero me candidatar" (o rodapé só o
+        // mostra junto desse botão: candidatar e trampo fechado).
+        valorFormatado={formatarCentavos(trampo.valorCentavos)}
         semConexao={semConexao}
         folha={folha}
         estadoDoConversar={conversa.estado}

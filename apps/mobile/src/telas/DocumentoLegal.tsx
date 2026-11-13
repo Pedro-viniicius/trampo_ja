@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native';
 import { Aviso, Botao } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Paragrafo, Rolavel, Titulo } from './base';
 import type { PropsDoDocumentoLegal } from './tipos';
@@ -17,11 +18,7 @@ export function DocumentoLegal({ documento, onVoltar }: PropsDoDocumentoLegal) {
   return (
     <Rolavel titulo={documento.titulo} onVoltar={onVoltar}>
       <Text
-        style={{
-          color: cores.textoSecundario,
-          fontSize: tipografia.tamanho.legenda,
-          lineHeight: tipografia.lineHeight.legenda,
-        }}
+        style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
       >
         {t.versao(formatarData(documento.versao))}
       </Text>
@@ -30,7 +27,7 @@ export function DocumentoLegal({ documento, onVoltar }: PropsDoDocumentoLegal) {
         <View
           // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
           key={`${i}-${secao.titulo}`}
-          style={{ gap: espaco[3] }}
+          style={{ gap: espaco.m - 4, marginTop: espaco.s }}
         >
           <Titulo texto={secao.titulo} />
           {secao.paragrafos.map((paragrafo, i) => (
@@ -43,7 +40,7 @@ export function DocumentoLegal({ documento, onVoltar }: PropsDoDocumentoLegal) {
           ))}
         </View>
       ))}
-      <Botao texto={t.voltar} variante="secundario" onPress={onVoltar} />
+      <Botao texto={t.voltar} variante="contorno" onPress={onVoltar} />
     </Rolavel>
   );
 }

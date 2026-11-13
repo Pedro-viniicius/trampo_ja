@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Contratante · Lista de candidatos</title>
+<script src="401d5d39-d1cc-42ad-af62-0b80e1f4c4ed"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .16s ease, box-shadow .2s ease;cursor:pointer}
+.tj-press:active{transform:scale(.98)}
+.tj-bar{transition:width .35s cubic-bezier(.2,.8,.2,1)}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <main style="padding: 56px 24px 130px; display: flex; flex-direction: column; gap: 16px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <a href="C-Demandas.dc.html" aria-label="Voltar" class="tj-press" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: #FFFFFF; color: #161A2B; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(22,26,43,.08);"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+      <div style="display: flex; flex-direction: column;"><h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 24px; line-height: 30px; letter-spacing: -0.02em;">Chapeiro noturno</h1><span style="font-size: 14px; color: #555B73;">4 candidatos · toque para ver o perfil</span></div>
+    </div>
+
+    <div style="background: #FFFFFF; border-radius: 20px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(22,26,43,.06);">
+      <span style="font-size: 15px;"><b>Selecionados:</b> {{ count }} de 3 profissionais</span>
+      <span style="height: 8px; border-radius: 999px; background: #EEF0F5; display: block; overflow: hidden;"><span class="tj-bar" style="{{ barStyle }}"></span></span>
+    </div>
+
+    <sc-for list="{{ people }}" as="p" hint-placeholder-count="4">
+      <div style="{{ p.cardStyle }}">
+        <span style="{{ p.avatarStyle }}">{{ p.initials }}</span>
+        <a href="#" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: #161A2B;">
+          <span style="display: flex; align-items: center; gap: 8px;"><b style="font-size: 16px;">{{ p.name }}</b><span style="display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 700;"><svg width="13" height="13" sc-camel-view-box="0 0 24 24" fill="#F79009" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>{{ p.rating }}</span></span>
+          <span style="font-size: 13px; color: #555B73;">{{ p.exp }}</span>
+          <span style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="height: 24px; padding: 0 8px; border-radius: 8px; background: #EEF5FF; color: #0B54AD; font-size: 12px; font-weight: 700; display: flex; align-items: center;">{{ p.t1 }}</span><span style="height: 24px; padding: 0 8px; border-radius: 8px; background: #EEF5FF; color: #0B54AD; font-size: 12px; font-weight: 700; display: flex; align-items: center;">{{ p.t2 }}</span></span>
+        </a>
+        <button role="checkbox" aria-checked="{{ p.checked }}" aria-label="{{ p.aria }}" sc-camel-on-click="{{ p.toggle }}" style="{{ p.boxStyle }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></button>
+      </div>
+    </sc-for>
+  </main>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; background: #FFFFFF; padding: 16px 24px 32px; box-shadow: 0 -8px 24px -12px rgba(22,26,43,.18); border-radius: 28px 28px 0 0;">
+    <sc-if value="{{ any }}" hint-placeholder-val="{{ true }}">
+      <a href="C-Demandas.dc.html" class="tj-press" style="height: 56px; border-radius: 999px; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); color: #FFFFFF; font-weight: 600; font-size: 16px; display: flex; align-items: center; justify-content: center; text-decoration: none; box-shadow: 0 12px 24px -10px rgba(122,59,191,.6);">Confirmar {{ count }} selecionado(s)</a>
+    </sc-if>
+    <sc-if value="{{ none }}" hint-placeholder-val="{{ false }}">
+      <button disabled="" style="width: 100%; height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px Figtree, system-ui, sans-serif;">Selecione pelo menos 1 candidato</button>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { sel: { jp: true, jo: true } }; }
+  renderVals() {
+    const sel = this.state.sel;
+    const count = Object.keys(sel).filter((k) => sel[k]).length;
+    const base = [
+      { id: 'jp', initials: 'JP', name: 'João P.', rating: '5,0', exp: '2 anos de experiência', t1: 'Organização', t2: 'Rapidez', bg: '#DDF5E6', fg: '#0B7A3D' },
+      { id: 'jo', initials: 'JO', name: 'Joana', rating: '5,0', exp: 'Sem experiência', t1: 'Proativa', t2: 'Aprende rápido', bg: '#EFE2FD', fg: '#632F9A' },
+      { id: 'an', initials: 'AN', name: 'Angelino', rating: '5,0', exp: 'Sem experiência', t1: 'Atento', t2: 'Habilidoso', bg: '#D9E9FE', fg: '#0B54AD' },
+      { id: 'ra', initials: 'RA', name: 'Rafaela', rating: '4,7', exp: '1 ano de experiência', t1: 'Pontual', t2: 'Chapa', bg: '#FEF0C7', fg: '#93370D' }
+    ];
+    const people = base.map((p) => {
+      const on = !!sel[p.id];
+      const blocked = !on && count >= 3;
+      return {
+        ...p,
+        checked: on ? 'true' : 'false',
+        aria: 'Selecionar ' + p.name,
+        cardStyle: 'background: #FFFFFF; border-radius: 24px; padding: 14px; display: flex; gap: 12px; align-items: center; transition: box-shadow .2s ease, opacity .2s ease; ' + (on ? 'box-shadow: 0 0 0 2px #0F6AD8, 0 8px 20px -8px rgba(26,127,246,.4);' : 'box-shadow: 0 1px 2px rgba(22,26,43,.06);') + (blocked ? ' opacity: .55;' : ''),
+        avatarStyle: 'width: 52px; height: 52px; flex-shrink: 0; border-radius: 18px; background: ' + p.bg + '; color: ' + p.fg + '; display: flex; align-items: center; justify-content: center; font: 800 18px \'Bricolage Grotesque\', system-ui, sans-serif;',
+        boxStyle: 'width: 44px; height: 44px; flex-shrink: 0; border-radius: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color .16s ease, transform .2s cubic-bezier(.2,.8,.2,1.4); ' + (on ? 'border: 0; background: #0F6AD8; transform: scale(1.04);' : 'border: 2px solid #C4C8D5; background: #FFFFFF;'),
+        toggle: () => { if (blocked) return; this.setState({ sel: { ...sel, [p.id]: !on } }); }
+      };
+    });
+    return {
+      people, count, any: count > 0, none: count === 0,
+      barStyle: 'display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #0F6AD8, #9550E0); width: ' + Math.round(count / 3 * 100) + '%;'
+    };
+  }
+}
+</script>
+
+
+</body></html>

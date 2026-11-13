@@ -107,7 +107,8 @@ describe('detalhe do trampo', () => {
     await abrir('/trampos/t1', fetch);
 
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
-    expect(screen.getByText('R$ 1.500,00')).toBeOnTheScreen();
+    // O ladrilho Valor vem com o trampo, antes do rodapé.
+    expect(screen.getAllByText('R$ 1.500,00').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('15/11/2026')).toBeOnTheScreen();
     expect(await screen.findByText('Pintura e reparos')).toBeOnTheScreen();
     expect(await screen.findByText('Carla Souza')).toBeOnTheScreen();
@@ -118,6 +119,10 @@ describe('detalhe do trampo', () => {
         name: textos.detalheTrampo.candidatar,
       }),
     ).toBeOnTheScreen();
+    // Quadro 05: o valor aparece no ladrilho e de novo no rodapé, ao lado
+    // do "Quero me candidatar", cada um com a legenda "Valor".
+    expect(screen.getAllByText('R$ 1.500,00')).toHaveLength(2);
+    expect(screen.getAllByText(textos.detalheTrampo.valor)).toHaveLength(2);
 
     await fireEvent.press(screen.getByText('Carla Souza'));
     await waitFor(() => expect(screen).toHavePathname('/perfis/c1'));
@@ -149,7 +154,13 @@ describe('detalhe do trampo', () => {
     expect(
       screen.queryByRole('button', { name: textos.gerais.tentarDeNovo }),
     ).toBeNull();
-    expect(screen.getByText('R$ 1.500,00')).toBeOnTheScreen();
+    // O rodapé segue de pé: valor no ladrilho e ao lado do botão.
+    expect(
+      await screen.findByRole('button', {
+        name: textos.detalheTrampo.candidatar,
+      }),
+    ).toBeOnTheScreen();
+    expect(screen.getAllByText('R$ 1.500,00')).toHaveLength(2);
   });
 
   it('trampo inexistente (404) mostra "nao_encontrado" e volta', async () => {

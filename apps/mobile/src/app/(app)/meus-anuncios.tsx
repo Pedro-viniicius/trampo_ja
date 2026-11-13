@@ -1,5 +1,10 @@
 import type { QueryKey } from '@tanstack/react-query';
-import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  Redirect,
+  useIsFocused,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import type { Categoria, Servico, Trampo } from '../../api/tipos';
 import {
   type AnuncioDaFolha,
@@ -33,15 +38,14 @@ function maisRecentesPrimeiro<T extends Trampo | Servico>(
   );
 }
 
-/** Qualquer valor que não seja `servico` (ausente, repetido, outro) é `trampo`. */
-function lerTipo(valor: string | string[] | undefined): TipoDeAnuncio {
-  return valor === 'servico' ? 'servico' : 'trampo';
-}
-
+/**
+ * Meus serviços (`?tipo=servico`). Meus trampos virou a aba Demandas
+ * (CA77, CA79): qualquer outro valor (ausente, `trampo`, repetido, outro)
+ * leva até ela.
+ */
 export default function RotaDosMeusAnuncios() {
-  const { tipo: tipoDaUrl } = useLocalSearchParams<{ tipo?: string }>();
-  const tipo = lerTipo(tipoDaUrl);
-  return tipo === 'servico' ? <MeusServicos /> : <MeusTrampos />;
+  const { tipo } = useLocalSearchParams<{ tipo?: string }>();
+  return tipo === 'servico' ? <MeusServicos /> : <Redirect href="/demandas" />;
 }
 
 /** Contêiner comum: cada tipo só chama o próprio hook (uma requisição só). */
@@ -124,7 +128,12 @@ function paraExibir(
   );
 }
 
-function MeusTrampos() {
+/**
+ * Aba Demandas do contratante (CA79): os trampos de `/trampos/meus` nas
+ * abas Abertas, Em andamento e Encerradas, que filtram as páginas já
+ * carregadas pelo `status`. O "+" abre `/trampos/novo`.
+ */
+export function MeusTrampos() {
   const acoes = useAcoes('trampo');
   const consulta = useMeusTrampos();
   const opcoes = useMaisOpcoes((id) => {
@@ -147,16 +156,24 @@ function MeusTrampos() {
       erro: consulta.erro,
       recarregar: consulta.recarregar,
     },
-    (trampos) => paraExibir(trampos, acoes.categorias),
+    (trampos) =>
+      maisRecentesPrimeiro(trampos).map(
+        (trampo): MeuAnuncioParaExibir => ({
+          ...meuAnuncioParaExibir(trampo, acoes.categorias),
+          ...(trampo.candidaturasRecebidas !== undefined && {
+            interessados: trampo.candidaturasRecebidas,
+          }),
+        }),
+      ),
   );
   return (
     <MeusAnuncios
       tipo="trampo"
+      segmentada
       lista={lista}
       semConexao={!acoes.online}
       onAbrirItem={acoes.abrir}
       onPublicar={acoes.publicar}
-      onVoltar={acoes.voltar}
       folha={opcoes.folha}
       onMaisOpcoes={opcoes.onMaisOpcoes}
       toast={opcoes.toast}

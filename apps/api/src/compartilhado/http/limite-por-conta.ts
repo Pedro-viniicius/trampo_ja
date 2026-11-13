@@ -67,7 +67,9 @@ export const LIMITES_PADRAO_POR_CONTA: LimitesPorConta = {
  * inclusive `PUT /perfis/eu`, `POST /trampos/:id/encerrar` e os `DELETE` de
  * trampo, serviço e candidatura (D36). Os `PUT` de anúncio contam em
  * `publicacao` como a publicação (D36): sem isso, editar um anúncio em laço
- * seria um jeito de republicar fora do teto de 30/h.
+ * seria um jeito de republicar fora do teto de 30/h. Avaliar conta em
+ * `publicacao` (CA94); favoritar e desfavoritar
+ * (`PUT`/`DELETE /favoritos/:contaId`) caem em `escrita`.
  */
 const GRUPO_PROPRIO: ReadonlyMap<string, GrupoDeLimite> = new Map([
   ['POST /conversas/:id/mensagens', 'mensagens'],
@@ -76,6 +78,7 @@ const GRUPO_PROPRIO: ReadonlyMap<string, GrupoDeLimite> = new Map([
   ['POST /trampos/:id/candidaturas', 'publicacao'],
   ['PUT /trampos/:id', 'publicacao'],
   ['PUT /servicos/:id', 'publicacao'],
+  ['POST /avaliacoes', 'publicacao'],
   ['POST /contas/eu/exclusao', 'senha'],
   ['POST /contas/eu/exportacao', 'senha'],
 ]);

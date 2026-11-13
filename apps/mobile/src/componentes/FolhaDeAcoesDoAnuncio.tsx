@@ -1,45 +1,36 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import type { AcaoDoAnuncio, PropsDaFolhaDeAcoes } from '../telas/tipos';
-import { cores, espaco, toqueMinimo } from '../tema/tokens';
+import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Aviso } from './Aviso';
 import { Botao } from './Botao';
+import { BotaoDeIcone, type VarianteDoBotaoDeIcone } from './BotaoDeIcone';
 import { DialogoDeConfirmacao } from './DialogoDeConfirmacao';
 import { FolhaInferior } from './FolhaInferior';
 import { Motivo } from './Motivo';
-import { estiloDeFoco, useFoco } from './utilitarios';
+import type { NomeDeIcone } from './utilitarios';
 
 export type PropsDoBotaoMaisOpcoes = {
   titulo: string;
   onPress: () => void;
+  /** `claro` sobre a faixa gradiente dos detalhes; padrão `transparente` (dentro de cartão). */
+  variante?: VarianteDoBotaoDeIcone;
 };
 
-/** Botão de ícone "Mais opções de {título}" (alvo de 44×44). */
-export function BotaoMaisOpcoes({ titulo, onPress }: PropsDoBotaoMaisOpcoes) {
-  const { focado, aoFocar, aoDesfocar } = useFoco();
+/** Botão redondo "Mais opções de {título}" (⋯ vertical, alvo de 48×48). */
+export function BotaoMaisOpcoes({
+  titulo,
+  onPress,
+  variante = 'transparente',
+}: PropsDoBotaoMaisOpcoes) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={textos.anuncio.maisOpcoes(titulo)}
+    <BotaoDeIcone
+      icone="more-vertical"
+      variante={variante}
+      rotulo={textos.anuncio.maisOpcoes(titulo)}
       onPress={onPress}
-      onFocus={aoFocar}
-      onBlur={aoDesfocar}
-      style={({ pressed }) => [
-        {
-          width: toqueMinimo,
-          height: toqueMinimo,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: toqueMinimo / 2,
-          backgroundColor: pressed ? cores.superficie : 'transparent',
-        },
-        focado && estiloDeFoco,
-      ]}
-    >
-      <Ionicons name="ellipsis-horizontal" size={24} color={cores.texto} />
-    </Pressable>
+    />
   );
 }
 
@@ -50,13 +41,13 @@ function Linha({
   acao,
   onPress,
   icone,
-  variante = 'secundario',
+  variante = 'contorno',
 }: {
   texto: string;
   acao: AcaoDoAnuncio;
   onPress: () => void;
-  icone: 'create-outline' | 'checkmark-done-outline' | 'trash-outline';
-  variante?: 'secundario' | 'destrutivo';
+  icone: NomeDeIcone;
+  variante?: 'contorno' | 'destrutivo';
 }) {
   return (
     <View style={{ gap: espaco[1] }}>
@@ -121,7 +112,7 @@ export function FolhaDeAcoesDoAnuncio({
           {erro ? <Aviso variante="erro" texto={erro} /> : null}
           <Linha
             texto={textos.anuncio.editar}
-            icone="create-outline"
+            icone="edit-2"
             acao={{
               ...editar,
               disponivel: editar.disponivel && !ocupado,
@@ -131,7 +122,7 @@ export function FolhaDeAcoesDoAnuncio({
           {encerrar ? (
             <Linha
               texto={textos.anuncio.encerrarTrampo}
-              icone="checkmark-done-outline"
+              icone="check-circle"
               acao={{
                 ...encerrar,
                 disponivel: encerrar.disponivel && !ocupado,
@@ -145,7 +136,7 @@ export function FolhaDeAcoesDoAnuncio({
                 ? textos.anuncio.excluirTrampo
                 : textos.anuncio.excluirServico
             }
-            icone="trash-outline"
+            icone="trash-2"
             variante="destrutivo"
             acao={{
               ...excluir,

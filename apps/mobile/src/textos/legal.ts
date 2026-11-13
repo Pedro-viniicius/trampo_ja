@@ -20,7 +20,7 @@ export type DocumentoLegal = {
 
 export const politicaDePrivacidade: DocumentoLegal = {
   titulo: 'Política de Privacidade',
-  versao: '2026-10-23',
+  versao: '2026-11-13',
   rascunho: true,
   secoes: [
     {
@@ -39,6 +39,7 @@ export const politicaDePrivacidade: DocumentoLegal = {
         'Anúncios: o título, a descrição, a categoria, a cidade, o valor e o prazo dos trampos e dos serviços que você publica.',
         'Candidaturas: a mensagem e o valor que você propõe quando se candidata a um trampo, e a situação da candidatura.',
         'Mensagens: o texto das conversas que você troca com outras pessoas dentro do aplicativo.',
+        'Avaliações e favoritos: quando um trampo termina, quem publicou e quem fez o trampo podem avaliar um ao outro. A avaliação tem uma nota de 1 a 5, destaques escolhidos de uma lista (por exemplo, "pontual") e, se você quiser, um comentário. Você também pode guardar na sua lista de favoritos uma pessoa com quem já teve uma candidatura (a "equipe favorita").',
         'Registros de acesso: quando o aplicativo fala com o servidor, o servidor registra o endereço IP, a data e a hora, o método e a rota acessada (sem os valores que você digitou) e o resultado do pedido. Esses registros não incluem e-mail, senha, nome nem o conteúdo de mensagens e anúncios.',
         'No aparelho, o aplicativo guarda o seu token de acesso no armazenamento seguro do sistema (Keychain no iOS, Keystore no Android). O aplicativo não usa telemetria, relatório de falhas, rastreadores nem publicidade.',
       ],
@@ -46,7 +47,7 @@ export const politicaDePrivacidade: DocumentoLegal = {
     {
       titulo: 'Para que usamos os dados e em que base legal',
       paragrafos: [
-        'Criar e manter a sua conta, mostrar o seu perfil e os seus anúncios, permitir candidaturas e conversas entre as partes e fazer a busca funcionar. A base legal é a execução do contrato de uso do aplicativo (LGPD, art. 7º, V), a pedido de quem se cadastra.',
+        'Criar e manter a sua conta, mostrar o seu perfil e os seus anúncios, permitir candidaturas, conversas e avaliações entre as partes, guardar a sua lista de favoritos e fazer a busca funcionar. A base legal é a execução do contrato de uso do aplicativo (LGPD, art. 7º, V), a pedido de quem se cadastra.',
         'Proteger o serviço e as pessoas que o usam, por exemplo limitando o número de tentativas de login, de cadastros e de envios por minuto e investigando abusos. A base legal é o legítimo interesse (LGPD, art. 7º, IX), sempre com o mínimo de dados necessário.',
         'Guardar os registros de acesso por seis meses, como exige o Marco Civil da Internet (Lei 12.965/2014, art. 15). A base legal é o cumprimento de obrigação legal (LGPD, art. 7º, II).',
         'Não usamos os seus dados para publicidade, para criar perfis comerciais nem para decisões automatizadas sobre você.',
@@ -59,6 +60,8 @@ export const politicaDePrivacidade: DocumentoLegal = {
         'Seu perfil (nome, cidade, descrição e habilidades) e os seus anúncios ficam visíveis para as demais pessoas que estão logadas no aplicativo. Quem não tem conta não vê nada.',
         'Quando você se candidata a um trampo, o autor do trampo vê a sua candidatura (mensagem, valor proposto e situação) e o seu perfil.',
         'As mensagens de uma conversa ficam guardadas no servidor e são vistas por você e pela outra pessoa da conversa, e por nenhuma outra pessoa usuária.',
+        'Uma avaliação fica visível para qualquer pessoa que tem conta no aplicativo: a nota, os destaques, o comentário (se houver) e quem avaliou. Por isso, quem vê a avaliação fica sabendo que as duas pessoas trabalharam juntas. A avaliação não pode ser editada nem apagada pelo aplicativo, nem por quem avaliou nem por quem foi avaliado. Se você quiser pedir a remoção de um comentário específico, escreva para [E-MAIL DE CONTATO].',
+        'Os favoritos são privados: só você vê a sua lista. A pessoa que você guarda como favorita não é avisada e não vê que está na sua lista.',
         'Não vendemos nem repassamos os seus dados a terceiros, e não há anúncios nem ferramentas de telemetria. A API e o banco de dados do Trampo Já ficam hospedados em [ENDEREÇO DE HOSPEDAGEM]. Podemos fornecer dados a autoridades quando a lei ou uma ordem judicial exigir.',
       ],
     },
@@ -68,6 +71,7 @@ export const politicaDePrivacidade: DocumentoLegal = {
         'Guardamos os dados da sua conta, do seu perfil, dos seus anúncios, das suas candidaturas e das suas conversas enquanto a sua conta existir. Quando você exclui a conta, tudo isso é apagado na hora, como descrito na seção Seus direitos.',
         'Os registros de acesso ficam fora do banco de dados da conta e não são apagados quando você exclui a conta. Eles são guardados por pelo menos seis meses, pelo motivo legal explicado acima. O prazo máximo de guarda e a forma de eliminação dependem da hospedagem do serviço e serão estes: [PRAZO E FORMA DE GUARDA DOS REGISTROS DE ACESSO].',
         'Uma candidatura some se o autor excluir o trampo ou se você a retirar. Depois de respondida, ou com o trampo encerrado, ela fica guardada enquanto as duas contas existirem.',
+        'Uma avaliação fica guardada até que uma das duas contas, a de quem avaliou ou a de quem foi avaliado, seja excluída. Um favorito fica guardado até você desfazer o favorito ou até que uma das duas contas seja excluída.',
         'As sessões que já expiraram são apagadas do servidor em cerca de 1 hora depois do vencimento, mesmo que você não saia da conta.',
         'Cópias de segurança do servidor, se existirem, são mantidas por [PRAZO DE CÓPIAS DE SEGURANÇA] e seguem para eliminação depois disso.',
       ],
@@ -84,9 +88,9 @@ export const politicaDePrivacidade: DocumentoLegal = {
       paragrafos: [
         'A LGPD (art. 18) garante a você, entre outros direitos: confirmar que tratamos dados seus, acessá-los, corrigi-los, pedir a eliminação, pedir a portabilidade, saber com quem os compartilhamos e reclamar à Autoridade Nacional de Proteção de Dados (ANPD).',
         'Corrigir: edite o seu perfil no próprio aplicativo. Você também pode editar e excluir os seus anúncios no aplicativo, e retirar uma candidatura que ainda não foi respondida. Para corrigir outros dados, escreva para [E-MAIL DE CONTATO].',
-        'Exportar: em Perfil, Conta e privacidade, você pode gerar um arquivo com os seus dados. É preciso informar a senha. O arquivo está em JSON e traz só os dados da sua conta: e-mail, datas das sessões, perfil, trampos, serviços, candidaturas e as mensagens que você enviou, além do identificador da outra pessoa em cada conversa. Ele não traz a senha, o token nem textos escritos por outras pessoas. O aplicativo grava um arquivo temporário no aparelho, abre a folha de compartilhamento do sistema para você escolher o destino e apaga o arquivo temporário depois. Se os seus dados somarem mais de 10 MB, o aplicativo não consegue gerar o arquivo e avisa você. Nesse caso, peça a cópia dos dados escrevendo para [E-MAIL DE CONTATO]: respondemos em até 15 dias, como prevê a LGPD (art. 19, II).',
-        'Excluir: em Perfil, Conta e privacidade, você pode excluir a conta. É preciso informar a senha, e a exclusão é imediata e definitiva, sem prazo de carência e sem como desfazer. Na mesma operação apagamos a conta, as sessões de todos os aparelhos, o perfil, os trampos que você publicou (com as candidaturas que eles receberam), os serviços, as candidaturas que você fez e as conversas de que você participa, com as mensagens dos dois lados.',
-        'Efeito sobre a outra pessoa: quem conversava com você perde a conversa inteira, inclusive as mensagens que ela mesma escreveu. Os seus trampos e serviços deixam de aparecer na busca, e as candidaturas que você fez somem da lista de candidaturas recebidas dos autores.',
+        'Exportar: em Perfil, Conta e privacidade, você pode gerar um arquivo com os seus dados. É preciso informar a senha. O arquivo está em JSON e traz só os dados da sua conta: e-mail, datas das sessões, perfil, trampos, serviços, candidaturas, as mensagens que você enviou, as avaliações que você fez (com o comentário e o identificador do trampo avaliado), as avaliações que você recebeu (só a nota, os destaques e a data, sem o comentário e sem quem avaliou) e os seus favoritos (o identificador de cada conta favoritada, com a data). De outras pessoas, o arquivo traz só identificadores: o da outra pessoa em cada conversa, o dos trampos que você avaliou e o das contas que você favoritou. Ele não traz a senha, o token nem textos escritos por outras pessoas. O aplicativo grava um arquivo temporário no aparelho, abre a folha de compartilhamento do sistema para você escolher o destino e apaga o arquivo temporário depois. Se os seus dados somarem mais de 10 MB, o aplicativo não consegue gerar o arquivo e avisa você. Nesse caso, peça a cópia dos dados escrevendo para [E-MAIL DE CONTATO]: respondemos em até 15 dias, como prevê a LGPD (art. 19, II).',
+        'Excluir: em Perfil, Conta e privacidade, você pode excluir a conta. É preciso informar a senha, e a exclusão é imediata e definitiva, sem prazo de carência e sem como desfazer. Na mesma operação apagamos a conta, as sessões de todos os aparelhos, o perfil, os trampos que você publicou (com as candidaturas que eles receberam), os serviços, as candidaturas que você fez, as conversas de que você participa, com as mensagens dos dois lados, as avaliações que você fez e as que você recebeu, e os favoritos dos dois lados (a sua lista e as listas em que você aparece).',
+        'Efeito sobre a outra pessoa: quem conversava com você perde a conversa inteira, inclusive as mensagens que ela mesma escreveu. Os seus trampos e serviços deixam de aparecer na busca, e as candidaturas que você fez somem da lista de candidaturas recebidas dos autores. As avaliações que você fez somem do perfil de quem você avaliou, e por isso a média de notas dessa pessoa pode mudar. Você também sai da lista de favoritos de quem tinha guardado você.',
         'Se não conseguir usar o aplicativo, peça a exclusão ou qualquer outro direito escrevendo para [E-MAIL DE CONTATO]. Podemos pedir informações para confirmar que o pedido é seu. Respondemos no prazo previsto na LGPD.',
       ],
     },

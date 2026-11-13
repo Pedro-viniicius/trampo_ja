@@ -1,7 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import { AccessibilityInfo, Platform, Text, View } from 'react-native';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { useMargensSeguras } from './utilitarios';
 
@@ -49,20 +50,16 @@ export function FaixaSemConexao({
         gap: espaco[2],
         paddingTop: margens.top + espaco[2],
         paddingBottom: espaco[2],
-        paddingHorizontal: espaco[4],
-        backgroundColor: cores.texto,
+        paddingHorizontal: espaco.m,
+        backgroundColor: cores.tinta[900],
       }}
     >
-      <Ionicons name="cloud-offline-outline" size={18} color={cores.branco} />
+      <Feather name="wifi-off" size={18} color={cores.branco} />
       <Text
-        style={{
-          flexShrink: 1,
-          color: cores.branco,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.medio,
-          textAlign: 'center',
-        }}
+        style={[
+          estiloDeTexto('legenda', 'semibold'),
+          { flexShrink: 1, color: cores.branco, textAlign: 'center' },
+        ]}
       >
         {texto}
       </Text>

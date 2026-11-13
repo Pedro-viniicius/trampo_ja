@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import {
   Botao,
   DialogoDeConfirmacao,
+  GrupoDeConfiguracao,
   LinhaDeConfiguracao,
   Motivo,
 } from '../componentes';
@@ -25,42 +26,48 @@ export function ContaEPrivacidade({
 
   return (
     <Rolavel titulo={t.titulo} onVoltar={onVoltar} semConexao={semConexao}>
-      <View style={{ gap: espaco[1] }}>
+      <View style={{ gap: espaco.s }}>
         <Titulo texto={t.secaoDados} />
-        <LinhaDeConfiguracao
-          titulo={t.exportar}
-          descricao={t.exportarDescricao}
-          icone="download-outline"
-          desabilitada={semConexao}
-          onPress={onExportar}
-        />
-        <LinhaDeConfiguracao
-          titulo={t.excluir}
-          descricao={t.excluirDescricao}
-          icone="trash-outline"
-          destrutiva
-          desabilitada={semConexao}
-          onPress={onExcluir}
-        />
+        <GrupoDeConfiguracao>
+          <LinhaDeConfiguracao
+            titulo={t.exportar}
+            descricao={t.exportarDescricao}
+            icone="download"
+            desabilitada={semConexao}
+            onPress={onExportar}
+          />
+          <LinhaDeConfiguracao
+            titulo={t.excluir}
+            descricao={t.excluirDescricao}
+            icone="trash-2"
+            destrutiva
+            desabilitada={semConexao}
+            onPress={onExcluir}
+          />
+        </GrupoDeConfiguracao>
         {semConexao ? <Motivo texto={t.semConexaoMotivo} /> : null}
       </View>
-      <View style={{ gap: espaco[1] }}>
+      <View style={{ gap: espaco.s }}>
         <Titulo texto={t.secaoSobre} />
-        <LinhaDeConfiguracao
-          titulo={t.politica}
-          icone="shield-checkmark-outline"
-          onPress={onPolitica}
-        />
-        <LinhaDeConfiguracao
-          titulo={t.termos}
-          icone="document-text-outline"
-          onPress={onTermos}
-        />
+        <GrupoDeConfiguracao>
+          <LinhaDeConfiguracao
+            titulo={t.politica}
+            icone="shield"
+            tom="neutro"
+            onPress={onPolitica}
+          />
+          <LinhaDeConfiguracao
+            titulo={t.termos}
+            icone="file-text"
+            tom="neutro"
+            onPress={onTermos}
+          />
+        </GrupoDeConfiguracao>
       </View>
       <Botao
         texto={t.sair}
         variante="secundario"
-        icone="log-out-outline"
+        icone="log-out"
         onPress={() => setConfirmandoSaida(true)}
       />
       <DialogoDeConfirmacao

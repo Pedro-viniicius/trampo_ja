@@ -1,57 +1,139 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { createElement } from 'react';
-import type { ColorValue } from 'react-native';
-import { cores, tipografia, toqueMinimo } from '../tema/tokens';
+import { type ColorValue, Text } from 'react-native';
+import { texto as estiloDeTexto, fonteETamanho } from '../tema/texto';
+import { cores, espaco, raio, sombra, toqueMinimo } from '../tema/tokens';
 import type { NomeDeIcone } from './utilitarios';
 
-/** Opções visuais para a etapa 11 espalhar em `Tabs`/`Stack` (sem importar o expo-router). */
+/** Opções visuais para as rotas espalharem em `Tabs`/`Stack` (sem importar o expo-router). */
 
+/**
+ * Abas dos dois modos (spec, "Navegação em dois modos"):
+ * - freela: `inicio`, `meus-trampos`, `conversas`, `perfil`;
+ * - contratante: `inicio`, `demandas`, `buscar`, `mensagens`, `perfil`.
+ * `mensagens` é a aba `conversas` com o rótulo do contratante (mesmo ícone).
+ */
 export type RotaDeAba =
   | 'inicio'
+  | 'meus-trampos'
+  | 'demandas'
   | 'buscar'
-  | 'publicar'
   | 'conversas'
+  | 'mensagens'
   | 'perfil';
 
-const icones: Record<RotaDeAba, { ativo: NomeDeIcone; inativo: NomeDeIcone }> =
-  {
-    inicio: { ativo: 'home', inativo: 'home-outline' },
-    buscar: { ativo: 'search', inativo: 'search-outline' },
-    publicar: { ativo: 'add-circle', inativo: 'add-circle-outline' },
-    conversas: { ativo: 'chatbubbles', inativo: 'chatbubbles-outline' },
-    perfil: { ativo: 'person', inativo: 'person-outline' },
-  };
+/** Feather não tem ícone cheio: o ativo é marcado pela pílula azul e pelo rótulo em negrito. */
+const icones: Record<RotaDeAba, NomeDeIcone> = {
+  inicio: 'home',
+  'meus-trampos': 'briefcase',
+  demandas: 'check-square',
+  buscar: 'search',
+  conversas: 'message-circle',
+  mensagens: 'message-circle',
+  perfil: 'user',
+};
 
-/** `screenOptions` do `Tabs`: cores, altura 56 e alvo mínimo de 44 por aba. */
-export const opcoesDaBarraDeAbas = {
-  headerShown: false,
-  tabBarActiveTintColor: cores.primaria,
-  tabBarInactiveTintColor: cores.textoSecundario,
-  tabBarStyle: {
-    height: 56,
-    backgroundColor: cores.fundo,
-    borderTopColor: cores.borda,
-  },
-  tabBarItemStyle: { minHeight: toqueMinimo },
-  tabBarLabelStyle: {
-    fontSize: tipografia.tamanho.legenda,
-    fontWeight: tipografia.peso.semibold,
-  },
-} as const;
+/** Altura da barra flutuante. */
+export const ALTURA_DA_BARRA_DE_ABAS = 72;
+/** Afastamento da barra até a borda (lados e base, além da margem segura). */
+export const MARGEM_DA_BARRA_DE_ABAS = espaco.s;
+
+/**
+ * Folga que o conteúdo de uma aba deixa embaixo para nada ficar atrás da
+ * barra flutuante: altura + margem + margem segura + 16.
+ */
+export function folgaDaBarraDeAbas(margemInferior: number): number {
+  return (
+    ALTURA_DA_BARRA_DE_ABAS +
+    MARGEM_DA_BARRA_DE_ABAS +
+    margemInferior +
+    espaco.m
+  );
+}
+
+/**
+ * `screenOptions` do `Tabs` com a barra flutuante (quadro 01): cartão branco
+ * raio 32, sombra grande, 8 de afastamento (mais a margem segura de baixo),
+ * altura 72. O item ativo ganha a pílula azul 50; ícone e rótulo em azul 600.
+ */
+export function opcoesDaBarraDeAbasCom(margens: { bottom: number }) {
+  return {
+    headerShown: false,
+    tabBarActiveTintColor: cores.primaria,
+    tabBarInactiveTintColor: cores.textoSecundario,
+    tabBarActiveBackgroundColor: cores.azul[50],
+    tabBarStyle: {
+      position: 'absolute',
+      left: MARGEM_DA_BARRA_DE_ABAS,
+      right: MARGEM_DA_BARRA_DE_ABAS,
+      bottom: MARGEM_DA_BARRA_DE_ABAS + margens.bottom,
+      height: ALTURA_DA_BARRA_DE_ABAS,
+      paddingTop: 0,
+      paddingBottom: 0,
+      paddingHorizontal: espaco.s,
+      borderRadius: raio.folha,
+      borderTopWidth: 0,
+      borderTopColor: 'transparent',
+      backgroundColor: cores.branco,
+      ...sombra.lg,
+    },
+    // A pílula: o item recorta o fundo ativo com raio 24.
+    tabBarItemStyle: {
+      minHeight: toqueMinimo,
+      marginVertical: espaco.s,
+      marginHorizontal: 2,
+      borderRadius: raio.card,
+      overflow: 'hidden',
+    },
+    tabBarLabelStyle: {
+      ...estiloDeTexto('sobretitulo', 'semibold'),
+      textTransform: 'none',
+      letterSpacing: 0,
+    },
+  } as const;
+}
+
+/** Barra sem margem segura (a rota pode trocar por `opcoesDaBarraDeAbasCom(margens)`). */
+export const opcoesDaBarraDeAbas = opcoesDaBarraDeAbasCom({ bottom: 0 });
 
 type PropsDoIconeDaAba = { color: ColorValue; size: number; focused: boolean };
+type PropsDoRotuloDaAba = { color: ColorValue; focused: boolean };
 
-/** `options` de uma `Tabs.Screen`: título (já traduzido) e ícone cheio quando ativa. */
+const corOuPadrao = (cor: ColorValue): string =>
+  typeof cor === 'string' ? cor : cores.textoSecundario;
+
+/**
+ * `options` de uma `Tabs.Screen`: título já traduzido, nome falado e ícone
+ * Feather 24. O rótulo fica em uma linha (corta com reticências em fonte
+ * grande; o nome falado continua inteiro) e em negrito na aba ativa.
+ */
 export function opcoesDaAba(rota: RotaDeAba, titulo: string) {
   return {
     title: titulo,
-    tabBarLabel: titulo,
     tabBarAccessibilityLabel: titulo,
-    tabBarIcon: ({ color, size, focused }: PropsDoIconeDaAba) =>
-      createElement(Ionicons, {
-        name: focused ? icones[rota].ativo : icones[rota].inativo,
-        size,
-        color: typeof color === 'string' ? color : cores.textoSecundario,
+    tabBarLabel: ({ color, focused }: PropsDoRotuloDaAba) =>
+      createElement(
+        Text,
+        {
+          numberOfLines: 1,
+          ellipsizeMode: 'tail',
+          style: [
+            estiloDeTexto('sobretitulo', focused ? 'negrito' : 'semibold'),
+            {
+              color: corOuPadrao(color),
+              textTransform: 'none',
+              letterSpacing: 0,
+              marginTop: 2,
+            },
+          ],
+        },
+        titulo,
+      ),
+    tabBarIcon: ({ color }: PropsDoIconeDaAba) =>
+      createElement(Feather, {
+        name: icones[rota],
+        size: 24,
+        color: corOuPadrao(color),
       }),
   };
 }
@@ -62,9 +144,6 @@ export const opcoesDoCabecalho = {
   headerShadowVisible: false,
   headerStyle: { backgroundColor: cores.fundo },
   headerTintColor: cores.texto,
-  headerTitleStyle: {
-    fontSize: tipografia.tamanho.tituloDeTela,
-    fontWeight: tipografia.peso.negrito,
-  },
+  headerTitleStyle: fonteETamanho('h2'),
   contentStyle: { backgroundColor: cores.fundo },
 } as const;

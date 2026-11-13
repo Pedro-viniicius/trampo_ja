@@ -7,7 +7,10 @@
  * - `perfis.perfilEstaCompleto` → `VerificadorDePerfil` de `trampos` e
  *   `servicos` (D9);
  * - `trampos.existeVinculoEntre` → `VerificadorDeVinculo` de `conversas` (CA13),
- *   inclusive na transação da abertura de conversa (Q1);
+ *   inclusive na transação da abertura de conversa (Q1), e de `avaliacoes`
+ *   (CA92), inclusive na transação da gravação do favorito;
+ * - `trampos.vinculoParaAvaliacao` → `VinculoDeAvaliacao` de `avaliacoes`
+ *   (CA87), inclusive na transação da gravação da avaliação;
  * - `trampos.buscarTrampos` e `servicos.buscarServicos` → `busca` (CA7);
  * - `contas.validarSessao` → hook de autenticação de todas as rotas, exceto
  *   `POST /contas` e `POST /sessoes` (CA14);
@@ -52,6 +55,12 @@ import {
 } from './compartilhado/http/limite-por-conta.js';
 import type { OpcoesDoLoggerFastify } from './compartilhado/http/logger.js';
 import { criarServidor } from './compartilhado/http/servidor.js';
+import {
+  criarModuloDeAvaliacoes,
+  type ModuloDeAvaliacoes,
+  type OpcoesDoModuloDeAvaliacoes,
+  type TransacaoEmCurso,
+} from './modulos/avaliacoes/index.js';
 import { criarModuloDeBusca } from './modulos/busca/index.js';
 import {
   criarModuloDeContas,
@@ -219,13 +228,17 @@ interface ModulosComDadosDaConta {
     ModuloDePerfis,
     'excluirDadosDaConta' | 'exportarDadosDaConta'
   >;
+  readonly avaliacoes: Pick<
+    ModuloDeAvaliacoes,
+    'excluirDadosDaConta' | 'exportarDadosDaConta' | 'medirExportacao'
+  >;
   readonly contas: Pick<ModuloDeContas, 'excluirRegistrosDaConta'>;
 }
 
 /**
- * A transação que `conversas` repassa ao `VerificadorDeVinculo` é opaca para o
- * domínio dele; aqui ela volta a ser a transação do Kysely. Qualquer outra
- * coisa é erro de ligação, não um "sem vínculo".
+ * A transação que `conversas` e `avaliacoes` repassam às portas de vínculo é
+ * opaca para o domínio deles; aqui ela volta a ser a transação do Kysely.
+ * Qualquer outra coisa é erro de ligação, não um "sem vínculo".
  */
 function transacaoDoKysely(transacao: unknown): Kysely<BancoBase> {
   if (!(transacao instanceof Kysely) || !transacao.isTransaction) {
@@ -237,27 +250,41 @@ function transacaoDoKysely(transacao: unknown): Kysely<BancoBase> {
 }
 
 /**
+ * A transação opcional de uma porta de vínculo como visão das tabelas de
+ * `trampos`: sem transação, `undefined` (a consulta roda na conexão do módulo).
+ */
+function transacaoDeTrampos(
+  transacao: TransacaoEmCurso | undefined,
+): DependenciasDoModuloDeTrampos['db'] | undefined {
+  return transacao === undefined
+    ? undefined
+    : visaoDoModulo<DependenciasDoModuloDeTrampos['db']>(
+        transacaoDoKysely(transacao),
+      );
+}
+
+/**
  * Porta `DadosDaConta` de `contas` (ADR-005).
  *
  * A exclusão (D25) abre **uma** transação e passa a mesma a cada módulo, na
- * ordem conversas → trampos → serviços → perfis → contas. Antes de tudo, pega
- * a trava exclusiva da conta (`travas-de-conta.ts`): a abertura de conversa
- * com ela, que pega a compartilhada, ou já terminou ou espera esta transação
- * (Q1). Depois vêm as travas (`for update`) de conversas e trampos, e as
+ * ordem conversas → trampos → serviços → perfis → avaliações → contas. Antes
+ * de tudo, pega a trava exclusiva da conta (`travas-de-conta.ts`): a abertura
+ * de conversa, a avaliação e o favorito com ela, que pegam a compartilhada, ou
+ * já terminaram ou esperam esta transação (Q1). Depois vêm as travas (`for update`) de conversas e trampos, e as
  * sessões caem por último, junto com a conta e a gravação da lápide com a
  * hora do `relogio` (ADR-007). Qualquer falha desfaz tudo; repetir é seguro
  * (é o que a limpeza periódica faz com cada lápide).
  *
  * A exportação (D26) junta as partes de cada módulo campo a campo, para nada
- * além do contrato v1 sair daqui. A medida (D41) soma a de conversas, trampos
- * e serviços, feita no banco, e o teto fixo do perfil.
+ * além do contrato v1 sair daqui. A medida (D41) soma a de conversas, trampos,
+ * serviços e avaliações (CA93), feita no banco, e o teto fixo do perfil.
  */
 function criarDadosDaConta(
   db: Kysely<BancoBase>,
   modulos: ModulosComDadosDaConta,
   relogio: Relogio,
 ): DadosDaConta {
-  const { conversas, trampos, servicos, perfis, contas } = modulos;
+  const { conversas, trampos, servicos, perfis, avaliacoes, contas } = modulos;
   return {
     excluirTudo: (contaId) =>
       db.transaction().execute(async (trx) => {
@@ -278,6 +305,10 @@ function criarDadosDaConta(
           visaoDoModulo<OpcoesDoModuloDePerfis['db']>(trx),
           contaId,
         );
+        await avaliacoes.excluirDadosDaConta(
+          visaoDoModulo<OpcoesDoModuloDeAvaliacoes['db']>(trx),
+          contaId,
+        );
         await contas.excluirRegistrosDaConta(
           visaoDoModulo<OpcoesDoModuloDeContas['db']>(trx),
           contaId,
@@ -285,18 +316,23 @@ function criarDadosDaConta(
         );
       }),
     coletarDosOutrosModulos: async (contaId) => {
-      const [deConversas, deTrampos, deServicos, dePerfis] = await Promise.all([
-        conversas.exportarDadosDaConta(contaId),
-        trampos.exportarDadosDaConta(contaId),
-        servicos.exportarDadosDaConta(contaId),
-        perfis.exportarDadosDaConta(contaId),
-      ]);
+      const [deConversas, deTrampos, deServicos, dePerfis, deAvaliacoes] =
+        await Promise.all([
+          conversas.exportarDadosDaConta(contaId),
+          trampos.exportarDadosDaConta(contaId),
+          servicos.exportarDadosDaConta(contaId),
+          perfis.exportarDadosDaConta(contaId),
+          avaliacoes.exportarDadosDaConta(contaId),
+        ]);
       return {
         perfil: dePerfis.perfil,
         trampos: deTrampos.trampos,
         servicos: deServicos.servicos,
         candidaturas: deTrampos.candidaturas,
         conversas: deConversas.conversas,
+        avaliacoesFeitas: deAvaliacoes.avaliacoesFeitas,
+        avaliacoesRecebidas: deAvaliacoes.avaliacoesRecebidas,
+        favoritos: deAvaliacoes.favoritos,
       };
     },
     medirDosOutrosModulos: async (contaId) => {
@@ -304,6 +340,7 @@ function criarDadosDaConta(
         conversas.medirExportacao(contaId),
         trampos.medirExportacao(contaId),
         servicos.medirExportacao(contaId),
+        avaliacoes.medirExportacao(contaId),
       ]);
       return (
         medidas.reduce((soma, bytes) => soma + bytes, 0) +
@@ -365,15 +402,26 @@ export async function montarAplicacao(
     db: visaoDoModulo<OpcoesDoModuloDeConversas['db']>(db),
     verificadorDeVinculo: {
       existeVinculoEntre: (a, b, transacao) =>
-        trampos.existeVinculoEntre(
-          a,
-          b,
-          transacao === undefined
-            ? undefined
-            : visaoDoModulo<DependenciasDoModuloDeTrampos['db']>(
-                transacaoDoKysely(transacao),
-              ),
+        trampos.existeVinculoEntre(a, b, transacaoDeTrampos(transacao)),
+    },
+    relogio,
+  });
+  const avaliacoes = criarModuloDeAvaliacoes({
+    db: visaoDoModulo<OpcoesDoModuloDeAvaliacoes['db']>(db),
+    // CA87: a gravação passa a transação dela (com a trava compartilhada das
+    // duas contas), e a leitura do vínculo roda nela.
+    vinculoDeAvaliacao: {
+      obter: (trampoId, contaId, transacao) =>
+        trampos.vinculoParaAvaliacao(
+          trampoId,
+          contaId,
+          transacaoDeTrampos(transacao),
         ),
+    },
+    // CA92 (D4): favoritar exige vínculo, conferido na transação do insert.
+    verificadorDeVinculo: {
+      existeVinculoEntre: (a, b, transacao) =>
+        trampos.existeVinculoEntre(a, b, transacaoDeTrampos(transacao)),
     },
     relogio,
   });
@@ -391,6 +439,7 @@ export async function montarAplicacao(
         trampos,
         servicos,
         perfis,
+        avaliacoes,
         // Função pura da fachada (não usa o estado do módulo); a referência
         // é resolvida só na hora da exclusão, quando `contas` já existe.
         contas: {
@@ -486,6 +535,7 @@ export async function montarAplicacao(
   await app.register(servicos.rotas({ validarSessao }));
   await app.register(conversas.rotas({ validarSessao }));
   await app.register(busca.rotas({ validarSessao }));
+  await app.register(avaliacoes.rotas({ validarSessao }));
   await app.ready();
 
   if (limite !== false) {

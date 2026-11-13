@@ -1,4 +1,4 @@
-import type { Ionicons } from '@expo/vector-icons';
+import type { Feather } from '@expo/vector-icons';
 import {
   type ComponentProps,
   useCallback,
@@ -10,7 +10,17 @@ import { AccessibilityInfo, type ViewStyle } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { cores } from '../tema/tokens';
 
-export type NomeDeIcone = ComponentProps<typeof Ionicons>['name'];
+/** Ícones do app: só Feather (D53), traço de 2 px. */
+export type NomeDeIcone = ComponentProps<typeof Feather>['name'];
+
+/** Gradiente a 135° (`anguloDoGradiente`): do canto de cima à esquerda ao de baixo à direita. */
+export const pontosDoGradiente = {
+  start: { x: 0, y: 0 },
+  end: { x: 1, y: 1 },
+} as const;
+
+/** Opacidade do véu atrás de folha e diálogo (tinta 900 a 50%). */
+export const OPACIDADE_DO_VEU = 0.5;
 
 /** Anel de foco: 2 px com 2 px de afastamento (spec, token color-focus). */
 export const estiloDeFoco: ViewStyle = {

@@ -4,8 +4,9 @@
  * módulos (D25, D26).
  *
  * Duas contas que interagem em tudo (perfil, trampo, serviço, candidaturas
- * cruzadas e conversa): a "Ana" exporta e depois exclui a conta; o "Bruno" é o
- * outro participante e precisa ficar intacto, vendo 404 onde antes via a Ana.
+ * cruzadas, conversa, avaliações mútuas e favoritos dos dois lados): a "Ana"
+ * exporta e depois exclui a conta; o "Bruno" é o outro participante e precisa
+ * ficar intacto, vendo 404 onde antes via a Ana.
  */
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
@@ -24,6 +25,8 @@ import { lerUrlDoBancoDeTeste } from '../../src/config.js';
 import { bancoDeTeste, truncarTabelas } from '../banco-teste.js';
 
 const TABELAS = [
+  'avaliacoes',
+  'favoritos',
   'mensagens',
   'conversas',
   'candidaturas',
@@ -48,6 +51,10 @@ const EMAIL_DO_BRUNO = 'bruno.outro@exemplo.com';
 // Textos do Bruno que nunca podem sair na exportação da Ana.
 const MENSAGEM_DO_BRUNO = 'Mensagem do Bruno para a Ana';
 const CANDIDATURA_DO_BRUNO = 'Candidatura do Bruno no trampo da Ana';
+const CANDIDATURA_ACEITA_DO_BRUNO = 'Bruno topa limpar o quintal';
+// CA93: o comentário que o Bruno escreveu sobre a Ana é texto de terceiro.
+const COMENTARIO_DO_BRUNO = 'Comentário do Bruno sobre a Ana';
+const COMENTARIO_DA_ANA = 'Comentário da Ana sobre o Bruno';
 
 let aplicacao: Aplicacao | undefined;
 
@@ -130,6 +137,8 @@ interface Cenario {
   readonly trampoDaAna: string;
   readonly servicoDaAna: string;
   readonly trampoDoBruno: string;
+  /** Trampo da Ana com a candidatura do Bruno aceita e já encerrado. */
+  readonly trampoEncerrado: string;
   readonly candidaturaDaAna: string;
   readonly conversaId: string;
   readonly mensagemDaAna: string;
@@ -137,9 +146,11 @@ interface Cenario {
 }
 
 /**
- * Ana e Bruno com perfis completos, um trampo de cada, um serviço da Ana,
- * candidaturas cruzadas (Bruno no trampo da Ana e Ana no do Bruno) e uma
- * conversa com uma mensagem de cada. A Ana tem duas sessões (dois aparelhos).
+ * Ana e Bruno com perfis completos, um trampo aberto de cada, um serviço da
+ * Ana, candidaturas cruzadas (Bruno no trampo da Ana e Ana no do Bruno) e uma
+ * conversa com uma mensagem de cada. Num segundo trampo da Ana, o Bruno foi
+ * aceito e o trampo encerrado: os dois se avaliaram (com comentário) e cada um
+ * favoritou o outro (V2b). A Ana tem duas sessões (dois aparelhos).
  */
 async function montarCenario(): Promise<Cenario> {
   const tokenDaAna = await cadastrar(EMAIL_DA_ANA, SENHA_DA_ANA);
@@ -201,6 +212,68 @@ async function montarCenario(): Promise<Cenario> {
   const contaDaAna = await autorDo(trampoDaAna, tokenDaAna);
   const contaDoBruno = await autorDo(trampoDoBruno, tokenDoBruno);
 
+  // V2b: trampo encerrado com o Bruno aceito, avaliações dos dois lados (a
+  // gravação confere o vínculo de `trampos` na própria transação) e favoritos
+  // dos dois lados (o vínculo é a candidatura).
+  const trampoEncerrado = idDe(
+    await pedir('POST', '/trampos', tokenDaAna, {
+      titulo: 'Limpeza do quintal da Ana',
+      descricao: 'Quintal pequeno, com entulho.',
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 12_000,
+    }),
+  );
+  const aceita = idDe(
+    await pedir(
+      'POST',
+      `/trampos/${trampoEncerrado}/candidaturas`,
+      tokenDoBruno,
+      {
+        mensagem: CANDIDATURA_ACEITA_DO_BRUNO,
+        valorPropostoCentavos: 12_000,
+      },
+    ),
+  );
+  esperarStatus(
+    await pedir(
+      'POST',
+      `/trampos/${trampoEncerrado}/candidaturas/${aceita}/aceitar`,
+      tokenDaAna,
+    ),
+    200,
+  );
+  esperarStatus(
+    await pedir('POST', `/trampos/${trampoEncerrado}/encerrar`, tokenDaAna),
+    204,
+  );
+  esperarStatus(
+    await pedir('POST', '/avaliacoes', tokenDaAna, {
+      trampoId: trampoEncerrado,
+      nota: 5,
+      destaques: ['pontual', 'organizado'],
+      comentario: COMENTARIO_DA_ANA,
+    }),
+    201,
+  );
+  esperarStatus(
+    await pedir('POST', '/avaliacoes', tokenDoBruno, {
+      trampoId: trampoEncerrado,
+      nota: 4,
+      destaques: ['pagamento_em_dia'],
+      comentario: COMENTARIO_DO_BRUNO,
+    }),
+    201,
+  );
+  esperarStatus(
+    await pedir('PUT', `/favoritos/${contaDoBruno}`, tokenDaAna),
+    204,
+  );
+  esperarStatus(
+    await pedir('PUT', `/favoritos/${contaDaAna}`, tokenDoBruno),
+    204,
+  );
+
   esperarStatus(
     await pedir('POST', `/trampos/${trampoDaAna}/candidaturas`, tokenDoBruno, {
       mensagem: CANDIDATURA_DO_BRUNO,
@@ -244,6 +317,7 @@ async function montarCenario(): Promise<Cenario> {
     trampoDaAna,
     servicoDaAna,
     trampoDoBruno,
+    trampoEncerrado,
     candidaturaDaAna,
     conversaId,
     mensagemDaAna: idDe(daAna),
@@ -266,6 +340,8 @@ const DONO_DA_LINHA: Readonly<Record<string, readonly string[]>> = {
   candidaturas: ['freelancer_id'],
   conversas: ['usuario_a_id', 'usuario_b_id'],
   mensagens: ['autor_id'],
+  avaliacoes: ['avaliado_id', 'avaliador_id'],
+  favoritos: ['dono_id', 'favorito_id'],
 };
 
 /** Nomes de coluna que guardam o id de uma conta (ADR-005), mais `contas.id`. */
@@ -275,6 +351,10 @@ const COLUNAS_DE_DONO = [
   'freelancer_id',
   'usuario_a_id',
   'usuario_b_id',
+  'avaliador_id',
+  'avaliado_id',
+  'dono_id',
+  'favorito_id',
 ];
 
 /**
@@ -346,6 +426,8 @@ const NADA = {
   candidaturas: 0,
   conversas: 0,
   mensagens: 0,
+  avaliacoes: 0,
+  favoritos: 0,
 };
 
 /** Relógio parado: toda data do JSON exportado é conhecida de antemão. */
@@ -440,6 +522,7 @@ describe('CA19 — exportação pela rota real (D26)', () => {
           habilidades: ['pintura', 'reparos'],
           atualizadoEm: INSTANTE,
         },
+        // Mesma data (relógio parado): a ordem é a do id.
         trampos: [
           {
             id: c.trampoDaAna,
@@ -453,7 +536,19 @@ describe('CA19 — exportação pela rota real (D26)', () => {
             criadoEm: INSTANTE,
             candidaturasRecebidas: 1,
           },
-        ],
+          {
+            id: c.trampoEncerrado,
+            titulo: 'Limpeza do quintal da Ana',
+            descricao: 'Quintal pequeno, com entulho.',
+            categoria: 'reformas',
+            cidade: 'Lavras',
+            valorCentavos: 12_000,
+            prazo: null,
+            status: 'encerrado',
+            criadoEm: INSTANTE,
+            candidaturasRecebidas: 1,
+          },
+        ].sort((a, b) => (a.id < b.id ? -1 : 1)),
         servicos: [
           {
             id: c.servicoDaAna,
@@ -490,11 +585,28 @@ describe('CA19 — exportação pela rota real (D26)', () => {
             ],
           },
         ],
+        // CA93: a feita leva o comentário da Ana; a recebida, só nota,
+        // destaques e data (sem o comentário nem o id do Bruno).
+        avaliacoesFeitas: [
+          {
+            trampoId: c.trampoEncerrado,
+            nota: 5,
+            destaques: ['pontual', 'organizado'],
+            comentario: COMENTARIO_DA_ANA,
+            criadaEm: INSTANTE,
+          },
+        ],
+        avaliacoesRecebidas: [
+          { nota: 4, destaques: ['pagamento_em_dia'], criadaEm: INSTANTE },
+        ],
+        favoritos: [{ contaId: c.contaDoBruno, criadoEm: INSTANTE }],
       });
       for (const doOutro of [
         EMAIL_DO_BRUNO,
         MENSAGEM_DO_BRUNO,
         CANDIDATURA_DO_BRUNO,
+        CANDIDATURA_ACEITA_DO_BRUNO,
+        COMENTARIO_DO_BRUNO,
         'Bruno Outro',
         'senha',
         'hash',
@@ -520,6 +632,8 @@ describe('Q1 — travas da exclusão e da abertura de conversa com o pool real',
         aplicacao = await montarAplicacao({ db: umaConexao });
         // Se a conferência pedisse outra conexão, o `POST /conversas` do
         // cenário esperaria para sempre: o relógio abaixo derruba o teste.
+        // Vale também para `POST /avaliacoes` e `PUT /favoritos/:contaId`
+        // (V2b), que conferem o vínculo de `trampos` na transação do insert.
         let relogioDeGuarda: NodeJS.Timeout | undefined;
         const travou = new Promise<never>((_, rejeitar) => {
           relogioDeGuarda = setTimeout(
@@ -578,11 +692,14 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
         // O teto de entrada (D31) da Ana, gravado no login do 2º aparelho.
         tentativas_de_entrada: 1,
         perfis: 1,
-        trampos: 1,
+        trampos: 2,
         servicos: 1,
         candidaturas: 1,
         conversas: 1,
         mensagens: 1,
+        // A que a Ana fez e a que ela recebeu; o favorito dela e o do Bruno.
+        avaliacoes: 2,
+        favoritos: 2,
       });
       esperarStatus(
         await pedir('GET', '/perfis/eu', c.outroAparelhoDaAna),
@@ -620,14 +737,22 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
       expect(excluida.cabecalhos['cache-control']).toBe('no-store');
 
       // CA17: nada da Ana sobra no banco; nada do Bruno além do que era
-      // ligado à Ana (a candidatura dele estava no trampo dela; a conversa e
-      // a mensagem dele estavam na conversa com ela).
+      // ligado à Ana (as candidaturas dele estavam nos trampos dela; a
+      // conversa e a mensagem dele estavam na conversa com ela). CA93: as
+      // avaliações e os favoritos dos dois lados caem na mesma transação.
+      expect(doBrunoAntes).toMatchObject({
+        candidaturas: 2,
+        avaliacoes: 2,
+        favoritos: 2,
+      });
       expect(await linhasDaConta(c.contaDaAna)).toEqual(NADA);
       expect(await linhasDaConta(c.contaDoBruno)).toEqual({
         ...doBrunoAntes,
         candidaturas: 0,
         conversas: 0,
         mensagens: 0,
+        avaliacoes: 0,
+        favoritos: 0,
       });
 
       // CA17: as duas sessões (os dois aparelhos) caem; a senha não entra mais.
@@ -709,6 +834,29 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
       esperarStatus(minhas, 200);
       expect(minhas.corpo).toEqual([]);
 
+      // CA93: a equipe favorita do Bruno e as avaliações que ele recebeu e
+      // fez não mostram mais a Ana.
+      const favoritos = await pedir('GET', '/favoritos', c.tokenDoBruno);
+      esperarStatus(favoritos, 200);
+      expect(favoritos.corpo).toEqual([]);
+      const recebidasPeloBruno = await pedir(
+        'GET',
+        `/avaliacoes?contaId=${c.contaDoBruno}&papel=freela`,
+        c.tokenDoBruno,
+      );
+      esperarStatus(recebidasPeloBruno, 200);
+      expect(recebidasPeloBruno.corpo).toEqual({
+        itens: [],
+        proximoCursor: null,
+      });
+      const feitasPeloBruno = await pedir(
+        'GET',
+        `/avaliacoes/feitas?trampos=${c.trampoEncerrado}`,
+        c.tokenDoBruno,
+      );
+      esperarStatus(feitasPeloBruno, 200);
+      expect(feitasPeloBruno.corpo).toEqual([]);
+
       // O Bruno segue intacto: sessão, perfil e o próprio trampo.
       esperarStatus(await pedir('GET', '/perfis/eu', c.tokenDoBruno), 200);
       esperarStatus(
@@ -752,6 +900,9 @@ describe('CA17/CA18 — exclusão da conta pela rota real (D25)', () => {
         servicos: [],
         candidaturas: [],
         conversas: [],
+        avaliacoesFeitas: [],
+        avaliacoesRecebidas: [],
+        favoritos: [],
       });
       expect(corpo.sessoes).toHaveLength(1);
     },
@@ -852,6 +1003,41 @@ describe('CA47/CA48 — lápide e teto da exportação pela composição (L3)', 
         'application/json; charset=utf-8',
       );
       expect((normal.corpo as { trampos: unknown[] }).trampos).toHaveLength(1);
+    },
+    TEMPO_LIMITE,
+  );
+
+  it(
+    'CA93 — a medida da composição soma a parte de avaliacoes: comentários feitos que passam de 10 MiB dão 409 exportacao_grande; sem eles, 200',
+    async () => {
+      await montar();
+      const token = await cadastrar(EMAIL_DA_ANA, SENHA_DA_ANA);
+      const contaId = await idDaConta(EMAIL_DA_ANA);
+      // Direto no banco: cada comentário tem o máximo de 500 caracteres, de
+      // 4 bytes cada (2000 bytes); 6000 deles passam de 10 MiB. Só a parte de
+      // avaliacoes tem dado da Ana.
+      await sql`insert into avaliacoes (id, trampo_id, avaliador_id,
+          avaliado_id, papel_do_avaliado, nota, destaques, comentario, criada_em)
+        select gen_random_uuid(), gen_random_uuid(), ${contaId}::uuid,
+          gen_random_uuid(), 'freela', 5, '{}', repeat('😀', 500), now()
+        from generate_series(1, 6000)`.execute(bancoDeTeste());
+
+      const grande = await pedir('POST', '/contas/eu/exportacao', token, {
+        senha: SENHA_DA_ANA,
+      });
+      expect(grande.status).toBe(409);
+      expect(grande.texto).toBe('{"erro":"exportacao_grande"}');
+
+      await sql`delete from avaliacoes where avaliador_id = ${contaId}::uuid`.execute(
+        bancoDeTeste(),
+      );
+      const normal = await pedir('POST', '/contas/eu/exportacao', token, {
+        senha: SENHA_DA_ANA,
+      });
+      esperarStatus(normal, 200);
+      expect(
+        (normal.corpo as { avaliacoesFeitas: unknown[] }).avaliacoesFeitas,
+      ).toEqual([]);
     },
     TEMPO_LIMITE,
   );

@@ -108,10 +108,11 @@ describe('CA14 — toda rota protegida exige sessão válida', () => {
       expect(saida.statusCode).toBe(204);
 
       const protegidas = rotas.filter((rota) => !ehPublica(rota));
-      // Sanidade: as rotas dos seis módulos foram coletadas (GET + HEAD),
+      // Sanidade: as rotas dos sete módulos foram coletadas (GET + HEAD),
       // inclusive exclusão e exportação da conta (L1), editar e excluir
-      // serviço e editar, encerrar e excluir trampo e retirar candidatura (L2).
-      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(28);
+      // serviço e editar, encerrar e excluir trampo e retirar candidatura (L2)
+      // e as 7 de avaliações e favoritos (V2b).
+      expect(protegidas.filter((r) => r.metodo !== 'HEAD')).toHaveLength(35);
 
       const cabecalhosInvalidos: (string | undefined)[] = [
         undefined,

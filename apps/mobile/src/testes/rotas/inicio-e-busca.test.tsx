@@ -6,12 +6,17 @@ import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
 import InicioRota from '../../app/(app)/(abas)/index';
-import PublicarRota from '../../app/(app)/(abas)/publicar';
+import RotaDeBuscarTrampos from '../../app/(app)/buscar-trampos';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
+import {
+  criarArmazenamentoDoModoEmMemoria,
+  type Modo,
+} from '../../estado/modo';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import { renderRouter } from '../render-router';
 import { criarProvedores } from '../renderizar';
+import { abasDeStub } from './apoio';
 
 const categorias = [
   { id: 'reformas', rotulo: 'Reformas' },
@@ -61,28 +66,35 @@ function stub(nome: string) {
 const rotas = {
   '(app)/_layout': LayoutDaAreaAutenticada,
   '(app)/(abas)/_layout': LayoutDasAbas,
+  ...abasDeStub(),
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
-  '(app)/(abas)/publicar': PublicarRota,
   '(app)/(abas)/conversas': stub('conversas-stub'),
   '(app)/(abas)/perfil': stub('perfil-stub'),
+  '(app)/buscar-trampos': RotaDeBuscarTrampos,
   '(app)/perfil/editar': stub('editar-perfil-stub'),
   '(app)/trampos/[id]': stub('detalhe-trampo-stub'),
   '(app)/servicos/[id]': stub('detalhe-servico-stub'),
 };
 
 /** Sessão já autenticada (token em memória) e um fetch falso com as categorias. */
-async function abrir(url: string, preparar: (fetch: FetchFalso) => void) {
+async function abrir(
+  url: string,
+  preparar: (fetch: FetchFalso) => void,
+  modo: Modo | null = null,
+) {
   const fetch = criarFetchFalso().responder('GET /categorias', {
     corpo: categorias,
   });
   preparar(fetch);
+  const armazenamentoDoModo = criarArmazenamentoDoModoEmMemoria(modo);
   const { wrapper } = criarProvedores({
     armazenamento: criarArmazenamentoEmMemoria('token-teste'),
     fetch,
+    armazenamentoDoModo,
   });
   const resultado = await renderRouter(rotas, { initialUrl: url, wrapper });
-  return { fetch, ...resultado };
+  return { fetch, armazenamentoDoModo, ...resultado };
 }
 
 function buscas(fetch: FetchFalso) {
@@ -213,8 +225,56 @@ describe('Início', () => {
     ).toHaveLength(2);
   });
 
-  it('"Ver todos" de serviços abre Buscar na aba de serviços', async () => {
+  it('"Ver todos" de trampos abre a busca de trampos, já listando (CA84)', async () => {
     const { fetch } = await abrir('/', (f) => {
+      f.responder('GET /perfis/eu', { corpo: meuPerfil });
+      f.responder('GET /busca', pagina([], null));
+      f.responder(
+        'GET /busca?tipo=trampos&limite=20',
+        pagina([trampo('t9', 'Pintar o muro')], null),
+      );
+    });
+
+    const verTodos = await screen.findAllByRole('button', {
+      name: textos.gerais.verTodos,
+    });
+    await fireEvent.press(verTodos[0] as (typeof verTodos)[number]);
+
+    await waitFor(() => expect(screen).toHavePathname('/buscar-trampos'));
+    expect(screen).toHaveSearchParams({ tipo: 'trampos' });
+    expect(await screen.findByText('Pintar o muro')).toBeOnTheScreen();
+    expect(screen.getByText(textos.buscar.tituloTrampos)).toBeOnTheScreen();
+    expect(buscas(fetch).at(-1)?.query).toEqual({
+      tipo: 'trampos',
+      limite: '20',
+    });
+
+    // É tela de pilha: voltar leva ao Início.
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.voltar }),
+    );
+    await waitFor(() => expect(screen).toHavePathname('/'));
+  });
+
+  it('"Buscar" do Início abre a busca de trampos sem buscar ainda (CA84)', async () => {
+    const { fetch } = await abrir('/', (f) => {
+      f.responder('GET /perfis/eu', { corpo: meuPerfil });
+      f.responder('GET /busca', pagina([], null));
+    });
+    await screen.findByText('Maria Souza', { exact: false });
+    const antes = buscas(fetch).length;
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.inicio.buscar }),
+    );
+
+    await waitFor(() => expect(screen).toHavePathname('/buscar-trampos'));
+    expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
+    expect(buscas(fetch)).toHaveLength(antes);
+  });
+
+  it('"Ver todos" de serviços abre a aba Buscar do contratante e troca o modo (CA77)', async () => {
+    const { fetch, armazenamentoDoModo } = await abrir('/', (f) => {
       f.responder('GET /perfis/eu', { corpo: meuPerfil });
       f.responder('GET /busca', pagina([], null));
       f.responder(
@@ -235,14 +295,15 @@ describe('Início', () => {
       pedido: expect.stringMatching(/^\d+$/),
     });
     expect(await screen.findByText('Aula de inglês')).toBeOnTheScreen();
-    expect(
-      screen.getByRole('tab', { name: textos.buscar.abaServicos }).props
-        .accessibilityState,
-    ).toMatchObject({ selected: true });
+    expect(screen.getByText(textos.buscarFreelancers.titulo)).toBeOnTheScreen();
+    expect(screen.queryByRole('tab')).toBeNull();
     expect(buscas(fetch).at(-1)?.query).toEqual({
       tipo: 'servicos',
       limite: '20',
     });
+    await waitFor(() =>
+      expect(armazenamentoDoModo.atual()).toBe('contratante'),
+    );
   });
 
   it('abrir um recente leva ao detalhe do tipo certo', async () => {
@@ -263,11 +324,11 @@ describe('Início', () => {
 
 describe('Buscar', () => {
   it('não requisita antes de enviar (nem a cada letra)', async () => {
-    const { fetch } = await abrir('/buscar', () => undefined);
+    const { fetch } = await abrir('/buscar-trampos', () => undefined);
 
     expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
     await fireEvent.changeText(
-      screen.getByLabelText(textos.buscar.campo),
+      screen.getByLabelText(textos.buscar.campoTrampos),
       'pintor',
     );
 
@@ -275,7 +336,7 @@ describe('Buscar', () => {
   });
 
   it('ao enviar manda só os campos preenchidos e preserva a ordem da API', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder(
         'GET /busca',
         pagina([trampo('t2', 'Zeta'), trampo('t1', 'Alfa')], null),
@@ -283,11 +344,11 @@ describe('Buscar', () => {
     });
 
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       '  pintor ',
     );
     await fireEvent(
-      screen.getByLabelText(textos.buscar.campo),
+      screen.getByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
 
@@ -310,7 +371,7 @@ describe('Buscar', () => {
   });
 
   it('categoria e cidade entram na query ao serem escolhidas', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder('GET /busca', pagina([trampo('t1', 'Alfa')], null));
     });
 
@@ -348,7 +409,7 @@ describe('Buscar', () => {
   });
 
   it('"Carregar mais" manda antesDe e junta as páginas; a contagem leva "+"', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder('GET /busca', [
         pagina([trampo('t1', 'Alfa')], 'cursor-1'),
         pagina([trampo('t2', 'Beta')], null),
@@ -356,7 +417,7 @@ describe('Buscar', () => {
     });
 
     await fireEvent(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
     expect(await screen.findByText('Alfa')).toBeOnTheScreen();
@@ -379,16 +440,16 @@ describe('Buscar', () => {
   });
 
   it('sem resultados: mostra o vazio e "Limpar filtros" zera e busca de novo', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder('GET /busca', pagina([], null));
     });
 
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       'xyz',
     );
     await fireEvent(
-      screen.getByLabelText(textos.buscar.campo),
+      screen.getByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
     expect(
@@ -407,11 +468,13 @@ describe('Buscar', () => {
       tipo: 'trampos',
       limite: '20',
     });
-    expect(screen.getByLabelText(textos.buscar.campo).props.value).toBe('');
+    expect(screen.getByLabelText(textos.buscar.campoTrampos).props.value).toBe(
+      '',
+    );
   });
 
-  it('trocar de aba manda o tipo da aba', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+  it('cada busca tem o seu tipo fixo, sem abas (CA84)', async () => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder(
         'GET /busca?tipo=trampos',
         pagina([trampo('t1', 'Alfa')], null),
@@ -422,24 +485,63 @@ describe('Buscar', () => {
       );
     });
 
+    expect(
+      await screen.findByText(textos.buscar.tituloTrampos),
+    ).toBeOnTheScreen();
     await fireEvent(
-      await screen.findByLabelText(textos.buscar.campo),
+      screen.getByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
-    await screen.findByText('Alfa');
-    await fireEvent.press(
-      screen.getByRole('tab', { name: textos.buscar.abaServicos }),
+    expect(await screen.findByText('Alfa')).toBeOnTheScreen();
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(buscas(fetch).at(-1)?.query).toEqual({
+      tipo: 'trampos',
+      limite: '20',
+    });
+  });
+
+  it('a aba Buscar do contratante só busca serviços, sem abas (CA84)', async () => {
+    const { fetch } = await abrir(
+      '/buscar',
+      (f) => {
+        f.responder(
+          'GET /busca?tipo=servicos',
+          pagina([servico('s1', 'Violão')], null),
+        );
+      },
+      'contratante',
     );
 
+    expect(
+      await screen.findByText(textos.buscarFreelancers.titulo),
+    ).toBeOnTheScreen();
+    await fireEvent(
+      screen.getByLabelText(textos.buscarFreelancers.campo),
+      'submitEditing',
+    );
     expect(await screen.findByText('Violão')).toBeOnTheScreen();
+    expect(screen.queryByRole('tab')).toBeNull();
     expect(buscas(fetch).at(-1)?.query).toEqual({
       tipo: 'servicos',
       limite: '20',
     });
   });
 
+  it('"Voltar" da busca de trampos sem histórico leva ao Início', async () => {
+    await abrir('/buscar-trampos', (f) => {
+      f.responder('GET /perfis/eu', { corpo: meuPerfil });
+      f.responder('GET /busca', pagina([], null));
+    });
+
+    await fireEvent.press(
+      await screen.findByRole('button', { name: textos.gerais.voltar }),
+    );
+
+    await waitFor(() => expect(screen).toHavePathname('/'));
+  });
+
   it('erro de rede mostra "Tentar de novo" e recarrega', async () => {
-    const { fetch } = await abrir('/buscar', (f) => {
+    const { fetch } = await abrir('/buscar-trampos', (f) => {
       f.responder('GET /busca', [
         { falhaDeRede: true },
         pagina([trampo('t1', 'Alfa')], null),
@@ -447,7 +549,7 @@ describe('Buscar', () => {
     });
 
     await fireEvent(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
     expect(await screen.findByText(textos.erros.sem_conexao)).toBeOnTheScreen();
@@ -463,11 +565,11 @@ describe('Buscar', () => {
   it('offline: não finge que não há resultados e não desenha a faixa (é da raiz)', async () => {
     onlineManager.setOnline(false);
     try {
-      await abrir('/buscar', (f) => {
+      await abrir('/buscar-trampos', (f) => {
         f.responder('GET /busca', pagina([], null));
       });
       await fireEvent(
-        await screen.findByLabelText(textos.buscar.campo),
+        await screen.findByLabelText(textos.buscar.campoTrampos),
         'submitEditing',
       );
 

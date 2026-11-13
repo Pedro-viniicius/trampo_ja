@@ -289,7 +289,13 @@ describe('CA18/D25 — trampo em andamento cuja candidatura aceita foi apagada',
       ).toHaveLength(0);
       expect(screen.queryAllByText(/[a-z]+_[a-z_]+/)).toHaveLength(0);
 
+      // Meus anúncios de trampo virou a aba Demandas (CA77): o trampo em
+      // andamento fica na aba "Em andamento" (CA79).
       await irPara('/meus-anuncios');
+      await waitFor(() => expect(screen).toHavePathname('/demandas'));
+      await fireEvent.press(
+        await screen.findByRole('tab', { name: textos.demandas.abaAndamento }),
+      );
       expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
       expect(screen.queryAllByText(/[a-z]+_[a-z_]+/)).toHaveLength(0);
     },
@@ -396,6 +402,9 @@ describe('CA17 — sessão e navegação depois de excluir', () => {
     await fireEvent.changeText(
       await screen.findByLabelText(textos.cadastro.email),
       FREELA.email,
+    );
+    await fireEvent.press(
+      screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
     );
     await fireEvent.changeText(
       screen.getByLabelText(textos.cadastro.senha),

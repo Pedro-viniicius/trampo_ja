@@ -18,7 +18,10 @@ import {
   criarCasosDeUsoDeTrampos,
   type EntradaDeBusca,
 } from './aplicacao/casos-de-uso.js';
-import type { VerificadorDePerfil } from './dominio/portas.js';
+import type {
+  VerificadorDePerfil,
+  VinculoParaAvaliacao,
+} from './dominio/portas.js';
 import type { TrampoResumo } from './dominio/trampo.js';
 
 export type {
@@ -26,6 +29,7 @@ export type {
   ParteDeTramposNaExportacao,
   TrampoExportado,
 } from './adaptadores/postgres/repositorio-postgres.js';
+export type { VinculoParaAvaliacao } from './dominio/portas.js';
 
 export interface DependenciasDoModuloDeTrampos {
   /** Conexão com a visão das tabelas deste módulo (`trampos`, `candidaturas`). */
@@ -52,6 +56,20 @@ export interface ModuloDeTrampos {
     b: string,
     trx?: Kysely<TabelasDeTrampos>,
   ) => Promise<boolean>;
+  /**
+   * Para `avaliacoes` (CA87, ADR-011): quem `contaId` pode avaliar no trampo.
+   * O autor avalia o freelancer aceito (`'freela'`) e o freelancer aceito
+   * avalia o autor (`'contratante'`), só com o trampo encerrado; parte com o
+   * trampo aberto ou em andamento recebe `'nao_encerrado'`. Terceiro, trampo
+   * inexistente, id fora do formato ou encerrado sem aceita: `null`, sem
+   * revelar o estado do trampo. Leitura sem trava; com `trx`, roda nessa
+   * transação (a da gravação da avaliação), senão na conexão do módulo.
+   */
+  readonly vinculoParaAvaliacao: (
+    trampoId: string,
+    contaId: string,
+    trx?: Kysely<TabelasDeTrampos>,
+  ) => Promise<VinculoParaAvaliacao>;
   /** Para `busca` (CA7): trampos abertos que atendem aos filtros. */
   readonly buscarTrampos: (filtros?: EntradaDeBusca) => Promise<TrampoResumo[]>;
   /**
@@ -85,8 +103,9 @@ export interface ModuloDeTrampos {
 export function criarModuloDeTrampos(
   deps: DependenciasDoModuloDeTrampos,
 ): ModuloDeTrampos {
+  const repositorio = new RepositorioDeTramposPostgres(deps.db);
   const casos = criarCasosDeUsoDeTrampos({
-    repositorio: new RepositorioDeTramposPostgres(deps.db),
+    repositorio,
     verificadorDePerfil: deps.verificadorDePerfil,
     relogio: deps.relogio ?? relogioDoSistema,
   });
@@ -97,6 +116,11 @@ export function criarModuloDeTrampos(
         ? casos.existeVinculoEntre(a, b)
         : // Mesma consulta do caso de uso, na conexão de quem chamou.
           new RepositorioDeTramposPostgres(trx).existeCandidaturaEntre(a, b),
+    vinculoParaAvaliacao: (trampoId, contaId, trx) =>
+      (trx === undefined
+        ? repositorio
+        : new RepositorioDeTramposPostgres(trx)
+      ).vinculoParaAvaliacao(trampoId, contaId),
     buscarTrampos: (filtros) => casos.buscarTrampos(filtros),
     excluirDadosDaConta,
     exportarDadosDaConta: (contaId) => exportarDadosDaConta(deps.db, contaId),

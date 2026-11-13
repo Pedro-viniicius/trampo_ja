@@ -1,33 +1,45 @@
-import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, tipografia, toqueMinimo } from '../tema/tokens';
+import { Text, View } from 'react-native';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, margemDaTela } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { estiloDeFoco, useFoco, useMargensSeguras } from './utilitarios';
+import { BotaoDeIcone } from './BotaoDeIcone';
+import { useMargensSeguras } from './utilitarios';
 
 export type PropsDoCabecalho = {
   titulo: string;
+  /** Linha de apoio abaixo do título (ex.: "Acompanhe candidaturas e trabalhos"). */
+  subtitulo?: string;
   /** Sem `onVoltar`, o botão não aparece (telas raiz das abas). */
   onVoltar?: () => void;
   rotuloVoltar?: string;
-  /** Ações à direita (cada uma deve ter alvo de 44×44). */
+  /** Ações à direita (de preferência `BotaoDeIcone`, alvo de 48). */
   direita?: ReactNode;
+  /** Tela raiz de aba: título grande (`h1`) à esquerda, sem voltar. */
+  raiz?: boolean;
 };
 
+/**
+ * Cabeçalho V2: sem barra branca, direto sobre o fundo da tela. Voltar é um
+ * botão redondo branco; o título é `h2` (ou `h1` nas raízes das abas).
+ */
 export function Cabecalho({
   titulo,
+  subtitulo,
   onVoltar,
   rotuloVoltar = textos.gerais.voltar,
   direita,
+  raiz = false,
 }: PropsDoCabecalho) {
   const margens = useMargensSeguras();
-  const { focado, aoFocar, aoDesfocar } = useFoco();
+  const comVoltar = Boolean(onVoltar) && !raiz;
 
   return (
     <View
       style={{
-        paddingTop: margens.top,
-        paddingHorizontal: espaco[2],
+        paddingTop: margens.top + espaco.s,
+        paddingBottom: espaco.s,
+        paddingHorizontal: margemDaTela,
         backgroundColor: cores.fundo,
       }}
     >
@@ -36,47 +48,46 @@ export function Cabecalho({
           flexDirection: 'row',
           alignItems: 'center',
           minHeight: 56,
-          gap: espaco[1],
+          gap: espaco.m,
         }}
       >
-        {onVoltar ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={rotuloVoltar}
+        {comVoltar && onVoltar ? (
+          <BotaoDeIcone
+            icone="chevron-left"
+            rotulo={rotuloVoltar}
             onPress={onVoltar}
-            onFocus={aoFocar}
-            onBlur={aoDesfocar}
-            style={({ pressed }) => [
-              {
-                width: toqueMinimo,
-                height: toqueMinimo,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: toqueMinimo / 2,
-                backgroundColor: pressed ? cores.superficie : 'transparent',
-              },
-              focado && estiloDeFoco,
-            ]}
+          />
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Text
+            accessibilityRole="header"
+            numberOfLines={2}
+            style={[estiloDeTexto(raiz ? 'h1' : 'h2'), { color: cores.texto }]}
           >
-            <Ionicons name="arrow-back" size={24} color={cores.texto} />
-          </Pressable>
-        ) : (
-          <View style={{ width: espaco[2] }} />
-        )}
-        <Text
-          accessibilityRole="header"
-          numberOfLines={2}
-          style={{
-            flex: 1,
-            color: cores.texto,
-            fontSize: tipografia.tamanho.tituloDeTela,
-            lineHeight: tipografia.lineHeight.tituloDeTela,
-            fontWeight: tipografia.peso.negrito,
-          }}
-        >
-          {titulo}
-        </Text>
-        {direita}
+            {titulo}
+          </Text>
+          {subtitulo ? (
+            <Text
+              style={[
+                estiloDeTexto('legenda'),
+                { color: cores.textoSecundario },
+              ]}
+            >
+              {subtitulo}
+            </Text>
+          ) : null}
+        </View>
+        {direita ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: espaco.s,
+            }}
+          >
+            {direita}
+          </View>
+        ) : null}
       </View>
     </View>
   );

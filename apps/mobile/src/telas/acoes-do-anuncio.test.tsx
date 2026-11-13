@@ -76,11 +76,11 @@ describe('folha "Mais opções" do anúncio', () => {
     expect(screen.getByText(textos.anuncio.folhaAtualizada)).toBeOnTheScreen();
   });
 
-  it('Meus anúncios mostra o botão de 44x44 e o chama com o item', async () => {
+  it('Meus anúncios mostra o botão de 48x48 e o chama com o item', async () => {
     const abrir = jest.fn();
     await render(telaDeAnuncios(undefined, { onMaisOpcoes: abrir }));
     const botao = screen.getByLabelText(textos.anuncio.maisOpcoes(item.titulo));
-    expect(botao).toHaveStyle({ width: 44, height: 44 });
+    expect(botao).toHaveStyle({ width: 48, height: 48 });
     await fireEvent.press(botao);
     expect(abrir).toHaveBeenCalledWith(item);
   });

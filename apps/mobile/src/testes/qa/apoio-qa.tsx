@@ -1,10 +1,14 @@
+import { fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
 import RotaDasConversas from '../../app/(app)/(abas)/conversas';
+import RotaDasDemandas from '../../app/(app)/(abas)/demandas';
 import InicioRota from '../../app/(app)/(abas)/index';
+import RotaDeMeusTrampos from '../../app/(app)/(abas)/meus-trampos';
 import RotaDoMeuPerfil from '../../app/(app)/(abas)/perfil';
-import RotaDePublicar from '../../app/(app)/(abas)/publicar';
+import RotaDeBuscarTrampos from '../../app/(app)/buscar-trampos';
+import RotaDaCandidaturaEnviada from '../../app/(app)/candidatura-enviada';
 import RotaDeCandidaturaDoTrampo from '../../app/(app)/candidaturas/[trampoId]';
 import RotaDeMinhasCandidaturas from '../../app/(app)/candidaturas/index';
 import RotaDaConversa from '../../app/(app)/conversas/[id]';
@@ -14,6 +18,7 @@ import RotaDeEditarPerfil from '../../app/(app)/perfil/editar';
 import RotaDeExcluirConta from '../../app/(app)/perfil/excluir';
 import RotaDeExportarDados from '../../app/(app)/perfil/exportar';
 import RotaDoPerfilPublico from '../../app/(app)/perfis/[contaId]';
+import RotaDePublicar from '../../app/(app)/publicar';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
 import RotaDeEditarServico from '../../app/(app)/servicos/editar/[id]';
 import RotaDeNovoServico from '../../app/(app)/servicos/novo';
@@ -21,6 +26,8 @@ import RotaDoTrampo from '../../app/(app)/trampos/[id]';
 import RotaDeEditarTrampo from '../../app/(app)/trampos/editar/[id]';
 import RotaDeNovoTrampo from '../../app/(app)/trampos/novo';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
+import type { Modo } from '../../estado/modo';
+import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import {
   type MapaDeRotas,
@@ -36,8 +43,12 @@ export const ROTAS_REAIS: MapaDeRotas = {
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
-  '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/(abas)/meus-trampos': RotaDeMeusTrampos,
+  '(app)/(abas)/demandas': RotaDasDemandas,
   '(app)/(abas)/conversas': RotaDasConversas,
+  '(app)/publicar': RotaDePublicar,
+  '(app)/buscar-trampos': RotaDeBuscarTrampos,
+  '(app)/candidatura-enviada': RotaDaCandidaturaEnviada,
   '(app)/candidaturas/index': RotaDeMinhasCandidaturas,
   '(app)/candidaturas/[trampoId]': RotaDeCandidaturaDoTrampo,
   '(app)/conversas/[id]': RotaDaConversa,
@@ -77,20 +88,50 @@ export function fakeComCategorias(): FetchFalso {
 
 /**
  * App completo (raiz real + rotas reais) com o fake de `fetch`. Com `token`
- * `null` a sessão começa anônima.
+ * `null` a sessão começa anônima. `modo` é o modo gravado no aparelho
+ * (padrão: nada gravado, abre em freela).
  */
 export async function abrirApp(
   url: string,
   {
     fetch = fakeComCategorias(),
     token = TOKEN_DE_TESTE,
-  }: { fetch?: FetchFalso; token?: string | null } = {},
+    modo = null,
+  }: { fetch?: FetchFalso; token?: string | null; modo?: Modo | null } = {},
 ): Promise<RotasRenderizadas> {
   return renderizarRotas(ROTAS_REAIS, {
     initialUrl: url,
     fetch,
     armazenamento: criarArmazenamentoEmMemoria(token ?? undefined),
+    modo,
   });
+}
+
+/**
+ * CA80: depois do 201 do `POST /trampos/:id/candidaturas`, o app abre a tela
+ * Candidatura enviada no lugar do toast.
+ */
+export async function esperarCandidaturaEnviada(): Promise<void> {
+  await waitFor(() => expect(screen).toHavePathname('/candidatura-enviada'));
+  expect(
+    await screen.findByText(textos.candidaturaEnviada.titulo),
+  ).toBeOnTheScreen();
+  // O toast antigo (texto que saiu de `pt-BR.ts`) não aparece mais.
+  expect(
+    screen.queryByText(
+      'Candidatura enviada! Você pode acompanhar em Minhas candidaturas.',
+    ),
+  ).toBeNull();
+}
+
+/** "Voltar" na Candidatura enviada leva de volta ao detalhe do trampo. */
+export async function voltarDaCandidaturaEnviada(
+  detalhe: string,
+): Promise<void> {
+  await fireEvent.press(
+    screen.getByRole('button', { name: textos.gerais.voltar }),
+  );
+  await waitFor(() => expect(screen).toHavePathname(detalhe));
 }
 
 interface NoDeTexto {

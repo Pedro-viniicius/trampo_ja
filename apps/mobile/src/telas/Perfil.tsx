@@ -1,13 +1,19 @@
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import {
   Avatar,
   Aviso,
   Botao,
+  CartaoDeModo,
   DialogoDeConfirmacao,
+  GrupoDeConfiguracao,
   LinhaDeConfiguracao,
 } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { pontosDoGradiente } from '../componentes/utilitarios';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
   EstadoDeTela,
@@ -15,9 +21,8 @@ import {
   NaoEncontrado,
   Paragrafo,
   Rolavel,
-  Titulo,
 } from './base';
-import type { PropsDoPerfil } from './tipos';
+import type { ContagensDoPerfil, PropsDoPerfil } from './tipos';
 
 export function Perfil({
   proprio,
@@ -31,12 +36,16 @@ export function Perfil({
   onMeusTrampos,
   onMeusServicos,
   onContaEPrivacidade,
+  onTrocarModo,
+  onDicas,
+  contagens,
 }: PropsDoPerfil) {
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
 
   return (
     <Rolavel
       titulo={textos.perfil.titulo}
+      raiz={!onVoltar}
       onVoltar={onVoltar}
       semConexao={semConexao}
     >
@@ -48,89 +57,157 @@ export function Perfil({
           <>
             {proprio && perfilIncompleto ? (
               <Aviso
-                variante="info"
+                variante="alerta"
                 texto={textos.perfil.avisoIncompleto(perfilIncompleto.falta)}
                 textoAcao={textos.perfil.completar}
                 onAcao={onEditar}
               />
             ) : null}
-            <View style={{ alignItems: 'center', gap: espaco[2] }}>
-              <Avatar nome={perfil.nome} tamanho={80} />
+            <View style={{ alignItems: 'center', gap: espaco.s }}>
+              <View style={{ marginBottom: espaco.s }}>
+                <Avatar nome={perfil.nome} tamanho={96} variante="destaque" />
+              </View>
               <Text
                 accessibilityRole="header"
-                style={{
-                  color: cores.texto,
-                  fontSize: tipografia.tamanho.tituloDeTela,
-                  lineHeight: tipografia.lineHeight.tituloDeTela,
-                  fontWeight: tipografia.peso.negrito,
-                  textAlign: 'center',
-                }}
+                style={[
+                  estiloDeTexto('h1'),
+                  { color: cores.texto, textAlign: 'center' },
+                ]}
               >
                 {perfil.nome}
               </Text>
-              <Paragrafo texto={perfil.cidade} secundario />
-            </View>
-            <Titulo texto={textos.perfil.sobre} />
-            <Paragrafo
-              texto={perfil.descricao?.trim() || textos.perfil.semDescricao}
-              secundario={!perfil.descricao?.trim()}
-            />
-            <Titulo texto={textos.perfil.habilidades} />
-            <View
-              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}
-            >
-              {perfil.habilidades.map((habilidade, i) => (
-                <Etiqueta
-                  // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
-                  key={`${habilidade}-${i}`}
-                  texto={habilidade}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: espaco.xs,
+                }}
+              >
+                <Feather
+                  name="map-pin"
+                  size={16}
+                  color={cores.textoSecundario}
                 />
-              ))}
+                <Text
+                  style={[
+                    estiloDeTexto('corpo'),
+                    { flexShrink: 1, color: cores.textoSecundario },
+                  ]}
+                >
+                  {perfil.cidade}
+                </Text>
+              </View>
+            </View>
+            {proprio && onTrocarModo ? (
+              <CartaoDeModo modoAtual="freela" onTrocar={onTrocarModo} />
+            ) : null}
+            {proprio && contagens ? <Contagens contagens={contagens} /> : null}
+            <View
+              style={[
+                {
+                  gap: espaco.m,
+                  padding: espaco.l,
+                  borderRadius: raio.card,
+                  backgroundColor: cores.superficie,
+                },
+                sombra.sm,
+              ]}
+            >
+              <View style={{ gap: espaco.s }}>
+                <TituloDoCartao texto={textos.perfil.habilidades} />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: espaco.s,
+                  }}
+                >
+                  {perfil.habilidades.map((habilidade, i) => (
+                    <Etiqueta
+                      // biome-ignore lint/suspicious/noArrayIndexKey: lista estática, sem reordenação
+                      key={`${habilidade}-${i}`}
+                      texto={habilidade}
+                    />
+                  ))}
+                </View>
+              </View>
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={{ height: 1, backgroundColor: cores.divisor }}
+              />
+              <View style={{ gap: espaco.xs }}>
+                <TituloDoCartao texto={textos.perfil.sobre} />
+                <Paragrafo
+                  texto={perfil.descricao?.trim() || textos.perfil.semDescricao}
+                  secundario={!perfil.descricao?.trim()}
+                />
+              </View>
             </View>
             {proprio ? (
-              <View style={{ gap: espaco[2], marginTop: espaco[2] }}>
+              <View style={{ gap: espaco.m }}>
                 {onEditar ? (
                   <Botao
                     texto={textos.perfil.editar}
-                    icone="create-outline"
+                    variante="secundario"
+                    icone="edit-2"
                     onPress={onEditar}
                   />
                 ) : null}
-                {onMinhasCandidaturas ? (
-                  <Botao
-                    texto={textos.perfil.minhasCandidaturas}
-                    variante="secundario"
-                    onPress={onMinhasCandidaturas}
-                  />
-                ) : null}
-                {onMeusTrampos ? (
-                  <Botao
-                    texto={textos.perfil.meusTrampos}
-                    variante="secundario"
-                    onPress={onMeusTrampos}
-                  />
-                ) : null}
-                {onMeusServicos ? (
-                  <Botao
-                    texto={textos.perfil.meusServicos}
-                    variante="secundario"
-                    onPress={onMeusServicos}
-                  />
-                ) : null}
-                {onContaEPrivacidade ? (
-                  <LinhaDeConfiguracao
-                    titulo={textos.perfil.contaEPrivacidade}
-                    icone="shield-checkmark-outline"
-                    onPress={onContaEPrivacidade}
-                  />
-                ) : null}
-                {onSair ? (
-                  <Botao
-                    texto={textos.perfil.sair}
-                    variante="texto"
-                    icone="log-out-outline"
-                    onPress={() => setConfirmandoSaida(true)}
-                  />
+                {onMinhasCandidaturas ||
+                onMeusTrampos ||
+                onMeusServicos ||
+                onDicas ||
+                onContaEPrivacidade ||
+                onSair ? (
+                  <GrupoDeConfiguracao>
+                    {onMinhasCandidaturas ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.minhasCandidaturas}
+                        icone="file-text"
+                        onPress={onMinhasCandidaturas}
+                      />
+                    ) : null}
+                    {onMeusTrampos ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.meusTrampos}
+                        icone="briefcase"
+                        onPress={onMeusTrampos}
+                      />
+                    ) : null}
+                    {onMeusServicos ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.meusServicos}
+                        icone="tool"
+                        tom="sucesso"
+                        onPress={onMeusServicos}
+                      />
+                    ) : null}
+                    {onDicas ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.dicas}
+                        icone="book-open"
+                        tom="roxo"
+                        onPress={onDicas}
+                      />
+                    ) : null}
+                    {onContaEPrivacidade ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.contaEPrivacidade}
+                        icone="shield"
+                        tom="neutro"
+                        onPress={onContaEPrivacidade}
+                      />
+                    ) : null}
+                    {onSair ? (
+                      <LinhaDeConfiguracao
+                        titulo={textos.perfil.sair}
+                        icone="log-out"
+                        destrutiva
+                        onPress={() => setConfirmandoSaida(true)}
+                      />
+                    ) : null}
+                  </GrupoDeConfiguracao>
                 ) : null}
               </View>
             ) : null}
@@ -150,5 +227,54 @@ export function Perfil({
         onCancelar={() => setConfirmandoSaida(false)}
       />
     </Rolavel>
+  );
+}
+
+function TituloDoCartao({ texto }: { texto: string }) {
+  return (
+    <Text
+      accessibilityRole="header"
+      style={[estiloDeTexto('h3'), { color: cores.texto }]}
+    >
+      {texto}
+    </Text>
+  );
+}
+
+/**
+ * Cartões de número (CA83): no lugar de ganhos e "trampinhos" do redesign,
+ * as candidaturas enviadas e confirmadas, de `/candidaturas/minhas`.
+ */
+function Contagens({ contagens }: { contagens: ContagensDoPerfil }) {
+  const cartao = {
+    minHeight: 88,
+    justifyContent: 'center' as const,
+    padding: espaco.m,
+    borderRadius: raio.card,
+  };
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.m - 4 }}>
+      <View style={[{ flexGrow: 1, flexBasis: 140 }, sombra.marca]}>
+        <LinearGradient
+          colors={[...cores.gradienteAcao]}
+          {...pontosDoGradiente}
+          style={cartao}
+        >
+          <Text style={[estiloDeTexto('h3'), { color: cores.branco }]}>
+            {textos.perfil.candidaturasEnviadas(contagens.enviadas)}
+          </Text>
+        </LinearGradient>
+      </View>
+      <View
+        style={[
+          cartao,
+          { flexGrow: 1, flexBasis: 140, backgroundColor: cores.roxo[50] },
+        ]}
+      >
+        <Text style={[estiloDeTexto('h3'), { color: cores.roxo[700] }]}>
+          {textos.perfil.confirmadas(contagens.confirmadas)}
+        </Text>
+      </View>
+    </View>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Avatar } from './Avatar';
 import { Botao } from './Botao';
@@ -73,28 +74,28 @@ export function CartaoDeCandidatura({
 
   return (
     <View
-      style={{
-        gap: espaco[3],
-        padding: espaco[4],
-        borderRadius: raio.md,
-        borderWidth: 1,
-        borderColor: cores.borda,
-        backgroundColor: cores.fundo,
-      }}
+      style={[
+        {
+          gap: espaco.m - 4,
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: cores.superficie,
+        },
+        sombra.sm,
+      ]}
     >
       <View
-        style={{ flexDirection: 'row', alignItems: 'center', gap: espaco[3] }}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: espaco.m - 4,
+        }}
       >
         <Avatar nome={exibido} neutro={nome === null} />
-        <View style={{ flex: 1, gap: espaco[1] }}>
+        <View style={{ flex: 1, gap: espaco.xs }}>
           <Text
             numberOfLines={2}
-            style={{
-              color: cores.texto,
-              fontSize: tipografia.tamanho.corpo,
-              lineHeight: tipografia.lineHeight.corpo,
-              fontWeight: tipografia.peso.semibold,
-            }}
+            style={[estiloDeTexto('h3'), { color: cores.texto }]}
           >
             {exibido}
           </Text>
@@ -107,42 +108,31 @@ export function CartaoDeCandidatura({
           flexWrap: 'wrap',
           justifyContent: 'space-between',
           alignItems: 'baseline',
-          columnGap: espaco[2],
+          columnGap: espaco.s,
         }}
       >
         <Text
           accessibilityLabel={`${textos.candidaturasRecebidas.valorProposto}: ${valorFormatado}`}
-          style={{
-            flexShrink: 1,
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-            fontWeight: tipografia.peso.negrito,
-          }}
+          style={[
+            estiloDeTexto('h3'),
+            { flexShrink: 1, color: cores.primaria },
+          ]}
         >
           {valorFormatado}
         </Text>
         <Text
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
-          }}
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
         >
           {textos.candidaturasRecebidas.enviadaEm(dataFormatada)}
         </Text>
       </View>
-      <View style={{ gap: espaco[1] }}>
+      <View style={{ gap: espaco.xs }}>
         <Text
           numberOfLines={longa && !expandida ? LINHAS_DA_MENSAGEM : undefined}
           onTextLayout={(evento) => {
             if (linhas === null) setLinhas(evento.nativeEvent.lines.length);
           }}
-          style={{
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-          }}
+          style={[estiloDeTexto('corpo'), { color: cores.texto }]}
         >
           {mensagem}
         </Text>
@@ -168,12 +158,10 @@ export function CartaoDeCandidatura({
             ]}
           >
             <Text
-              style={{
-                color: cores.primaria,
-                fontSize: tipografia.tamanho.rotulo,
-                fontWeight: tipografia.peso.semibold,
-                textDecorationLine: 'underline',
-              }}
+              style={[
+                estiloDeTexto('corpo', 'negrito'),
+                { color: cores.primaria, textDecorationLine: 'underline' },
+              ]}
             >
               {expandida
                 ? textos.detalheTrampo.lerMenos
@@ -182,7 +170,7 @@ export function CartaoDeCandidatura({
           </Pressable>
         ) : null}
       </View>
-      <View style={{ gap: espaco[2] }}>
+      <View style={{ gap: espaco.s }}>
         {podeAceitar ? (
           <Botao
             texto={textos.candidaturasRecebidas.aceitar}
@@ -200,7 +188,7 @@ export function CartaoDeCandidatura({
         ) : null}
         <Botao
           texto={textos.candidaturasRecebidas.verPerfil(nome)}
-          variante="secundario"
+          variante="contorno"
           onPress={onVerPerfil}
         />
         {onConversar ? (
@@ -209,7 +197,7 @@ export function CartaoDeCandidatura({
             rotuloDeAcessibilidade={textos.candidaturasRecebidas.conversarCom(
               nome,
             )}
-            variante="secundario"
+            variante="tonal"
             desabilitado={!!motivoDaConversa}
             accessibilityHint={motivoDaConversa ?? undefined}
             carregando={abrindoConversa}

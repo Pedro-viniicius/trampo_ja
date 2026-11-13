@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { textos } from '../textos/pt-BR';
-import { EscolhaDePublicacao } from './EscolhaDePublicacao';
 import { FormularioDeAnuncio } from './FormularioDeAnuncio';
 import type { PropsDoFormularioDeAnuncio, ValoresDoAnuncio } from './tipos';
 
@@ -41,37 +40,6 @@ function formulario(
     ...extra,
   };
 }
-
-describe('EscolhaDePublicacao', () => {
-  it('mostra as duas opções e chama o callback de cada uma', async () => {
-    const onPublicarTrampo = jest.fn();
-    const onOfertarServico = jest.fn();
-    await render(
-      <EscolhaDePublicacao
-        onPublicarTrampo={onPublicarTrampo}
-        onOfertarServico={onOfertarServico}
-      />,
-    );
-    expect(
-      screen.getByText(textos.escolhaDePublicacao.pergunta),
-    ).toBeOnTheScreen();
-    expect(
-      screen.getByText(textos.escolhaDePublicacao.trampoAjuda),
-    ).toBeOnTheScreen();
-    await fireEvent.press(
-      screen.getByRole('button', {
-        name: `${textos.escolhaDePublicacao.trampo}. ${textos.escolhaDePublicacao.trampoAjuda}`,
-      }),
-    );
-    await fireEvent.press(
-      screen.getByRole('button', {
-        name: `${textos.escolhaDePublicacao.servico}. ${textos.escolhaDePublicacao.servicoAjuda}`,
-      }),
-    );
-    expect(onPublicarTrampo).toHaveBeenCalledTimes(1);
-    expect(onOfertarServico).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe('FormularioDeAnuncio', () => {
   it('trampo: mostra valor, prazo e cidade obrigatória', async () => {

@@ -715,6 +715,7 @@ describe('Texto de interface nunca mostra erro cru nem código (CA2, CA7)', () =
   const ROTAS = [
     '/',
     '/buscar',
+    '/buscar-trampos',
     '/perfil',
     '/perfil/editar',
     '/perfis/c1',
@@ -742,9 +743,16 @@ describe('Texto de interface nunca mostra erro cru nem código (CA2, CA7)', () =
         fetch.responder(`GET ${alvo}`, resposta);
       }
       await abrirApp(rota, { fetch });
-      if (rota === '/buscar') {
+      // CA84: `/buscar` (contratante) busca serviços; o freela busca
+      // trampos em `/buscar-trampos`. Cada um tem o seu rótulo de campo.
+      const camposDaBusca: Readonly<Record<string, string>> = {
+        '/buscar': textos.buscarFreelancers.campo,
+        '/buscar-trampos': textos.buscar.campoTrampos,
+      };
+      const campoDaBusca = camposDaBusca[rota];
+      if (campoDaBusca !== undefined) {
         await fireEvent(
-          await screen.findByLabelText(textos.buscar.campo),
+          await screen.findByLabelText(campoDaBusca),
           'submitEditing',
         );
       }

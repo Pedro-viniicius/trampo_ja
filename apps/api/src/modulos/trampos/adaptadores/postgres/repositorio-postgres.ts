@@ -13,6 +13,7 @@ import type {
   GravacaoSobTrava,
   PaginaDoAutor,
   RepositorioDeTrampos,
+  VinculoParaAvaliacao,
 } from '../../dominio/portas.js';
 import {
   type DadosDoTrampo,
@@ -525,6 +526,59 @@ export class RepositorioDeTramposPostgres implements RepositorioDeTrampos {
       .limit(1)
       .executeTakeFirst();
     return achada !== undefined;
+  }
+
+  /**
+   * Contrato em `RepositorioDeTrampos.vinculoParaAvaliacao`. Uma consulta só,
+   * sem trava: o trampo e a(s) candidatura(s) aceita(s) dele. O `limit 2`
+   * basta para notar mais de uma aceita, que a regra não produz; se houver,
+   * ninguém avalia (`null`).
+   */
+  async vinculoParaAvaliacao(
+    trampoId: string,
+    contaId: string,
+  ): Promise<VinculoParaAvaliacao> {
+    if (!ehUuid(trampoId) || !ehUuid(contaId)) {
+      return null;
+    }
+    const linhas = await this.#db
+      .selectFrom('trampos')
+      .leftJoin('candidaturas', (juncao) =>
+        juncao
+          .onRef('candidaturas.trampo_id', '=', 'trampos.id')
+          .on('candidaturas.status', '=', 'aceita'),
+      )
+      .select([
+        'trampos.autor_id',
+        'trampos.status',
+        'candidaturas.freelancer_id',
+      ])
+      .where('trampos.id', '=', trampoId)
+      .limit(2)
+      .execute();
+    const primeira = linhas[0];
+    if (primeira === undefined) {
+      return null;
+    }
+    const aceitos = linhas
+      .map((linha) => linha.freelancer_id)
+      .filter((id): id is string => id !== null);
+    const ehAutor = contaId === primeira.autor_id;
+    const ehFreelaAceito = aceitos.length === 1 && aceitos[0] === contaId;
+    if (ehAutor === ehFreelaAceito) {
+      // Nenhum dos dois (terceiro) ou os dois ao mesmo tempo (dado incoerente).
+      return null;
+    }
+    if (primeira.status !== 'encerrado') {
+      return 'nao_encerrado';
+    }
+    if (ehFreelaAceito) {
+      return { avaliadoId: primeira.autor_id, papelDoAvaliado: 'contratante' };
+    }
+    const freela = aceitos.length === 1 ? aceitos[0] : undefined;
+    return freela === undefined
+      ? null
+      : { avaliadoId: freela, papelDoAvaliado: 'freela' };
   }
 
   async listarCandidaturasDoFreelancer(

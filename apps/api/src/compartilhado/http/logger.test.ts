@@ -83,6 +83,7 @@ describe('criarLogger', () => {
       'texto',
       'mensagem',
       'titulo',
+      'comentario',
     ]) {
       expect(caminhos).toContain(chave);
       expect(caminhos).toContain('*.'.repeat(PROFUNDIDADE_DO_REDACT) + chave);
@@ -153,7 +154,7 @@ describe('CA15 — logs da API sem dado pessoal', () => {
     expect(registro.headers.authorization).toBe(CENSURA);
   });
 
-  it('Dado uma rota que loga perfil, trampo, candidatura e mensagem por descuido, então cidade, descrição, habilidades, título, mensagem e texto saem como [redigido]', async () => {
+  it('Dado uma rota que loga perfil, trampo, candidatura, mensagem e avaliação por descuido, então cidade, descrição, habilidades, título, mensagem, texto e comentário saem como [redigido]', async () => {
     const { app, log } = montar();
     const CIDADE = 'Lavras do Sul';
     const DESCRICAO = 'Conserto portões na rua das Flores, 123';
@@ -161,6 +162,8 @@ describe('CA15 — logs da API sem dado pessoal', () => {
     const TEXTO = 'me liga no fim da tarde, por favor';
     const TITULO = 'Portão da casa da Dona Cida';
     const MENSAGEM = 'Sou vizinho, moro no 125';
+    // CA93: o comentário da avaliação é texto livre de quem avalia.
+    const COMENTARIO = 'Chegou atrasado, mas o João da padaria indicou';
     app.post('/descuido', async (requisicao) => {
       requisicao.log.info({ body: requisicao.body }, 'log descuidado');
       return { ok: true };
@@ -176,6 +179,7 @@ describe('CA15 — logs da API sem dado pessoal', () => {
         titulo: TITULO,
         mensagem: MENSAGEM,
         conversa: { texto: TEXTO },
+        avaliacao: { nota: 4, comentario: COMENTARIO },
       },
     });
 
@@ -189,13 +193,17 @@ describe('CA15 — logs da API sem dado pessoal', () => {
       TEXTO,
       TITULO,
       MENSAGEM,
+      COMENTARIO,
     ]) {
       expect(texto).not.toContain(valor);
     }
     const registro = log
       .registros()
       .find((r) => r.msg === 'log descuidado') as {
-      body: Record<string, unknown> & { conversa: { texto: unknown } };
+      body: Record<string, unknown> & {
+        conversa: { texto: unknown };
+        avaliacao: { nota: unknown; comentario: unknown };
+      };
     };
     expect(registro.body.cidade).toBe(CENSURA);
     expect(registro.body.descricao).toBe(CENSURA);
@@ -203,6 +211,9 @@ describe('CA15 — logs da API sem dado pessoal', () => {
     expect(registro.body.titulo).toBe(CENSURA);
     expect(registro.body.mensagem).toBe(CENSURA);
     expect(registro.body.conversa.texto).toBe(CENSURA);
+    expect(registro.body.avaliacao.comentario).toBe(CENSURA);
+    // Só a chave sensível sai redigida: a nota fica.
+    expect(registro.body.avaliacao.nota).toBe(4);
   });
 
   it('redige a chave sensível no nível mais fundo coberto', async () => {

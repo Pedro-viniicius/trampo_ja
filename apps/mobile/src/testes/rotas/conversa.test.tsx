@@ -854,11 +854,37 @@ interface FibraDaLista {
   readonly sibling: FibraDaLista | null;
 }
 
+/** Elemento que o `renderItem` devolve: a bolha ou, com separador de dia, um `View` com o separador e a bolha. */
+interface ElementoDoItem {
+  readonly props: {
+    readonly onTentarDeNovo?: () => void;
+    readonly children?: unknown;
+  };
+}
+
 interface PropsDaLista {
   readonly data: readonly MensagemParaExibir[];
-  readonly renderItem: (info: { item: MensagemParaExibir; index: number }) => {
-    props: { onTentarDeNovo: () => void };
-  };
+  readonly renderItem: (info: {
+    item: MensagemParaExibir;
+    index: number;
+  }) => ElementoDoItem;
+}
+
+/** O `onTentarDeNovo` da bolha do item, com ou sem o separador de dia antes. */
+function tentarDeNovoDoItem(elemento: ElementoDoItem): () => void {
+  if (typeof elemento.props.onTentarDeNovo === 'function') {
+    return elemento.props.onTentarDeNovo;
+  }
+  const filhos = Array.isArray(elemento.props.children)
+    ? (elemento.props.children as ElementoDoItem[])
+    : [];
+  const bolha = filhos.find(
+    (filho) => typeof filho?.props?.onTentarDeNovo === 'function',
+  );
+  if (bolha?.props.onTentarDeNovo === undefined) {
+    throw new Error('bolha sem onTentarDeNovo');
+  }
+  return bolha.props.onTentarDeNovo;
 }
 
 /**
@@ -904,7 +930,7 @@ async function tentarDeNovoDaPendente(n: number | string) {
     throw new Error('pendente "Não enviada" não encontrada');
   }
   await act(async () => {
-    renderItem({ item, index: indice }).props.onTentarDeNovo();
+    tentarDeNovoDoItem(renderItem({ item, index: indice }))();
   });
 }
 

@@ -1,4 +1,8 @@
-/** Textos da interface (pt-BR), por tela. Entregas 2a, 2b e 2c. */
+/**
+ * Textos da interface (pt-BR), por tela. Entregas 2a, 2b, 2c e V2
+ * (spec docs/produto/specs/visual-v2.md). Na V2 o texto que já existia
+ * mantém a chave; só o valor muda quando a spec pede.
+ */
 
 const plural = (n: number, um: string, varios: string): string =>
   n === 1 ? um : varios;
@@ -15,6 +19,11 @@ export const textos = {
     publicar: 'Publicar',
     conversas: 'Conversas',
     perfil: 'Perfil',
+    // V2: abas por modo (freela: Início, Meus trampos, Conversas, Perfil;
+    // contratante: Início, Demandas, Buscar, Mensagens, Perfil).
+    meusTrampos: 'Meus trampos',
+    demandas: 'Demandas',
+    mensagens: 'Mensagens',
   },
   gerais: {
     toastFechar: 'Fechar aviso',
@@ -40,6 +49,27 @@ export const textos = {
     tipoTrampo: 'Trampo',
     tipoServico: 'Serviço',
     status: (rotulo: string): string => `Status: ${rotulo}`,
+    // V2
+    /** Rótulo falado da nota (o número também aparece em texto). */
+    nota: (nota: string): string => `Nota ${nota} de 5`,
+    maisOpcoes: 'Mais opções',
+    agoraNao: 'Agora não',
+  },
+  modo: {
+    /** Cartão de modo no Perfil do freela (leva ao modo contratante). */
+    cartaoFreela: {
+      titulo: 'Modo contratante',
+      descricao: 'Quero contratar também',
+    },
+    /** Cartão de modo no Perfil da empresa (leva ao modo freela). */
+    cartaoContratante: {
+      titulo: 'Modo freela',
+      descricao: 'Quero trabalhar como freela também',
+    },
+    trocarParaContratante: 'Trocar para o modo contratante',
+    trocarParaFreela: 'Trocar para o modo freela',
+    ativoFreela: 'Modo freela ativo',
+    ativoContratante: 'Modo contratante ativo',
   },
   entrada: {
     frase: 'Ache trampo. Ache quem faça.',
@@ -48,7 +78,8 @@ export const textos = {
     logo: 'Logo do Trampo Já',
   },
   entrar: {
-    titulo: 'Entrar',
+    titulo: 'Bora pro próximo trampo?',
+    subtitulo: 'Entre para ver trampos perto de você.',
     email: 'E-mail',
     senha: 'Senha',
     mostrarSenha: 'Mostrar senha',
@@ -59,7 +90,13 @@ export const textos = {
     semConta: 'Ainda não tem conta?',
   },
   cadastro: {
-    titulo: 'Criar conta',
+    titulo: 'Cadastre-se!',
+    objetivo: 'Qual é o seu objetivo principal?',
+    querContratar: 'Quero contratar',
+    querTrampar: 'Quero trampar',
+    dicaContratar: 'Você pode alternar para trabalhador no seu perfil.',
+    dicaTrampar: 'Você pode alternar para contratante no seu perfil.',
+    escolhaObjetivo: 'Escolha um objetivo para continuar',
     email: 'E-mail',
     senha: 'Senha',
     ajudaSenha: 'Mínimo de 8 caracteres',
@@ -85,12 +122,42 @@ export const textos = {
     servicos: 'Serviços recentes',
     vazio: 'Ainda não há anúncios',
     vazioTexto: 'Assim que alguém publicar, aparece aqui.',
-    minhasCandidaturas: 'Minhas candidaturas',
+    minhasCandidaturas: 'Ver meus trampos',
     erroSecao: 'Não foi possível carregar esta parte.',
+  },
+  inicioFreela: {
+    titulo: 'Encontre seu próximo trampo',
+    destaque: 'Suas candidaturas',
+    emAnalise: (n: number): string => `${n} em análise`,
+    verMeusTrampos: 'Ver meus trampos',
+    semCandidaturas: 'Você ainda não se candidatou',
+    acompanhe: 'Veja em que pé está cada uma',
+    verTrampos: 'Ver trampos abertos',
+    cidade: 'Cidade',
+    mostrandoNaCidade: 'Mostrando trampos nesta cidade',
+    todas: 'Todas',
+  },
+  inicioContratante: {
+    ola: 'Olá,',
+    precisa: 'Precisa de gente hoje?',
+    publique: 'Publique uma demanda em 1 minuto.',
+    novaDemanda: 'Publicar nova demanda',
+    abertas: 'Demandas abertas',
+    verDemandas: 'Ver demandas',
+    interessados: (n: number): string =>
+      `${n} ${plural(n, 'interessado', 'interessados')}`,
+    semDemandas: 'Você ainda não publicou demandas',
+    semDemandasTexto: 'Publique a primeira e receba candidaturas.',
+    equipe: 'Minha equipe favorita',
+    verPerfil: 'Ver perfil',
+    recontratar: 'Recontratar',
+    recontratarCom: (nome: string): string => `Recontratar ${nome}`,
   },
   buscar: {
     titulo: 'Buscar',
     campo: 'Buscar trampos e serviços',
+    tituloTrampos: 'Buscar trampos',
+    campoTrampos: 'Buscar por trampo ou categoria',
     abaTrampos: 'Trampos',
     abaServicos: 'Serviços',
     categoria: 'Categoria',
@@ -119,10 +186,11 @@ export const textos = {
     lerMais: 'Ler mais',
     lerMenos: 'Ler menos',
     publicadoPor: 'Publicado por',
-    candidatar: 'Candidatar-se',
+    candidatar: 'Quero me candidatar',
     jaCandidatou: 'Candidatura enviada',
     verCandidaturas: (n: number): string => `Ver candidaturas (${n})`,
     fechado: 'Este trampo não recebe mais candidaturas.',
+    local: 'Local',
     seloAberto: 'Aberto',
     seloEmAndamento: 'Em andamento',
     seloEncerrado: 'Encerrado',
@@ -139,7 +207,25 @@ export const textos = {
       'Você só pode conversar com quem tem uma candidatura ou contratação com você.',
   },
   conversas: {
-    titulo: 'Conversas',
+    titulo: 'Mensagens',
+    subtituloFreela: 'Converse com seus contratantes',
+    subtituloContratante: 'Converse com os profissionais',
+    buscar: 'Buscar conversa',
+    semResultadoDaBusca: 'Nenhuma conversa com esse nome.',
+    contexto: (titulo: string): string => `Sobre: ${titulo}`,
+    /** Só preenchem o campo: a pessoa revisa e envia. */
+    respostasRapidas: ['Estou a caminho', 'Cheguei!', 'Vou atrasar 10 min'],
+    respostasRapidasRotulo: 'Respostas rápidas',
+    usarResposta: (texto: string): string => `Escrever "${texto}"`,
+    diaHoje: 'Hoje',
+    diaOntem: 'Ontem',
+    /** Faixa de contexto do chat (quadro 09): o toque abre o trampo. */
+    abrirTrampoDaFaixa: (
+      titulo: string,
+      status: string,
+      valor: string,
+    ): string => `Abrir o trampo ${titulo}. ${status}. ${valor}`,
+    previaMinha: (texto: string): string => `Você: ${texto}`,
     vazio: 'Nenhuma conversa ainda',
     vazioTexto:
       'Suas conversas aparecem aqui depois de uma candidatura ou contratação.',
@@ -205,6 +291,20 @@ export const textos = {
     camposNome: 'nome',
     camposCidade: 'cidade',
     camposHabilidades: 'habilidades',
+    // V2
+    ajustes: 'Ajustes da conta',
+    modoRotulo: 'Modo',
+    candidaturasEnviadas: (n: number): string =>
+      `${n} ${plural(n, 'candidatura enviada', 'candidaturas enviadas')}`,
+    confirmadas: (n: number): string =>
+      `${n} ${plural(n, 'confirmada', 'confirmadas')}`,
+    abaAvaliacoes: (nota: string): string => `Avaliações ${nota}`,
+    resumo: 'Resumo',
+    dicas: 'Dicas & minicursos',
+    tituloEmpresa: 'Perfil da empresa',
+    infoEmpresa: 'Informações da empresa',
+    infoEmpresaTexto: 'Cidade e sobre a empresa',
+    editarTexto: 'Foto, bio e nome',
   },
   editarPerfil: {
     titulo: 'Editar perfil',
@@ -245,7 +345,7 @@ export const textos = {
     servicoAjuda: 'Quero oferecer o que sei fazer.',
   },
   formularioDeAnuncio: {
-    tituloTrampo: 'Publicar trampo',
+    tituloTrampo: 'Nova demanda',
     tituloServico: 'Ofertar serviço',
     titulo: 'Título',
     descricao: 'Descrição',
@@ -263,21 +363,23 @@ export const textos = {
       'Digite dia, mês e ano; as barras entram sozinhas. Exemplo: 31/12/2026.',
     avisoVisibilidade:
       'Título, descrição e cidade aparecem para quem usa o Trampo Já. Não coloque telefone, endereço ou documentos.',
-    publicarTrampo: 'Publicar trampo',
+    publicarTrampo: 'Publicar demanda',
     ofertarServico: 'Ofertar serviço',
     enviando: 'Enviando…',
     semConexaoMotivo: 'Sem conexão. Conecte-se para publicar.',
-    publicadoTrampo: 'Trampo publicado!',
-    publicadoTrampoTexto: 'Ele já aparece na busca.',
+    publicadoTrampo: 'Demanda publicada!',
+    publicadoTrampoTexto: 'Ela já aparece na busca.',
     publicadoServico: 'Serviço ofertado!',
     publicadoServicoTexto: 'Ele já aparece na busca.',
-    verTrampo: 'Ver trampo',
+    verTrampo: 'Ver demanda',
     verServico: 'Ver serviço',
-    publicarOutro: 'Publicar outro',
+    publicarOutro: 'Publicar outra',
     ofertarOutro: 'Ofertar outro',
+    /** Rodapé do formulário: o valor como foi digitado. */
+    valorNoRodape: (valor: string): string => `R$ ${valor}`,
   },
   candidatar: {
-    titulo: 'Candidatar-se',
+    titulo: 'Quero me candidatar',
     mensagem: 'Mensagem para o empregador',
     valor: 'Valor proposto (R$)',
     avisoVisibilidade:
@@ -286,8 +388,6 @@ export const textos = {
     enviando: 'Enviando…',
     semConexaoMotivo: 'Sem conexão. Conecte-se para enviar sua candidatura.',
     fecharFolha: 'Fechar candidatura',
-    enviada:
-      'Candidatura enviada! Você pode acompanhar em Minhas candidaturas.',
     aceita: 'Candidatura aceita. Que tal combinar os detalhes na conversa?',
     verCandidaturas: (n: number | null): string =>
       n === null ? 'Ver candidaturas' : `Ver candidaturas (${n})`,
@@ -329,6 +429,150 @@ export const textos = {
     aceitaToast:
       'Candidatura aceita. Que tal combinar os detalhes na conversa?',
     conversar: 'Conversar',
+  },
+  candidaturaEnviada: {
+    titulo: 'Candidatura enviada!',
+    texto: (autor: string): string =>
+      `${autor} vai analisar seu perfil. Acompanhe a resposta em Meus trampos.`,
+    textoSemAutor: 'Acompanhe a resposta em Meus trampos.',
+    passos: {
+      enviada: 'Enviada',
+      emAnalise: 'Em análise',
+      confirmado: 'Confirmado',
+      recusada: 'Recusada',
+    },
+    passo: (n: number, rotulo: string): string => `Passo ${n} de 3: ${rotulo}`,
+    verMeusTrampos: 'Ver em Meus trampos',
+    buscarMais: 'Buscar mais trampos',
+  },
+  meusTrampos: {
+    titulo: 'Meus trampos',
+    subtitulo: 'Acompanhe candidaturas e trabalhos',
+    abaAnalise: 'Em análise',
+    abaConfirmados: 'Confirmados',
+    abaEncerrados: 'Encerrados',
+    vazioAnalise: 'Nenhuma candidatura em análise',
+    vazioConfirmados: 'Quando um contratante aceitar, aparece aqui.',
+    vazioEncerrados: 'Nada por aqui ainda.',
+    verTrampos: 'Ver trampos abertos',
+    mensagem: 'Mensagem',
+    mensagemPara: (nome: string | null): string =>
+      nome ? `Mensagem para ${nome}` : 'Mandar mensagem',
+    publicadoPor: (nome: string): string => `Por ${nome}`,
+  },
+  demandas: {
+    titulo: 'Demandas',
+    nova: 'Nova demanda',
+    abaAbertas: 'Abertas',
+    abaAndamento: 'Em andamento',
+    abaEncerradas: 'Encerradas',
+    criadaEm: (data: string): string => `Criada em ${data}`,
+    verCandidatos: 'Ver candidatos',
+    verCandidatosDe: (titulo: string): string => `Ver candidatos de ${titulo}`,
+    vazioAbertas: 'Nenhuma demanda aberta',
+    vazioAndamento: 'Nenhuma demanda em andamento',
+    vazioEncerradas: 'Nenhuma demanda encerrada',
+    publicar: 'Publicar demanda',
+    confirmado: 'Confirmado',
+  },
+  candidatos: {
+    subtitulo: (n: number): string =>
+      `${n} ${plural(n, 'candidato', 'candidatos')} · toque para ver o perfil`,
+    vazio: 'Ainda sem candidaturas. Quando alguém se candidatar, aparece aqui.',
+  },
+  buscarFreelancers: {
+    titulo: 'Buscar freelancers',
+    campo: 'Buscar por serviço, nome ou categoria',
+    filtros: 'Filtros',
+    filtrosAtivos: (n: number): string =>
+      `Filtros, ${n} ${plural(n, 'ativo', 'ativos')}`,
+    verServico: 'Ver serviço',
+    verServicoDe: (nome: string): string => `Ver serviço de ${nome}`,
+    aPartirDe: (valor: string): string => `A partir de ${valor}`,
+  },
+  dicas: {
+    titulo: 'Dicas & minicursos',
+    subtitulo: 'Aprenda e chegue bem no trampo',
+    sobretitulo: 'Seu próximo passo',
+    destaque: 'Prepare-se para novas oportunidades',
+    destaqueTexto: 'Aprenda algo novo em poucos minutos.',
+    explorar: 'Explorar conteúdos',
+    categorias: 'Categorias',
+    conteudos: (n: number): string =>
+      `${n} ${plural(n, 'conteúdo', 'conteúdos')}`,
+    todos: 'Todos',
+    categoria: {
+      conseguir_trabalho: 'Conseguir trabalho',
+      atendimento: 'Atendimento ao cliente',
+      garcom_e_cozinha: 'Garçom e cozinha',
+      eventos: 'Eventos',
+      comercio_e_estoque: 'Comércio e estoque',
+      seguranca: 'Segurança no trabalho',
+    },
+    paraComecar: 'Dicas para começar',
+    tipoDica: 'Dica rápida',
+    tipoMinicurso: 'Minicurso',
+    minutos: (n: number): string => `${n} min`,
+    paraLembrar: 'Para lembrar',
+    voltar: 'Voltar às dicas',
+    vazio: 'Nenhum conteúdo nesta categoria ainda.',
+  },
+  avaliar: {
+    titulo: 'Avaliar profissional',
+    tituloContratante: 'Avaliar contratante',
+    notaRotulo: 'Nota',
+    notaVazia: 'Toque nas estrelas',
+    /** Índice = nota − 1. */
+    notas: ['Ruim', 'Regular', 'Bom', 'Muito bom', 'Excelente!'],
+    rotuloEstrela: (n: number): string =>
+      `${n} ${plural(n, 'estrela', 'estrelas')}`,
+    destaques: 'O que se destacou?',
+    /** Destaques de quem é avaliado como freela (códigos da API). */
+    destaquesFreela: {
+      pontual: 'Pontual',
+      organizado: 'Organizado',
+      rapido: 'Rápido',
+      educado: 'Educado',
+      proativo: 'Proativo',
+    },
+    /** Destaques de quem é avaliado como contratante (códigos da API). */
+    destaquesContratante: {
+      pagamento_em_dia: 'Pagamento em dia',
+      ambiente_organizado: 'Ambiente organizado',
+      instrucoes_claras: 'Instruções claras',
+      respeitoso: 'Respeitoso',
+      pontual: 'Pontual',
+    },
+    comentario: 'Deixe seu comentário (opcional)',
+    favoritar: 'Favoritar para a próxima demanda',
+    favoritarTexto: 'Essa pessoa entra na sua equipe favorita.',
+    enviar: 'Enviar avaliação',
+    enviando: 'Enviando…',
+    escolhaNota: 'Escolha uma nota',
+    enviada: 'Avaliação enviada.',
+    jaAvaliado: 'Você já avaliou este trampo',
+    avaliar: 'Avaliar',
+    avaliarProfissional: 'Avaliar profissional',
+    avaliadoCom: (n: number): string => `Avaliado com ${n} ★`,
+    avaliadoComFalado: (n: number): string =>
+      `Avaliado com ${n} ${plural(n, 'estrela', 'estrelas')}`,
+    semConexaoMotivo: 'Sem conexão. Conecte-se para enviar a avaliação.',
+  },
+  avaliacoes: {
+    titulo: 'Avaliações',
+    resumo: (media: string, total: number): string =>
+      `${media} (${total} ${plural(total, 'avaliação', 'avaliações')})`,
+    recebidas: (n: number): string =>
+      `${n} ${plural(n, 'avaliação recebida', 'avaliações recebidas')}`,
+    semAvaliacoes: 'Ainda sem avaliações',
+    semAvaliacoesTexto: 'As avaliações aparecem aqui depois dos trampos.',
+    recebidasTitulo: 'Avaliações recebidas',
+  },
+  favoritos: {
+    favoritar: (nome: string): string => `Favoritar ${nome}`,
+    desfavoritar: (nome: string): string => `Tirar ${nome} da equipe favorita`,
+    favoritado: 'Na sua equipe favorita.',
+    erro: 'Não foi possível atualizar a equipe favorita. Tente de novo.',
   },
   minhasCandidaturas: {
     titulo: 'Minhas candidaturas',
@@ -400,7 +644,7 @@ export const textos = {
     erroAoEncerrar: 'Não foi possível encerrar. Tente de novo.',
     erroAoExcluir: 'Não foi possível excluir. Tente de novo.',
     // Edição.
-    tituloEditarTrampo: 'Editar trampo',
+    tituloEditarTrampo: 'Editar demanda',
     tituloEditarServico: 'Editar serviço',
     salvarAlteracoes: 'Salvar alterações',
     salvando: 'Salvando…',
@@ -579,6 +823,16 @@ export const textos = {
       'Você só pode conversar com quem tem uma candidatura ou contratação com você.',
     conversa_consigo_mesmo:
       'Este anúncio é seu. Não dá para conversar com você mesmo.',
+    // V2b: avaliações e equipe favorita.
+    avaliacao_ja_feita: 'Você já avaliou este trampo.',
+    trampo_nao_encerrado:
+      'Só dá para avaliar depois que o trampo for encerrado.',
+    favorito_invalido: 'Não dá para favoritar você mesmo.',
+    limite_de_favoritos:
+      'Sua equipe favorita chegou a 200 pessoas. Tire alguém para adicionar outra.',
+    nota_obrigatoria: 'Escolha uma nota de 1 a 5 estrelas.',
+    comentario_tamanho:
+      'O comentário pode ter até 500 caracteres. Encurte um pouco.',
   },
 } as const;
 

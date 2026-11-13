@@ -1,6 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { estiloDeFoco, useFoco } from './utilitarios';
 
@@ -9,10 +10,15 @@ export type PropsDoChip = {
   /** Chip de filtro: alterna entre selecionado e não. */
   selecionado?: boolean;
   onPress?: () => void;
-  /** Chip removível (habilidade): mostra o botão de remover de 44×44. */
+  /** Chip removível (habilidade): mostra o botão de remover de 48×48. */
   onRemover?: () => void;
   rotuloRemover?: string;
+  desabilitado?: boolean;
 };
+
+/** Altura visual 40; o alvo de toque chega a 48 pelo `hitSlop`. */
+const ALTURA = 40;
+const FOLGA_DE_TOQUE = (toqueMinimo - ALTURA) / 2;
 
 function BotaoRemover({
   rotulo,
@@ -35,13 +41,13 @@ function BotaoRemover({
           height: toqueMinimo,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: pressed ? cores.superficie : 'transparent',
-          borderRadius: raio.md,
+          backgroundColor: pressed ? cores.tinta[100] : 'transparent',
+          borderRadius: raio.pill,
         },
         focado && estiloDeFoco,
       ]}
     >
-      <Ionicons name="close" size={18} color={cores.texto} />
+      <Feather name="x" size={18} color={cores.tinta[700]} />
     </Pressable>
   );
 }
@@ -52,43 +58,52 @@ export function Chip({
   onPress,
   onRemover,
   rotuloRemover,
+  desabilitado = false,
 }: PropsDoChip) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
-  const corDoTexto = selecionado ? cores.branco : cores.texto;
+  const corDoTexto = desabilitado
+    ? cores.tinta[500]
+    : selecionado
+      ? cores.branco
+      : cores.tinta[700];
   const corpo = (
     <>
       {selecionado ? (
-        <Ionicons name="checkmark" size={16} color={corDoTexto} />
+        <Feather name="check" size={16} color={corDoTexto} />
       ) : null}
       <Text
-        style={{
-          color: corDoTexto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.medio,
-          flexShrink: 1,
-        }}
+        style={[
+          estiloDeTexto('corpo', 'semibold'),
+          { color: corDoTexto, flexShrink: 1 },
+        ]}
       >
         {texto}
       </Text>
     </>
   );
   const caixa = {
-    minHeight: toqueMinimo,
+    minHeight: ALTURA,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: espaco[1],
-    paddingHorizontal: espaco[3],
-    borderRadius: raio.lg,
-    borderWidth: 1,
-    borderColor: selecionado ? cores.primaria : cores.borda,
+    gap: espaco.xs + 2,
+    paddingHorizontal: espaco.m,
+    borderRadius: raio.pill,
+    borderWidth: 1.5,
+    borderColor: selecionado ? cores.primaria : cores.divisor,
     backgroundColor: selecionado ? cores.primaria : cores.superficie,
   } as const;
 
   if (onRemover) {
     return (
-      <View style={[caixa, { paddingRight: 0, alignSelf: 'flex-start' }]}>
-        <View style={{ flexShrink: 1 }}>{corpo}</View>
+      <View
+        style={[
+          caixa,
+          { minHeight: toqueMinimo, paddingRight: 0, alignSelf: 'flex-start' },
+        ]}
+      >
+        <View style={{ flexShrink: 1, flexDirection: 'row', gap: espaco.xs }}>
+          {corpo}
+        </View>
         <BotaoRemover
           rotulo={rotuloRemover ?? textos.editarPerfil.remover(texto)}
           onPress={onRemover}
@@ -101,13 +116,15 @@ export function Chip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={texto}
-      accessibilityState={{ selected: selecionado }}
+      accessibilityState={{ selected: selecionado, disabled: desabilitado }}
+      disabled={desabilitado}
       onPress={onPress}
       onFocus={aoFocar}
       onBlur={aoDesfocar}
+      hitSlop={FOLGA_DE_TOQUE}
       style={({ pressed }) => [
         caixa,
-        pressed && { opacity: 0.8 },
+        pressed && !selecionado && { backgroundColor: cores.tinta[50] },
         focado && estiloDeFoco,
         { alignSelf: 'flex-start' },
       ]}

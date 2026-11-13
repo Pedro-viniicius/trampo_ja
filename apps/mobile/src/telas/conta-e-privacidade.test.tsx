@@ -48,7 +48,7 @@ describe('LinhaDeConfiguracao', () => {
       <LinhaDeConfiguracao
         titulo="Título"
         descricao="Descrição"
-        icone="trash-outline"
+        icone="trash-2"
         onPress={onPress}
       />,
     );
@@ -61,7 +61,7 @@ describe('LinhaDeConfiguracao', () => {
     await render(
       <LinhaDeConfiguracao
         titulo="Título"
-        icone="trash-outline"
+        icone="trash-2"
         desabilitada
         onPress={onPress}
       />,

@@ -151,9 +151,15 @@ const CAMPOS: ReadonlyArray<{
     limite: 30,
   },
   {
-    nome: 'texto da busca',
+    nome: 'texto da busca de trampos',
+    url: '/buscar-trampos',
+    rotulo: textos.buscar.campoTrampos,
+    limite: 100,
+  },
+  {
+    nome: 'texto da busca de freelancers',
     url: '/buscar',
-    rotulo: textos.buscar.campo,
+    rotulo: textos.buscarFreelancers.campo,
     limite: 100,
   },
 ];
@@ -211,8 +217,8 @@ describe('Busca: "Limpar filtros" depois de um texto cortado (CA55)', () => {
     const fetch = fakeComCategorias().responder('GET /busca', {
       corpo: { itens: [], proximoCursor: null },
     });
-    await abrirApp('/buscar', { fetch });
-    const campo = await telaDaRota.findByLabelText(textos.buscar.campo);
+    await abrirApp('/buscar-trampos', { fetch });
+    const campo = await telaDaRota.findByLabelText(textos.buscar.campoTrampos);
     await dispararNaRota.changeText(campo, EMOJI.repeat(130));
     expect(
       telaDaRota.getAllByText(textos.gerais.contadorCortado(100)).length,
@@ -224,9 +230,9 @@ describe('Busca: "Limpar filtros" depois de um texto cortado (CA55)', () => {
       }),
     );
     await waitFor(() =>
-      expect(telaDaRota.getByLabelText(textos.buscar.campo).props.value).toBe(
-        '',
-      ),
+      expect(
+        telaDaRota.getByLabelText(textos.buscar.campoTrampos).props.value,
+      ).toBe(''),
     );
     expect(
       telaDaRota.queryByText(textos.gerais.contadorCortado(100)),

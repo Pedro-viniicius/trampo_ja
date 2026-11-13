@@ -1,4 +1,13 @@
-import type { Mensagem, PerfilPublico, ResumoDeConversa } from '../api/tipos';
+import type {
+  CandidaturaRecebida,
+  Mensagem,
+  MinhaCandidatura,
+  PerfilPublico,
+  ResumoDeConversa,
+  StatusDaCandidatura,
+  Trampo,
+} from '../api/tipos';
+import { textos } from '../textos/pt-BR';
 import {
   mesclarPagina,
   TETO_DE_MENSAGENS_NO_CACHE,
@@ -10,7 +19,10 @@ import {
   mensagensParaExibir,
   type Pendente,
   reconciliar,
+  temRespostasRapidas,
   textoEnviavel,
+  type VinculoDaConversa,
+  vinculoDaConversa,
 } from './conversa';
 
 // Sentinelas genéricas (CA15): nenhum texto parece dado de gente de verdade.
@@ -23,6 +35,8 @@ const TEXTO_B = 'sentinela-texto-b';
 const AGORA = new Date(2026, 9, 21, 15, 0);
 const HOJE_1432 = new Date(2026, 9, 21, 14, 32).toISOString();
 const ONTEM_0905 = new Date(2026, 9, 20, 9, 5).toISOString();
+const HOJE = textos.conversas.diaHoje;
+const ONTEM = textos.conversas.diaOntem;
 
 function msg(
   id: string,
@@ -508,6 +522,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_A,
         horaFormatada: '20/10 09:05',
         situacao: 'enviada',
+        diaFormatado: ONTEM,
       },
       {
         chave: 'm1',
@@ -515,6 +530,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_B,
         horaFormatada: '14:32',
         situacao: 'enviada',
+        diaFormatado: HOJE,
       },
       {
         chave: 'm3',
@@ -522,6 +538,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_A,
         horaFormatada: '14:32',
         situacao: 'enviada',
+        diaFormatado: HOJE,
       },
     ]);
   });
@@ -546,6 +563,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_A,
         horaFormatada: '14:32',
         situacao: 'enviada',
+        diaFormatado: HOJE,
       },
       {
         chave: 'local-1',
@@ -553,6 +571,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_B,
         horaFormatada: null,
         situacao: 'falhou',
+        diaFormatado: HOJE,
       },
       {
         chave: 'local-2',
@@ -560,6 +579,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_A,
         horaFormatada: '14:32',
         situacao: 'enviada',
+        diaFormatado: HOJE,
       },
       {
         chave: 'local-3',
@@ -567,6 +587,7 @@ describe('mensagensParaExibir', () => {
         texto: TEXTO_B,
         horaFormatada: null,
         situacao: 'enviando',
+        diaFormatado: HOJE,
       },
     ]);
   });
@@ -593,6 +614,228 @@ describe('mensagensParaExibir', () => {
     for (const item of lista) {
       expect(item.chave).not.toContain('sentinela');
     }
+  });
+});
+
+describe('mensagensParaExibir: dia do separador', () => {
+  it('virada de dia: 23:59 de ontem é "Ontem", 00:00 de hoje é "Hoje"', () => {
+    const agora = new Date(2026, 9, 21, 0, 5);
+    const lista = mensagensParaExibir(
+      [
+        msg('m1', OUTRO, TEXTO_A, new Date(2026, 9, 20, 23, 59).toISOString()),
+        msg('m2', EU, TEXTO_B, new Date(2026, 9, 21, 0, 0).toISOString()),
+      ],
+      [],
+      OUTRO,
+      agora,
+    );
+    expect(lista.map((m) => m.diaFormatado)).toEqual([ONTEM, HOJE]);
+  });
+
+  it('mais antiga que ontem vira a data (dd/mm/aaaa), no fuso do aparelho', () => {
+    const lista = mensagensParaExibir(
+      [
+        msg('m1', OUTRO, TEXTO_A, new Date(2026, 9, 19, 23, 59).toISOString()),
+        msg('m2', OUTRO, TEXTO_A, new Date(2025, 11, 31, 8, 0).toISOString()),
+      ],
+      [],
+      OUTRO,
+      AGORA,
+    );
+    expect(lista.map((m) => m.diaFormatado)).toEqual([
+      '19/10/2026',
+      '31/12/2025',
+    ]);
+  });
+
+  it('pendente sem hora confirmada conta como de hoje', () => {
+    const lista = mensagensParaExibir(
+      [msg('m1', OUTRO, TEXTO_A, ONTEM_0905)],
+      [pendente({ chave: 'local-1', texto: TEXTO_B })],
+      OUTRO,
+      AGORA,
+    );
+    expect(lista.map((m) => m.diaFormatado)).toEqual([ONTEM, HOJE]);
+  });
+
+  it('instante inválido não ganha separador', () => {
+    const lista = mensagensParaExibir(
+      [msg('m1', OUTRO, TEXTO_A, 'sem-data')],
+      [],
+      OUTRO,
+      AGORA,
+    );
+    expect(lista[0]?.diaFormatado).toBeNull();
+  });
+});
+
+describe('vinculoDaConversa e temRespostasRapidas', () => {
+  function trampo(
+    id: string,
+    autorId: string,
+    parcial: Partial<Trampo> = {},
+  ): Trampo {
+    return {
+      id,
+      autorId,
+      titulo: `sentinela-titulo-${id}`,
+      descricao: 'sentinela-descricao',
+      categoria: 'outros',
+      cidade: 'sentinela-cidade',
+      valorCentavos: 12000,
+      prazo: null,
+      status: 'aberto',
+      criadoEm: '2026-10-01T10:00:00.000Z',
+      ...parcial,
+    };
+  }
+
+  function minha(
+    id: string,
+    trampoId: string,
+    status: StatusDaCandidatura,
+    criadaEm = '2026-10-10T10:00:00.000Z',
+  ): MinhaCandidatura {
+    return {
+      id,
+      trampoId,
+      freelancerId: EU,
+      mensagem: 'sentinela-mensagem',
+      valorPropostoCentavos: 10000,
+      status,
+      criadaEm,
+    };
+  }
+
+  function recebida(
+    id: string,
+    freelancerId: string,
+    status: StatusDaCandidatura,
+  ): CandidaturaRecebida {
+    return {
+      id,
+      freelancerId,
+      mensagem: 'sentinela-mensagem',
+      valorPropostoCentavos: 10000,
+      status,
+      criadaEm: '2026-10-10T10:00:00.000Z',
+    };
+  }
+
+  const semDados = {
+    minhasCandidaturas: undefined,
+    recebidas: new Map<string, readonly CandidaturaRecebida[]>(),
+    trampo: () => undefined,
+  };
+
+  it('sem nada em cache: sem vínculo e sem respostas rápidas', () => {
+    expect(vinculoDaConversa(semDados, OUTRO)).toBeNull();
+    expect(temRespostasRapidas(null)).toBe(false);
+  });
+
+  it('freela: a candidatura aceita no trampo do outro', () => {
+    const trampos = new Map([
+      ['t1', trampo('t1', OUTRO)],
+      ['t2', trampo('t2', OUTRO, { valorCentavos: 9000 })],
+      ['t3', trampo('t3', 'conta-terceira')],
+    ]);
+    const vinculo = vinculoDaConversa(
+      {
+        ...semDados,
+        minhasCandidaturas: [
+          minha('c1', 't1', 'pendente', '2026-10-12T10:00:00.000Z'),
+          minha('c2', 't2', 'aceita', '2026-10-05T10:00:00.000Z'),
+          minha('c3', 't3', 'aceita'),
+        ],
+        trampo: (id) => trampos.get(id),
+      },
+      OUTRO,
+    );
+    expect(vinculo).toEqual<VinculoDaConversa>({
+      trampoId: 't2',
+      titulo: 'sentinela-titulo-t2',
+      valorCentavos: 9000,
+      statusDaCandidatura: 'aceita',
+      statusDoTrampo: 'aberto',
+      papel: 'candidato',
+    });
+    expect(temRespostasRapidas(vinculo)).toBe(true);
+  });
+
+  it('freela: com o mesmo status, vale a mais recente', () => {
+    const trampos = new Map([
+      ['t1', trampo('t1', OUTRO)],
+      ['t2', trampo('t2', OUTRO)],
+    ]);
+    const vinculo = vinculoDaConversa(
+      {
+        ...semDados,
+        minhasCandidaturas: [
+          minha('c1', 't1', 'pendente', '2026-10-05T10:00:00.000Z'),
+          minha('c2', 't2', 'pendente', '2026-10-12T10:00:00.000Z'),
+        ],
+        trampo: (id) => trampos.get(id),
+      },
+      OUTRO,
+    );
+    expect(vinculo?.trampoId).toBe('t2');
+    // Em análise: tem contexto, mas não respostas rápidas.
+    expect(temRespostasRapidas(vinculo)).toBe(false);
+  });
+
+  it('freela: trampo ainda não lido não liga a conversa', () => {
+    expect(
+      vinculoDaConversa(
+        { ...semDados, minhasCandidaturas: [minha('c1', 't1', 'aceita')] },
+        OUTRO,
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['recusada', 'recusada', 'aberto'],
+    ['trampo encerrado', 'aceita', 'encerrado'],
+  ] as const)(
+    'freela, %s: sem respostas rápidas',
+    (_nome, status, statusDoTrampo) => {
+      const vinculo = vinculoDaConversa(
+        {
+          ...semDados,
+          minhasCandidaturas: [minha('c1', 't1', status)],
+          trampo: () => trampo('t1', OUTRO, { status: statusDoTrampo }),
+        },
+        OUTRO,
+      );
+      expect(vinculo?.statusDaCandidatura).toBe(status);
+      expect(temRespostasRapidas(vinculo)).toBe(false);
+    },
+  );
+
+  it('contratante: a candidatura do outro num trampo meu, sem respostas rápidas', () => {
+    const vinculo = vinculoDaConversa(
+      {
+        ...semDados,
+        recebidas: new Map([
+          [
+            't9',
+            [
+              recebida('r1', 'conta-terceira', 'aceita'),
+              recebida('r2', OUTRO, 'aceita'),
+            ],
+          ],
+        ]),
+        trampo: (id) => (id === 't9' ? trampo('t9', EU) : undefined),
+      },
+      OUTRO,
+    );
+    expect(vinculo).toEqual(
+      expect.objectContaining({
+        trampoId: 't9',
+        papel: 'autor',
+        statusDaCandidatura: 'aceita',
+      }),
+    );
+    expect(temRespostasRapidas(vinculo)).toBe(false);
   });
 });
 

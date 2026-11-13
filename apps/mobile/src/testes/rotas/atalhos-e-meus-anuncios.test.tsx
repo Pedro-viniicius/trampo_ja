@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { Text } from 'react-native';
 import LayoutDaArea from '../../app/(app)/_layout';
+import RotaDasDemandas from '../../app/(app)/(abas)/demandas';
 import InicioRota from '../../app/(app)/(abas)/index';
 import RotaDoMeuPerfil from '../../app/(app)/(abas)/perfil';
 import RotaDosMeusAnuncios from '../../app/(app)/meus-anuncios';
@@ -32,10 +33,11 @@ const ROTAS = {
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
   '(app)/(abas)/buscar': stub('Tela de busca'),
+  '(app)/(abas)/meus-trampos': stub('Tela de meus trampos'),
+  '(app)/(abas)/demandas': RotaDasDemandas,
   '(app)/meus-anuncios': RotaDosMeusAnuncios,
   '(app)/trampos/novo': stub('Formulário de trampo'),
   '(app)/servicos/novo': stub('Formulário de serviço'),
-  '(app)/candidaturas/index': stub('Tela de candidaturas'),
   '(app)/perfil/editar': stub('Tela de editar perfil'),
   '(app)/trampos/[id]': DetalheDoTrampo,
   '(app)/servicos/[id]': DetalheDoServico,
@@ -153,7 +155,7 @@ describe('atalhos do Início (CA16)', () => {
     expect(screen).toHavePathname('/servicos/novo');
   });
 
-  it('"Minhas candidaturas" abre a lista de candidaturas', async () => {
+  it('"Minhas candidaturas" abre a aba Meus trampos (CA77)', async () => {
     await abrir('/');
 
     await fireEvent.press(
@@ -162,8 +164,8 @@ describe('atalhos do Início (CA16)', () => {
       }),
     );
 
-    expect(await screen.findByText('Tela de candidaturas')).toBeOnTheScreen();
-    expect(screen).toHavePathname('/candidaturas');
+    expect(await screen.findByText('Tela de meus trampos')).toBeOnTheScreen();
+    expect(screen).toHavePathname('/meus-trampos');
   });
 
   it('sem perfil (404) o aviso lista os três campos do perfil novo', async () => {
@@ -177,29 +179,18 @@ describe('atalhos do Início (CA16)', () => {
 });
 
 describe('atalhos do Perfil (CA16)', () => {
-  it('"Minhas candidaturas" abre a lista de candidaturas', async () => {
+  it('freela: sem "Minhas candidaturas" nem "Meus trampos", que viraram abas (CA83)', async () => {
     await abrir('/perfil');
 
-    await fireEvent.press(
-      await screen.findByRole('button', {
-        name: textos.perfil.minhasCandidaturas,
-      }),
-    );
-
-    expect(await screen.findByText('Tela de candidaturas')).toBeOnTheScreen();
-    expect(screen).toHavePathname('/candidaturas');
-  });
-
-  it('"Meus trampos" abre Meus anúncios com tipo=trampo', async () => {
-    await abrir('/perfil');
-
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.perfil.meusTrampos }),
-    );
-
-    await waitFor(() => expect(screen).toHavePathname('/meus-anuncios'));
-    expect(screen).toHaveSearchParams({ tipo: 'trampo' });
-    expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
+    expect(
+      await screen.findByRole('button', { name: textos.perfil.meusServicos }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: textos.perfil.minhasCandidaturas }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: textos.perfil.meusTrampos }),
+    ).toBeNull();
   });
 
   it('"Meus serviços" abre Meus anúncios com tipo=servico', async () => {
@@ -215,26 +206,34 @@ describe('atalhos do Perfil (CA16)', () => {
   });
 });
 
-describe('Meus trampos (CA4)', () => {
-  it('lista os trampos com status, categoria e valor, do mais recente ao mais antigo', async () => {
+// Meus trampos virou a aba Demandas (CA77, CA79): segmentada por status.
+describe('Meus trampos, agora Demandas (CA4, CA79)', () => {
+  it('lista os trampos por status, com categoria e valor, do mais recente ao mais antigo', async () => {
     const fetch = criarFake();
-    await abrir('/meus-anuncios?tipo=trampo', fetch);
+    await abrir('/demandas', fetch);
 
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
-    expect(
-      screen.getByText(textos.meusAnuncios.tituloTrampos),
-    ).toBeOnTheScreen();
-    expect(screen.getByText(textos.selos.emAndamento)).toBeOnTheScreen();
+    expect(screen.getByText(textos.demandas.titulo)).toBeOnTheScreen();
+    // Abertas: os dois abertos, do mais recente ao mais antigo.
     expect(screen.getAllByText(textos.selos.aberto)).toHaveLength(2);
-    expect(screen.getAllByText('Reformas e reparos · Lavras')).toHaveLength(3);
-    expect(screen.getByText('R$ 8.000,00')).toBeOnTheScreen();
+    expect(screen.queryByText('Trocar o telhado')).toBeNull();
+    expect(screen.getAllByText('Reformas e reparos · Lavras')).toHaveLength(2);
     expect(screen.getByText('R$ 250,50')).toBeOnTheScreen();
+    const rotulos = screen
+      .getAllByRole('button', { name: /Trampo/ })
+      .map((b) => b.props.accessibilityLabel as string);
+    expect(rotulos[0]).toContain('Montar estante'); // 19/10
+    expect(rotulos[1]).toContain('Pintar a sala'); // 18/10
 
-    const botoes = screen.getAllByRole('button', { name: /Trampo/ });
-    const rotulos = botoes.map((b) => b.props.accessibilityLabel as string);
-    expect(rotulos[0]).toContain('Trocar o telhado'); // 20/10
-    expect(rotulos[1]).toContain('Montar estante'); // 19/10
-    expect(rotulos[2]).toContain('Pintar a sala'); // 18/10
+    // Em andamento: o outro, com o seu status e valor.
+    await fireEvent.press(
+      screen.getByRole('tab', { name: textos.demandas.abaAndamento }),
+    );
+    expect(await screen.findByText('Trocar o telhado')).toBeOnTheScreen();
+    // O rótulo da aba e o selo do trampo têm o mesmo texto.
+    expect(screen.getAllByText(textos.selos.emAndamento)).toHaveLength(2);
+    expect(screen.getByText('R$ 8.000,00')).toBeOnTheScreen();
+    expect(screen.queryByText('Pintar a sala')).toBeNull();
 
     // Só a lista de trampos é pedida.
     expect(chamadas(fetch, '/servicos/meus')).toHaveLength(0);
@@ -242,7 +241,7 @@ describe('Meus trampos (CA4)', () => {
 
   it('manda o Bearer da sessão', async () => {
     const fetch = criarFake();
-    await abrir('/meus-anuncios?tipo=trampo', fetch);
+    await abrir('/demandas', fetch);
     await screen.findByText('Pintar a sala');
 
     expect(chamadas(fetch, '/trampos/meus')[0]?.cabecalhos.authorization).toBe(
@@ -251,44 +250,38 @@ describe('Meus trampos (CA4)', () => {
   });
 
   it('tocar num trampo abre o detalhe dele', async () => {
-    await abrir('/meus-anuncios?tipo=trampo');
-    await screen.findByText('Trocar o telhado');
+    await abrir('/demandas');
+    await screen.findByText('Pintar a sala');
 
-    await fireEvent.press(screen.getByText('Trocar o telhado'));
+    await fireEvent.press(screen.getByText('Pintar a sala'));
 
-    await waitFor(() => expect(screen).toHavePathname('/trampos/t2'));
-    expect(await screen.findByText('Detalhe do trampo t2')).toBeOnTheScreen();
+    await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
+    expect(await screen.findByText('Detalhe do trampo t1')).toBeOnTheScreen();
   });
 
-  it('sem `tipo`, ou com `tipo` inválido, vira Meus trampos', async () => {
+  it.each([
+    ['tipo=trampo', '/meus-anuncios?tipo=trampo'],
+    ['`tipo` inválido', '/meus-anuncios?tipo=outra-coisa'],
+    ['sem `tipo`', '/meus-anuncios'],
+  ])('/meus-anuncios com %s leva a /demandas (CA77)', async (_caso, url) => {
     const fetch = criarFake();
-    await abrir('/meus-anuncios?tipo=outra-coisa', fetch);
+    await abrir(url, fetch);
 
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
-    expect(
-      screen.getByText(textos.meusAnuncios.tituloTrampos),
-    ).toBeOnTheScreen();
+    await waitFor(() => expect(screen).toHavePathname('/demandas'));
+    expect(screen.getByText(textos.demandas.titulo)).toBeOnTheScreen();
     expect(chamadas(fetch, '/servicos/meus')).toHaveLength(0);
-  });
-
-  it('sem `tipo` na URL também vira Meus trampos', async () => {
-    await abrir('/meus-anuncios');
-
-    expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
-    expect(
-      screen.getByText(textos.meusAnuncios.tituloTrampos),
-    ).toBeOnTheScreen();
   });
 
   it('vazio leva ao formulário de trampo', async () => {
     const fetch = criarFake().responder('GET /trampos/meus', { corpo: [] });
-    await abrir('/meus-anuncios?tipo=trampo', fetch);
+    await abrir('/demandas', fetch);
 
     expect(
-      await screen.findByText(textos.meusAnuncios.vazioTrampos),
+      await screen.findByText(textos.demandas.vazioAbertas),
     ).toBeOnTheScreen();
     await fireEvent.press(
-      screen.getByRole('button', { name: textos.meusAnuncios.publicarTrampo }),
+      screen.getByRole('button', { name: textos.demandas.publicar }),
     );
 
     expect(await screen.findByText('Formulário de trampo')).toBeOnTheScreen();
@@ -300,7 +293,7 @@ describe('Meus trampos (CA4)', () => {
       { status: 500, corpo: { erro: 'interno' } },
       { corpo: MEUS_TRAMPOS },
     ]);
-    await abrir('/meus-anuncios?tipo=trampo', fetch);
+    await abrir('/demandas', fetch);
 
     expect(
       await screen.findByText(textos.erros.erro_servidor),
@@ -316,15 +309,19 @@ describe('Meus trampos (CA4)', () => {
     expect(chamadas(fetch, '/trampos/meus').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('"Voltar" sem histórico leva ao início', async () => {
-    await abrir('/meus-anuncios?tipo=trampo');
+  it('é raiz de aba: sem "Voltar", com o "+" que abre o formulário de trampo', async () => {
+    await abrir('/demandas');
     await screen.findByText('Pintar a sala');
 
+    expect(
+      screen.queryByRole('button', { name: textos.gerais.voltar }),
+    ).toBeNull();
     await fireEvent.press(
-      screen.getByRole('button', { name: textos.gerais.voltar }),
+      screen.getByRole('button', { name: textos.demandas.nova }),
     );
 
-    await waitFor(() => expect(screen).toHavePathname('/'));
+    expect(await screen.findByText('Formulário de trampo')).toBeOnTheScreen();
+    expect(screen).toHavePathname('/trampos/novo');
   });
 
   it('401 volta ao login com o aviso de sessão expirada', async () => {
@@ -332,7 +329,7 @@ describe('Meus trampos (CA4)', () => {
       status: 401,
       corpo: { erro: 'sessao_expirada' },
     });
-    const { armazenamento } = await abrir('/meus-anuncios?tipo=trampo', fetch);
+    const { armazenamento } = await abrir('/demandas', fetch);
 
     expect(
       await screen.findByText(textos.erros.sessao_expirada),
@@ -348,12 +345,12 @@ describe('Meus trampos (CA4)', () => {
 
     it('mostra a faixa e não confunde a consulta pausada com "vazio"', async () => {
       onlineManager.setOnline(false);
-      await abrir('/meus-anuncios?tipo=trampo');
+      await abrir('/demandas');
 
       expect(
         await screen.findByText(textos.gerais.semConexaoFaixa),
       ).toBeOnTheScreen();
-      expect(screen.queryByText(textos.meusAnuncios.vazioTrampos)).toBeNull();
+      expect(screen.queryByText(textos.demandas.vazioAbertas)).toBeNull();
     });
   });
 });

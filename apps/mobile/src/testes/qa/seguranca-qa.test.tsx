@@ -67,10 +67,11 @@ describe('CA15: token, senha e rascunho no app completo', () => {
       screen.getByRole('button', { name: textos.entrar.entrar }),
     );
     await screen.findByText('Olá, Maria Souza');
+    // O freela busca em `/buscar-trampos`, pelo "Buscar" do Início (CA84).
     await fireEvent.press(
-      screen.getByRole('button', { name: /^Buscar(, tab|$)/ }),
+      screen.getByRole('button', { name: textos.inicio.buscar }),
     );
-    await waitFor(() => expect(getPathname()).toBe('/buscar'));
+    await waitFor(() => expect(getPathname()).toBe('/buscar-trampos'));
 
     const tudo = JSON.stringify({
       arvore: textosEPropriedades(screen.toJSON()),
@@ -145,14 +146,14 @@ describe('CA15: token, senha e rascunho no app completo', () => {
 
     // Digita uma busca e um rascunho de perfil sem salvar.
     await fireEvent.press(
-      screen.getByRole('button', { name: /^Buscar(, tab|$)/ }),
+      screen.getByRole('button', { name: textos.inicio.buscar }),
     );
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       'rascunho de busca com dado pessoal',
     );
     await fireEvent(
-      screen.getByLabelText(textos.buscar.campo),
+      screen.getByLabelText(textos.buscar.campoTrampos),
       'submitEditing',
     );
     await act(async () => {
@@ -162,7 +163,7 @@ describe('CA15: token, senha e rascunho no app completo', () => {
     expect(gravar).toHaveBeenCalledTimes(1);
     // Com o token vai só a impressão do e-mail (D43), nunca o e-mail.
     expect(gravar).toHaveBeenCalledWith(TOKEN, impressaoDaConta(EMAIL));
-    expect(getPathname()).toBe('/buscar');
+    expect(getPathname()).toBe('/buscar-trampos');
   });
 
   it('rascunho do perfil não sobrevive à saída da tela: ao reabrir, vem o perfil salvo', async () => {
@@ -236,12 +237,16 @@ describe('CA15: o código do app só persiste pela porta do armazenamento seguro
     '',
   );
 
-  it('só `estado/armazenamento-token.ts` importa o expo-secure-store', () => {
+  it('só `estado/armazenamento-token.ts` e `estado/modo.tsx` (ADR-010) importam o expo-secure-store', () => {
     const importam = arquivos(raiz)
       .filter((a) => readFileSync(a, 'utf8').includes('expo-secure-store'))
-      .map((a) => a.slice(raiz.length + 1));
+      .map((a) => a.slice(raiz.length + 1))
+      .sort();
 
-    expect(importam).toEqual(['estado/armazenamento-token.ts']);
+    expect(importam).toEqual([
+      'estado/armazenamento-token.ts',
+      'estado/modo.tsx',
+    ]);
   });
 
   it('nenhum código do app usa outro meio de persistência (disco, localStorage, SQLite, MMKV)', () => {

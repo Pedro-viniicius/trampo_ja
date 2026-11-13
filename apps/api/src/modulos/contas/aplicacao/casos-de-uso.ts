@@ -572,6 +572,9 @@ export function criarCasosDeUsoDeContas(
       servicos: partes.servicos,
       candidaturas: partes.candidaturas,
       conversas: partes.conversas,
+      avaliacoesFeitas: partes.avaliacoesFeitas,
+      avaliacoesRecebidas: partes.avaliacoesRecebidas,
+      favoritos: partes.favoritos,
     };
   }
 

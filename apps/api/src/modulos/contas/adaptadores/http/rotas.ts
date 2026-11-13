@@ -138,6 +138,25 @@ export const RESPOSTA_DA_EXPORTACAO = objetoFechado({
       ),
     }),
   ),
+  // CA93: as recebidas saem sem comentário (texto de terceiro) e sem
+  // avaliador; o schema fechado descarta os dois se um módulo os mandar.
+  avaliacoesFeitas: listaDe(
+    objetoFechado({
+      trampoId: TEXTO,
+      nota: INTEIRO,
+      destaques: listaDe(TEXTO),
+      comentario: TEXTO_OU_NULO,
+      criadaEm: TEXTO,
+    }),
+  ),
+  avaliacoesRecebidas: listaDe(
+    objetoFechado({
+      nota: INTEIRO,
+      destaques: listaDe(TEXTO),
+      criadaEm: TEXTO,
+    }),
+  ),
+  favoritos: listaDe(objetoFechado({ contaId: TEXTO, criadoEm: TEXTO })),
 });
 
 /**

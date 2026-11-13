@@ -8,6 +8,7 @@ import type {
   StatusDaCandidatura,
 } from '../../api/tipos';
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
+import RotaDaCandidaturaEnviada from '../../app/(app)/candidatura-enviada';
 import RotaDasCandidaturasRecebidas from '../../app/(app)/candidaturas/[trampoId]';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
@@ -112,6 +113,7 @@ const ROTAS: MapaDeRotas = {
   '(app)/_layout': LayoutDaAreaAutenticada,
   '(app)/index': stub('stub: início'),
   '(app)/trampos/[id]': RotaDoTrampo,
+  '(app)/candidatura-enviada': RotaDaCandidaturaEnviada,
   '(app)/candidaturas/[trampoId]': RotaDasCandidaturasRecebidas,
   '(app)/perfis/[contaId]': stub('stub: perfil público'),
   '(app)/perfil/editar': stub('stub: editar perfil'),
@@ -330,7 +332,7 @@ describe('rodapé do detalhe do trampo', () => {
 // --- Folha Candidatar-se ---
 
 describe('folha Candidatar-se', () => {
-  it('CA8: envia o corpo exato, fecha a folha, mostra o toast e o selo', async () => {
+  it('CA8/CA80: envia o corpo exato, abre Candidatura enviada e, ao voltar, o detalhe tem o selo e a folha fechada', async () => {
     let enviada = false;
     const fetch = criarFake()
       .responder('GET /candidaturas/minhas', () => ({
@@ -349,15 +351,28 @@ describe('folha Candidatar-se', () => {
     expect(screen.getByDisplayValue('1.500,00')).toBeOnTheScreen();
     await fireEvent.press(botaoEnviar());
 
+    // CA80: a tela própria no lugar do toast.
+    await waitFor(() => expect(screen).toHavePathname('/candidatura-enviada'));
     expect(
-      await screen.findByText(textos.candidatar.enviada),
+      await screen.findByText(textos.candidaturaEnviada.titulo),
     ).toBeOnTheScreen();
+    // O toast antigo (texto que saiu de `pt-BR.ts`) não aparece mais.
+    expect(
+      screen.queryByText(
+        'Candidatura enviada! Você pode acompanhar em Minhas candidaturas.',
+      ),
+    ).toBeNull();
     const posts = requisicoes(fetch, 'POST', '/trampos/t1/candidaturas');
     expect(posts).toHaveLength(1);
     expect(posts[0]?.corpo).toEqual({
       mensagem: 'Posso começar amanhã.',
       valorPropostoCentavos: 150000,
     });
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.voltar }),
+    );
+    await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
     expect(
       screen.getByText(textos.detalheTrampo.jaCandidatou),
     ).toBeOnTheScreen();
@@ -406,11 +421,16 @@ describe('folha Candidatar-se', () => {
     await avancar(1100);
 
     expect(
-      await screen.findByText(textos.candidatar.enviada),
+      await screen.findByText(textos.candidaturaEnviada.titulo),
     ).toBeOnTheScreen();
     expect(requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')).toHaveLength(
       1,
     );
+    // Uma só tela Candidatura enviada na pilha: voltar já leva ao detalhe.
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.gerais.voltar }),
+    );
+    await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
   });
 
   it.each([

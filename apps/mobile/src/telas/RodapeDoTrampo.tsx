@@ -13,7 +13,7 @@ import {
 } from '../componentes';
 import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { useFocarPrimeiroErro } from './base';
+import { ComValorAoLado, useFocarPrimeiroErro } from './base';
 import { BotaoDeConversar } from './RodapeDoServico';
 import type { FolhaDeCandidatura, PropsDoRodapeDoTrampo } from './tipos';
 
@@ -23,6 +23,7 @@ const LIMITE_DO_VALOR = 15;
 /** Rodapé do detalhe do trampo (vai no slot `rodape`): botão por situação e folha. O toast vai em `sobreposicao`. */
 export function RodapeDoTrampo({
   situacao,
+  valorFormatado,
   semConexao,
   folha,
   onCandidatar,
@@ -35,7 +36,7 @@ export function RodapeDoTrampo({
   const retirarVisivel = situacao.tipo === 'candidatado' && retirar;
   return (
     <>
-      <View style={{ gap: espaco[2] }}>
+      <View style={{ gap: espaco.s }}>
         {situacao.tipo === 'carregando' ? (
           <View
             accessible
@@ -47,21 +48,33 @@ export function RodapeDoTrampo({
         ) : null}
         {situacao.tipo === 'fechado' ? (
           <>
-            <Botao
-              texto={textos.detalheTrampo.candidatar}
-              desabilitado
-              onPress={onCandidatar}
-            />
+            <ComValorAoLado
+              rotulo={textos.detalheTrampo.valor}
+              valor={valorFormatado}
+            >
+              <Botao
+                texto={textos.detalheTrampo.candidatar}
+                icone="zap"
+                desabilitado
+                onPress={onCandidatar}
+              />
+            </ComValorAoLado>
             <Motivo texto={textos.detalheTrampo.fechado} />
           </>
         ) : null}
         {situacao.tipo === 'candidatar' ? (
           <>
-            <Botao
-              texto={textos.detalheTrampo.candidatar}
-              desabilitado={semConexao}
-              onPress={onCandidatar}
-            />
+            <ComValorAoLado
+              rotulo={textos.detalheTrampo.valor}
+              valor={valorFormatado}
+            >
+              <Botao
+                texto={textos.detalheTrampo.candidatar}
+                icone="zap"
+                desabilitado={semConexao}
+                onPress={onCandidatar}
+              />
+            </ComValorAoLado>
             {semConexao ? (
               <Motivo texto={textos.candidatar.semConexaoMotivo} />
             ) : null}
@@ -152,7 +165,7 @@ function FolhaDeCandidaturaView({
     >
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: espaco[3] }}
+        contentContainerStyle={{ gap: espaco.m - 4 }}
       >
         <Aviso variante="info" texto={textos.candidatar.avisoVisibilidade} />
         <CampoDeTexto

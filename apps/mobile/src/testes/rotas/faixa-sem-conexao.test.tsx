@@ -10,6 +10,7 @@ import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { NavegacaoRaiz } from '../../app/_layout';
 import { useMargensSeguras } from '../../componentes/utilitarios';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
+import { criarArmazenamentoDoModoEmMemoria } from '../../estado/modo';
 import { Provedores } from '../../estado/provedores';
 import { espaco } from '../../tema/tokens';
 import { textos } from '../../textos/pt-BR';
@@ -86,8 +87,9 @@ function abrirComSessao(url: string) {
 
 describe('faixa na raiz: uma só, com e sem sessão (CA56)', () => {
   it('com sessão: uma faixa em cada tela, de qualquer base (Buscar, Formulário, Rolável)', async () => {
+    // `/buscar` é a aba Buscar do contratante, que busca serviços (CA84).
     await abrirComSessao('/buscar');
-    await screen.findByLabelText(textos.buscar.campo);
+    await screen.findByLabelText(textos.buscarFreelancers.campo);
     expect(faixas()).toHaveLength(0);
 
     await ficarOffline();
@@ -128,7 +130,7 @@ describe('faixa na raiz: uma só, com e sem sessão (CA56)', () => {
 describe('faixa na raiz: some e não se repete (CA56)', () => {
   it('some quando a rede volta, em qualquer tela', async () => {
     await abrirComSessao('/buscar');
-    await screen.findByLabelText(textos.buscar.campo);
+    await screen.findByLabelText(textos.buscarFreelancers.campo);
     await ficarOffline();
     await navegar('/perfil/editar');
     expect(faixas()).toHaveLength(1);
@@ -143,7 +145,7 @@ describe('faixa na raiz: some e não se repete (CA56)', () => {
 
   it('anuncia uma vez ao cair e uma vez ao voltar, não a cada tela', async () => {
     await abrirComSessao('/buscar');
-    await screen.findByLabelText(textos.buscar.campo);
+    await screen.findByLabelText(textos.buscarFreelancers.campo);
     expect(anuncios).not.toHaveBeenCalled();
 
     await ficarOffline();
@@ -165,7 +167,7 @@ describe('faixa na raiz: some e não se repete (CA56)', () => {
 
   it('com rede o tempo todo, nada é anunciado nem desenhado', async () => {
     await abrirComSessao('/buscar');
-    await screen.findByLabelText(textos.buscar.campo);
+    await screen.findByLabelText(textos.buscarFreelancers.campo);
     await navegar('/perfil/editar');
     await navegar('/meus-anuncios');
     expect(faixas()).toHaveLength(0);
@@ -182,6 +184,7 @@ describe('faixa na raiz: margem de topo das telas', () => {
 
   async function abrirComMargem() {
     const armazenamento = criarArmazenamentoEmMemoria(TOKEN_DE_TESTE);
+    const armazenamentoDoModo = criarArmazenamentoDoModoEmMemoria();
     const fetch = criarFetchFalso();
     const queryClient = criarQueryClientDeTeste();
     function Raiz() {
@@ -191,6 +194,7 @@ describe('faixa na raiz: margem de topo das telas', () => {
         >
           <Provedores
             armazenamento={armazenamento}
+            armazenamentoDoModo={armazenamentoDoModo}
             queryClient={queryClient}
             fetch={fetch.fetch}
             urlBase={URL_BASE_DE_TESTE}

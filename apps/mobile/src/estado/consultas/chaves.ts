@@ -44,6 +44,8 @@ export const chaves = {
   /** `GET /trampos/:id/candidaturas`: só o autor do trampo vê. */
   candidaturasRecebidas: (trampoId: string) =>
     ['candidaturasRecebidas', trampoId] as const,
+  /** Prefixo de toda `candidaturasRecebidas(...)`, de qualquer trampo. */
+  todasAsCandidaturasRecebidas: () => ['candidaturasRecebidas'] as const,
   /** `GET /conversas`: as conversas da conta da sessão. */
   conversas: () => ['conversas'] as const,
   /**

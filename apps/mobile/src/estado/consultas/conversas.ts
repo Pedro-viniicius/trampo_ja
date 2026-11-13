@@ -1,5 +1,18 @@
-import { onlineManager, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
+import {
+  type InfiniteData,
+  notifyManager,
+  onlineManager,
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import type { ClienteHttp } from '../../api/cliente';
 import {
   abrirConversa,
@@ -9,11 +22,15 @@ import {
 } from '../../api/conversas';
 import { ehErroDaApi } from '../../api/erros';
 import type {
+  CandidaturaRecebida,
   ConversaAberta,
   Mensagem,
   MensagemEnviada,
+  MinhaCandidatura,
   ResumoDeConversa,
+  Trampo,
 } from '../../api/tipos';
+import { type VinculoDaConversa, vinculoDaConversa } from '../conversa';
 import { useCliente, useSessao } from '../sessao';
 import { useMutacaoComInvalidacao } from './anuncios';
 import { chaves } from './chaves';
@@ -600,4 +617,72 @@ export function useEnviarMensagem(conversaId: string) {
   );
 
   return { enviar };
+}
+
+/**
+ * Lê do cache, sem pedir nada à API, o que liga a conversa a um trampo:
+ * Minhas candidaturas, as candidaturas recebidas já abertas e os trampos já
+ * lidos (detalhe ou Meus trampos).
+ */
+function lerVinculoDoCache(
+  queryClient: QueryClient,
+  outroId: string,
+): VinculoDaConversa | null {
+  const paginas = queryClient.getQueryData<
+    InfiniteData<{ readonly trampos: readonly Trampo[] }>
+  >(chaves.meusTrampos())?.pages;
+  const recebidas = new Map<string, readonly CandidaturaRecebida[]>();
+  for (const [chave, dados] of queryClient.getQueriesData<
+    readonly CandidaturaRecebida[]
+  >({ queryKey: chaves.todasAsCandidaturasRecebidas() })) {
+    const trampoId = chave[1];
+    if (typeof trampoId === 'string' && dados !== undefined) {
+      recebidas.set(trampoId, dados);
+    }
+  }
+  return vinculoDaConversa(
+    {
+      minhasCandidaturas: queryClient.getQueryData<readonly MinhaCandidatura[]>(
+        chaves.minhasCandidaturas(),
+      ),
+      recebidas,
+      trampo: (id) =>
+        queryClient.getQueryData<Trampo>(chaves.trampo(id)) ??
+        paginas
+          ?.flatMap((pagina) => pagina.trampos)
+          .find((trampo) => trampo.id === id),
+    },
+    outroId,
+  );
+}
+
+/**
+ * O trampo da conversa com `outroId` (quadro 09: contexto no cabeçalho,
+ * faixa e respostas rápidas), só com o que já está no cache: não gera
+ * requisição. Acompanha o cache: muda quando Minhas candidaturas, as
+ * recebidas ou o trampo chegam ou são relidos. `null` sem dado.
+ */
+export function useVinculoDaConversa(
+  outroId: string | null,
+): VinculoDaConversa | null {
+  const queryClient = useQueryClient();
+  const assinar = useCallback(
+    (avisar: () => void) =>
+      queryClient.getQueryCache().subscribe(notifyManager.batchCalls(avisar)),
+    [queryClient],
+  );
+  // Texto como retrato: igual enquanto o vínculo não muda, e o
+  // `useSyncExternalStore` não redesenha à toa a cada evento do cache.
+  const ler = useCallback(
+    () =>
+      JSON.stringify(
+        outroId === null ? null : lerVinculoDoCache(queryClient, outroId),
+      ),
+    [queryClient, outroId],
+  );
+  const retrato = useSyncExternalStore(assinar, ler, ler);
+  return useMemo(
+    () => JSON.parse(retrato) as VinculoDaConversa | null,
+    [retrato],
+  );
 }

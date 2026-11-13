@@ -5,6 +5,7 @@ import {
   formatarCentavos,
   formatarData,
   formatarDataHora,
+  formatarDiaDaMensagem,
   formatarHoraDaMensagem,
   lerData,
   lerValorEmCentavos,
@@ -137,6 +138,43 @@ describe('formatarHoraDaMensagem', () => {
   ])('devolve %j como veio', (entrada) => {
     expect(formatarHoraDaMensagem(entrada, AGORA)).toBe(entrada);
   });
+});
+
+describe('formatarDiaDaMensagem', () => {
+  // Instantes montados no fuso local: o teste independe do fuso da máquina.
+  const ROTULOS = { hoje: 'HOJE', ontem: 'ONTEM' };
+  const iso = (...partes: [number, number, number, number, number]) =>
+    new Date(...partes).toISOString();
+  const AGORA = new Date(2026, 9, 21, 15, 0);
+
+  it.each([
+    ['hoje, à meia-noite', iso(2026, 9, 21, 0, 0), 'HOJE'],
+    ['hoje, mais tarde que agora', iso(2026, 9, 21, 23, 59), 'HOJE'],
+    ['ontem, fim do dia', iso(2026, 9, 20, 23, 59), 'ONTEM'],
+    ['ontem, à meia-noite', iso(2026, 9, 20, 0, 0), 'ONTEM'],
+    ['anteontem', iso(2026, 9, 19, 23, 59), '19/10/2026'],
+    ['outro ano', iso(2025, 9, 20, 14, 32), '20/10/2025'],
+    ['amanhã (relógio adiantado)', iso(2026, 9, 22, 0, 0), '22/10/2026'],
+  ])('%s', (_nome, entrada, esperado) => {
+    expect(formatarDiaDaMensagem(entrada, AGORA, ROTULOS)).toBe(esperado);
+  });
+
+  it('virada do mês e do ano: 31/12 visto em 01/01 é ontem', () => {
+    const agora = new Date(2027, 0, 1, 0, 1);
+    expect(
+      formatarDiaDaMensagem(iso(2026, 11, 31, 23, 59), agora, ROTULOS),
+    ).toBe('ONTEM');
+    expect(
+      formatarDiaDaMensagem(iso(2026, 11, 30, 23, 59), agora, ROTULOS),
+    ).toBe('30/12/2026');
+  });
+
+  it.each([[''], ['ontem'], ['2026-10-21'], ['2026-10-21Tabc']])(
+    'entrada inválida (%j) dá null',
+    (entrada) => {
+      expect(formatarDiaDaMensagem(entrada, AGORA, ROTULOS)).toBeNull();
+    },
+  );
 });
 
 describe('rotuloDaCategoria', () => {

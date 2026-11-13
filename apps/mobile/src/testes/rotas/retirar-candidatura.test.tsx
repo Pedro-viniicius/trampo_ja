@@ -5,7 +5,7 @@ import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { Text } from 'react-native';
 import type { MinhaCandidatura, StatusDaCandidatura } from '../../api/tipos';
 import LayoutDaArea from '../../app/(app)/_layout';
-import RotaDasMinhasCandidaturas from '../../app/(app)/candidaturas/index';
+import RotaDeMeusTrampos from '../../app/(app)/(abas)/meus-trampos';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { textos } from '../../textos/pt-BR';
@@ -33,9 +33,9 @@ function stub(texto: string) {
 const ROTAS_DA_LISTA: MapaDeRotas = {
   '(app)/_layout': LayoutDaArea,
   '(app)/index': stub('stub: início'),
-  '(app)/buscar': stub('stub: busca'),
+  '(app)/buscar-trampos': stub('stub: busca'),
   '(app)/trampos/[id]': stub('stub: detalhe'),
-  '(app)/candidaturas/index': RotaDasMinhasCandidaturas,
+  '(app)/(abas)/meus-trampos': RotaDeMeusTrampos,
 };
 
 const ROTAS_DO_DETALHE: MapaDeRotas = {
@@ -176,7 +176,7 @@ afterEach(async () => {
 
 // --- Minhas candidaturas ---
 
-describe('Minhas candidaturas: retirar (CA34)', () => {
+describe('Meus trampos: retirar (CA34)', () => {
   /** `lista` é o que o `GET` devolve; a rota `DELETE` é do teste. */
   function criarFakeDaLista(lista: () => readonly MinhaCandidatura[]) {
     return criarFetchFalso()
@@ -189,12 +189,13 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
       })
       .responder('GET /trampos/t3', {
         corpo: trampo('t3', 'Montar estante'),
-      });
+      })
+      .responder('GET /perfis/c-autor', { corpo: AUTOR });
   }
 
   async function abrirLista(fetch: FetchFalso) {
     return renderizarRotas(ROTAS_DA_LISTA, {
-      initialUrl: '/candidaturas',
+      initialUrl: '/meus-trampos',
       armazenamento: criarArmazenamentoEmMemoria(TOKEN_DE_TESTE),
       fetch,
     });
@@ -211,6 +212,13 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
     await fireEvent.press(botaoConfirmar());
   }
 
+  /** Segmento de Meus trampos; Confirmados fala também o contador. */
+  async function abrirSegmento(rotulo: string) {
+    await fireEvent.press(
+      screen.getByRole('tab', { name: new RegExp(`^${rotulo}(, \\d+)?$`) }),
+    );
+  }
+
   const TODAS = [
     minha('k1', 't1', 'pendente', '2026-10-18T12:00:00.000Z'),
     minha('k2', 't2', 'aceita', '2026-10-19T12:00:00.000Z'),
@@ -219,12 +227,19 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
 
   it('só a candidatura pendente tem "Retirar candidatura"', async () => {
     await abrirLista(criarFakeDaLista(() => TODAS));
-    await screen.findByText('Montar estante');
+    await screen.findByText('Pintar a sala');
 
     expect(botaoDe('Pintar a sala')).toBeOnTheScreen();
     expect(
       screen.getAllByRole('button', { name: /^Retirar candidatura/ }),
     ).toHaveLength(1);
+    // A aceita (Confirmados) e a recusada (Encerrados) não têm o botão.
+    await abrirSegmento(textos.meusTrampos.abaConfirmados);
+    expect(await screen.findByText('Limpar o quintal')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Retirar/ })).toBeNull();
+    await abrirSegmento(textos.meusTrampos.abaEncerrados);
+    expect(await screen.findByText('Montar estante')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Retirar/ })).toBeNull();
   });
 
   it('abre o diálogo e "Manter candidatura" não retira nada', async () => {
@@ -268,8 +283,6 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
     expect(delecoes[0]?.cabecalhos.authorization).toBe(
       `Bearer ${TOKEN_DE_TESTE}`,
     );
-    // As outras seguem na lista, sem botão de retirar.
-    expect(screen.getByText('Limpar o quintal')).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: /^Retirar/ })).toBeNull();
     // A lista foi recarregada depois do DELETE.
     expect(requisicoes(fetch, 'GET', '/candidaturas/minhas')).toHaveLength(2);
@@ -282,6 +295,11 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
       expect(screen.queryByText(textos.candidatura.retirada)).toBeNull(),
     );
     semTextoCruDeErro();
+
+    // As outras seguem na lista, sem botão de retirar.
+    await abrirSegmento(textos.meusTrampos.abaConfirmados);
+    expect(await screen.findByText('Limpar o quintal')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Retirar/ })).toBeNull();
   });
 
   it('a candidatura sai da lista mesmo que a recarga ainda a traga', async () => {
@@ -355,8 +373,16 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
     expect(
       await screen.findByText(textos.candidatura.respondida),
     ).toBeOnTheScreen();
+    // O status novo leva a candidatura de Em análise a Confirmados (CA78).
+    await waitFor(() =>
+      expect(
+        screen.getByText(textos.meusTrampos.vazioAnalise),
+      ).toBeOnTheScreen(),
+    );
+    await abrirSegmento(textos.meusTrampos.abaConfirmados);
     expect(await screen.findByText(textos.selos.aceita)).toBeOnTheScreen();
     expect(screen.getByText('Pintar a sala')).toBeOnTheScreen();
+    expect(screen.getByText(textos.candidatura.respondida)).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: /^Retirar/ })).toBeNull();
     expect(screen.queryByText(textos.candidatura.retirada)).toBeNull();
     expect(requisicoes(fetch, 'GET', '/candidaturas/minhas')).toHaveLength(2);
@@ -374,13 +400,14 @@ describe('Minhas candidaturas: retirar (CA34)', () => {
     await retirar('Pintar a sala');
 
     await waitFor(() => expect(screen.queryByText('Pintar a sala')).toBeNull());
-    expect(screen.getByText('Limpar o quintal')).toBeOnTheScreen();
     expect(screen.queryByText(textos.candidatura.retirada)).toBeNull();
     expect(screen.queryByText(textos.candidatura.erroAoRetirar)).toBeNull();
     expect(screen.queryByText(textos.erros.nao_encontrado)).toBeNull();
     await waitFor(() =>
       expect(requisicoes(fetch, 'GET', '/candidaturas/minhas')).toHaveLength(2),
     );
+    await abrirSegmento(textos.meusTrampos.abaConfirmados);
+    expect(await screen.findByText('Limpar o quintal')).toBeOnTheScreen();
   });
 
   it('falha do servidor: avisa, mantém a candidatura e o botão volta', async () => {

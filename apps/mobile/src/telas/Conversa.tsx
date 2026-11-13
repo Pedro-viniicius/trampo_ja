@@ -1,3 +1,4 @@
+import { Feather } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -6,26 +7,46 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
+  Pressable,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import {
+  Avatar,
   Aviso,
   BolhaDeMensagem,
-  Botao,
+  BotaoDeIcone,
   Cabecalho,
+  CampoDeMensagem,
+  Esqueleto,
   EstadoVazio,
+  SeloDeCandidatura,
+  SeparadorDeDia,
 } from '../componentes';
 import {
   contarPontosDeCodigo,
   cortarEmPontosDeCodigo,
+  estiloDeFoco,
   useFoco,
+  useMargensSeguras,
 } from '../componentes/utilitarios';
-import { cores, espaco, larguraMaxima, raio, tipografia } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import {
+  cores,
+  espaco,
+  larguraMaxima,
+  margemDaTela,
+  raio,
+  sombra,
+  toqueMinimo,
+} from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { Carregando, ErroDoBloco, Pagina, RodapeFixo } from './base';
-import type { MensagemParaExibir, PropsDaConversa } from './tipos';
+import { ErroDoBloco, Pagina, RodapeFixo } from './base';
+import type {
+  FaixaDaConversa,
+  MensagemParaExibir,
+  PropsDaConversa,
+} from './tipos';
 
 const LIMITE_PADRAO = 2000;
 /** Distância do fim (em pontos) que ainda conta como "perto do fim". */
@@ -42,6 +63,9 @@ export function Conversa({
   semConexao,
   atualizacaoFalhando,
   avisoDoEnvio,
+  contexto,
+  comRespostasRapidas = false,
+  faixa,
   onMudarRascunho,
   onEnviar,
   onTentarDeNovo,
@@ -98,7 +122,7 @@ export function Conversa({
       <Pagina>
         <Cabecalho titulo={textos.conversas.titulo} onVoltar={onVoltar} />
         <EstadoVazio
-          icone="chatbubble-ellipses-outline"
+          icone="message-circle"
           titulo={textos.conversas.indisponivelTitulo}
           texto={textos.conversas.indisponivelTexto}
           textoAcao={textos.gerais.voltar}
@@ -118,7 +142,13 @@ export function Conversa({
 
   return (
     <Pagina>
-      <Cabecalho titulo={titulo} onVoltar={onVoltar} />
+      <CabecalhoDaConversa
+        titulo={titulo}
+        neutro={nomeDoOutro === null}
+        contexto={contexto}
+        onVoltar={onVoltar}
+      />
+      {faixa ? <FaixaDeContexto {...faixa} /> : null}
       <View
         accessibilityLiveRegion="polite"
         style={{
@@ -131,19 +161,17 @@ export function Conversa({
         {anuncio ? <Text key={anuncio.n}>{anuncio.texto}</Text> : null}
       </View>
       {atualizacaoFalhando ? (
-        <View style={{ padding: espaco[2] }}>
+        <View
+          style={{ paddingHorizontal: margemDaTela, paddingBottom: espaco.s }}
+        >
           <Aviso variante="info" texto={textos.conversas.atualizacaoFalhando} />
         </View>
       ) : null}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <View style={{ flex: 1 }}>
-          {mensagens.situacao === 'carregando' ? (
-            <View style={{ padding: espaco[4] }}>
-              <Carregando cartoes={1} />
-            </View>
-          ) : null}
+          {mensagens.situacao === 'carregando' ? <BolhasCarregando /> : null}
           {mensagens.situacao === 'erro' ? (
-            <View style={{ padding: espaco[4] }}>
+            <View style={{ padding: margemDaTela }}>
               <ErroDoBloco
                 mensagem={mensagens.mensagem}
                 onTentarDeNovo={mensagens.onTentarDeNovo}
@@ -152,14 +180,12 @@ export function Conversa({
           ) : null}
           {mensagens.situacao === 'vazio' ||
           (mensagens.situacao === 'ok' && mensagens.dados.length === 0) ? (
-            <View style={{ padding: espaco[4], alignItems: 'center' }}>
+            <View style={{ padding: margemDaTela, alignItems: 'center' }}>
               <Text
-                style={{
-                  color: cores.textoSecundario,
-                  fontSize: tipografia.tamanho.corpo,
-                  lineHeight: tipografia.lineHeight.corpo,
-                  textAlign: 'center',
-                }}
+                style={[
+                  estiloDeTexto('corpo'),
+                  { color: cores.textoSecundario, textAlign: 'center' },
+                ]}
               >
                 {textos.conversas.semMensagens}
               </Text>
@@ -187,19 +213,33 @@ export function Conversa({
                 alignSelf: 'center',
                 width: '100%',
                 maxWidth: larguraMaxima,
-                padding: espaco[4],
-                gap: espaco[3],
+                paddingHorizontal: margemDaTela,
+                paddingVertical: espaco.m,
+                gap: espaco.m - 4,
               }}
-              renderItem={({ item }) => (
-                <BolhaDeMensagem
-                  minha={item.minha}
-                  texto={item.texto}
-                  horaFormatada={item.horaFormatada}
-                  situacao={item.situacao}
-                  nome={nomeDasBolhas}
-                  onTentarDeNovo={() => onTentarDeNovo(item.chave)}
-                />
-              )}
+              renderItem={({ item, index }) => {
+                const bolha = (
+                  <BolhaDeMensagem
+                    minha={item.minha}
+                    texto={item.texto}
+                    horaFormatada={item.horaFormatada}
+                    situacao={item.situacao}
+                    nome={nomeDasBolhas}
+                    onTentarDeNovo={() => onTentarDeNovo(item.chave)}
+                  />
+                );
+                const dia = item.diaFormatado;
+                // Separador antes da primeira mensagem e a cada troca de dia.
+                if (!dia || mensagens.dados[index - 1]?.diaFormatado === dia) {
+                  return bolha;
+                }
+                return (
+                  <View style={{ gap: espaco.m - 4 }}>
+                    <SeparadorDeDia texto={dia} />
+                    {bolha}
+                  </View>
+                );
+              }}
             />
           ) : null}
         </View>
@@ -207,11 +247,10 @@ export function Conversa({
           {avisoDoEnvio ? <Aviso variante="erro" texto={avisoDoEnvio} /> : null}
           {semConexao ? (
             <Text
-              style={{
-                color: cores.textoSecundario,
-                fontSize: tipografia.tamanho.rotulo,
-                lineHeight: tipografia.lineHeight.rotulo,
-              }}
+              style={[
+                estiloDeTexto('legenda'),
+                { color: cores.textoSecundario },
+              ]}
             >
               {textos.conversas.semConexaoNoCampo}
             </Text>
@@ -221,21 +260,20 @@ export function Conversa({
             limite={limite}
             cortou={cortou}
           />
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'flex-end',
-              gap: espaco[2],
-            }}
-          >
-            <CampoDaMensagem valor={rascunho} onChangeText={mudarRascunho} />
-            <Botao
-              texto={textos.conversas.enviar}
-              larguraCheia={false}
-              desabilitado={!podeEnviar}
-              onPress={onEnviar}
-            />
-          </View>
+          <CampoDeMensagem
+            valor={rascunho}
+            onChangeText={mudarRascunho}
+            onEnviar={onEnviar}
+            podeEnviar={podeEnviar}
+            motivoDoEnvio={
+              semConexao ? textos.conversas.semConexaoNoCampo : undefined
+            }
+            respostasRapidas={
+              comRespostasRapidas
+                ? textos.conversas.respostasRapidas
+                : undefined
+            }
+          />
         </RodapeFixo>
       </KeyboardAvoidingView>
     </Pagina>
@@ -307,17 +345,17 @@ function ContadorDaMensagem({
   return (
     <>
       <Text
-        style={{
-          color: faixa === 'perto' ? cores.textoSecundario : cores.texto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight:
+        style={[
+          estiloDeTexto(
+            'legenda',
             faixa === 'limite' || faixa === 'cortou'
-              ? tipografia.peso.semibold
+              ? 'negrito'
               : faixa === 'faltam'
-                ? tipografia.peso.medio
-                : tipografia.peso.normal,
-        }}
+                ? 'semibold'
+                : 'medio',
+          ),
+          { color: faixa === 'perto' ? cores.textoSecundario : cores.texto },
+        ]}
       >
         {texto}
       </Text>
@@ -334,40 +372,164 @@ function ContadorDaMensagem({
   );
 }
 
-function CampoDaMensagem({
-  valor,
-  onChangeText,
+/**
+ * Cabeçalho do chat (quadro 09): voltar redondo, avatar 40, nome em `h3` e o
+ * contexto da conversa em legenda.
+ */
+function CabecalhoDaConversa({
+  titulo,
+  neutro,
+  contexto,
+  onVoltar,
 }: {
-  valor: string;
-  onChangeText: (texto: string) => void;
+  titulo: string;
+  neutro: boolean;
+  contexto?: string | null;
+  onVoltar: () => void;
 }) {
+  const margens = useMargensSeguras();
+  return (
+    <View
+      style={{
+        paddingTop: margens.top + espaco.s,
+        paddingBottom: espaco.s,
+        paddingHorizontal: margemDaTela,
+        backgroundColor: cores.fundo,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          minHeight: 56,
+          gap: espaco.m - 4,
+        }}
+      >
+        <BotaoDeIcone
+          icone="chevron-left"
+          rotulo={textos.gerais.voltar}
+          onPress={onVoltar}
+        />
+        <Avatar nome={titulo} tamanho={40} neutro={neutro} />
+        <View style={{ flex: 1 }}>
+          <Text
+            accessibilityRole="header"
+            numberOfLines={2}
+            style={[estiloDeTexto('h3'), { color: cores.texto }]}
+          >
+            {titulo}
+          </Text>
+          {contexto ? (
+            <Text
+              numberOfLines={1}
+              style={[
+                estiloDeTexto('legenda'),
+                { color: cores.textoSecundario },
+              ]}
+            >
+              {textos.conversas.contexto(contexto)}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Faixa de contexto (quadro 09): card compacto com o título do trampo, o selo
+ * da candidatura e o valor; o toque abre o trampo.
+ */
+function FaixaDeContexto({
+  titulo,
+  statusDaCandidatura,
+  valorFormatado,
+  onAbrir,
+}: FaixaDaConversa) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
   return (
-    <TextInput
-      accessibilityLabel={textos.conversas.campo}
-      placeholder={textos.conversas.campo}
-      placeholderTextColor={cores.textoSecundario}
-      value={valor}
-      onChangeText={onChangeText}
-      multiline
-      onFocus={aoFocar}
-      onBlur={aoDesfocar}
-      style={[
-        {
-          flex: 1,
-          minHeight: 48,
-          maxHeight: 120,
-          paddingHorizontal: espaco[3],
-          paddingVertical: espaco[3],
-          borderWidth: 2,
-          borderRadius: raio.md,
-          borderColor: focado ? cores.primaria : cores.borda,
-          backgroundColor: cores.superficie,
-          color: cores.texto,
-          fontSize: tipografia.tamanho.corpo,
-          textAlignVertical: 'top',
-        },
-      ]}
-    />
+    <View style={{ paddingHorizontal: margemDaTela, paddingBottom: espaco.s }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={textos.conversas.abrirTrampoDaFaixa(
+          titulo,
+          textos.selos[statusDaCandidatura],
+          valorFormatado,
+        )}
+        onPress={onAbrir}
+        onFocus={aoFocar}
+        onBlur={aoDesfocar}
+        style={({ pressed }) => [
+          {
+            alignSelf: 'center',
+            width: '100%',
+            maxWidth: larguraMaxima,
+            minHeight: toqueMinimo,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: espaco.m - 4,
+            paddingVertical: espaco.s,
+            paddingHorizontal: espaco.m,
+            borderRadius: raio.campo,
+            backgroundColor: cores.superficie,
+            opacity: pressed ? 0.85 : 1,
+          },
+          sombra.sm,
+          focado && estiloDeFoco,
+        ]}
+      >
+        <View style={{ flex: 1, gap: espaco.xs }}>
+          <Text
+            numberOfLines={1}
+            style={[estiloDeTexto('corpo', 'negrito'), { color: cores.texto }]}
+          >
+            {titulo}
+          </Text>
+          <View style={{ flexDirection: 'row' }}>
+            <SeloDeCandidatura status={statusDaCandidatura} />
+          </View>
+        </View>
+        <Text
+          numberOfLines={1}
+          style={[estiloDeTexto('h3'), { color: cores.primaria }]}
+        >
+          {valorFormatado}
+        </Text>
+        <Feather name="chevron-right" size={20} color={cores.textoSecundario} />
+      </Pressable>
+    </View>
+  );
+}
+
+/** Carregando: bolhas de esqueleto alternadas, anunciadas uma vez. */
+function BolhasCarregando() {
+  const formas = [
+    { minha: false, largura: '62%' },
+    { minha: true, largura: '48%' },
+    { minha: false, largura: '70%' },
+  ] as const;
+  return (
+    <View
+      accessible
+      accessibilityLabel={textos.gerais.carregando}
+      accessibilityState={{ busy: true }}
+      style={{
+        alignSelf: 'center',
+        width: '100%',
+        maxWidth: larguraMaxima,
+        padding: margemDaTela,
+        gap: espaco.m - 4,
+      }}
+    >
+      {formas.map((forma) => (
+        <Esqueleto
+          key={`${forma.minha}-${forma.largura}`}
+          largura={forma.largura}
+          altura={48}
+          raioDaBorda={raio.lg}
+          estilo={{ alignSelf: forma.minha ? 'flex-end' : 'flex-start' }}
+        />
+      ))}
+    </View>
   );
 }

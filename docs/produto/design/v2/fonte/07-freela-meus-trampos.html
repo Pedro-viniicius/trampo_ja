@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Freela · Meus trampos</title>
+<script src="e2f9b130-2084-4425-9611-3876cbc14a7b"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .2s ease, color .2s ease, box-shadow .2s ease;cursor:pointer}
+.tj-press:active{transform:scale(.97)}
+@keyframes tj-in{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.tj-in{animation:tj-in .3s cubic-bezier(.2,.8,.2,1) both}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <main style="padding: 56px 24px 120px; display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 32px; line-height: 38px; letter-spacing: -0.02em;">Meus trampos</h1>
+      <p style="margin: 0; font-size: 15px; color: #555B73;">Acompanhe candidaturas e trabalhos</p>
+    </div>
+
+    <div role="tablist" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: #EEF0F5; border-radius: 999px;">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+        <button role="tab" class="tj-press" aria-selected="{{ t.sel }}" sc-camel-on-click="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}<sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}"><span style="min-width: 18px; height: 18px; border-radius: 999px; background: #0F6AD8; color: #FFFFFF; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">{{ t.badge }}</span></sc-if></button>
+      </sc-for>
+    </div>
+
+    <sc-for list="{{ items }}" as="it" hint-placeholder-count="2">
+      <div class="tj-in" style="background: #FFFFFF; border-radius: 24px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(22,26,43,.06), 0 1px 3px rgba(22,26,43,.06);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="{{ it.tagStyle }}">{{ it.tag }}</span>
+          <b style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 18px;">{{ it.price }}</b>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <span style="{{ it.avatarStyle }}">{{ it.initials }}</span>
+          <div style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">{{ it.title }}</b><span style="font-size: 14px; color: #555B73;">{{ it.company }}</span></div>
+        </div>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #3A4057; font-weight: 500;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="#0F6AD8" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>{{ it.when }}</span>
+        <sc-if value="{{ it.confirmed }}" hint-placeholder-val="{{ false }}">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;">
+            <a href="F-Chat.dc.html" class="tj-press" style="height: 44px; border-radius: 999px; background: #EEF5FF; color: #0F6AD8; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>Mensagem</a>
+            <a href="#" class="tj-press" style="height: 44px; border-radius: 999px; background: #161A2B; color: #FFFFFF; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>Como chegar</a>
+          </div>
+        </sc-if>
+        <sc-if value="{{ it.done }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #EEF0F5; font-size: 14px;">
+            <span style="display: flex; align-items: center; gap: 6px; color: #0B7A3D; font-weight: 700;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Pagamento recebido</span>
+            <span style="display: flex; align-items: center; gap: 4px; font-weight: 700;"><svg width="15" height="15" sc-camel-view-box="0 0 24 24" fill="#F79009" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>{{ it.rating }}</span>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </main>
+
+  <nav aria-label="Principal" style="position: absolute; left: 16px; right: 16px; bottom: 24px; background: #FFFFFF; border-radius: 28px; padding: 8px; box-shadow: 0 12px 32px -8px rgba(22,26,43,.22); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;">
+    <a href="F-Inicio.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M9 22V12h6v10"></path></svg>Início</a>
+    <a href="F-MeusTrampos.dc.html" aria-current="page" style="height: 56px; border-radius: 20px; background: #EEF5FF; color: #0F6AD8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 700;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="7" rx="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" fill="none"></path></svg>Meus trampos</a>
+    <a href="F-Conversas.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600; position: relative;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>Conversas<span style="position: absolute; top: 6px; right: 14px; min-width: 18px; height: 18px; border-radius: 999px; background: #7A3BBF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #FFFFFF;">1</span></a>
+    <a href="F-Perfil.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Perfil</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { tab: 'analise' }; }
+  renderVals() {
+    const tagBase = 'height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: flex; align-items: center; ';
+    const av = (bg, fg) => 'width: 48px; height: 48px; flex-shrink: 0; border-radius: 16px; background: ' + bg + '; color: ' + fg + '; display: flex; align-items: center; justify-content: center; font: 700 17px \'Bricolage Grotesque\', system-ui, sans-serif;';
+    const wait = tagBase + 'background: #F8F2FE; color: #7A3BBF;';
+    const conf = tagBase + 'background: #DDF5E6; color: #0B7A3D;';
+    const done = tagBase + 'background: #EEF0F5; color: #3A4057;';
+    const data = {
+      analise: [
+        { tag: 'Aguardando confirmação', tagStyle: wait, price: 'R$ 120', initials: 'PB', avatarStyle: av('#FEF0C7', '#93370D'), title: 'Atendente de balcão', company: 'Pizzaria BiLo', when: 'Hoje, 18h às 23h' },
+        { tag: 'Aguardando confirmação', tagStyle: wait, price: 'R$ 110', initials: 'TB', avatarStyle: av('#DDF5E6', '#0B7A3D'), title: 'Auxiliar de cozinha', company: 'Restaurante Trem Bão', when: 'Amanhã, 10h às 16h' },
+        { tag: 'Aguardando confirmação', tagStyle: wait, price: 'R$ 95', initials: 'MA', avatarStyle: av('#D9E9FE', '#0B54AD'), title: 'Repositor de loja', company: 'Mercadinho Avenida', when: 'Sábado, 8h às 14h' }
+      ],
+      conf: [
+        { tag: 'Confirmado', tagStyle: conf, price: 'R$ 120', initials: 'BE', avatarStyle: av('#EFE2FD', '#632F9A'), title: 'Garçonete', company: 'Bistrô Estrela', when: 'Hoje, 18h às 23h · chegar 17h45', confirmed: true }
+      ],
+      fim: [
+        { tag: 'Concluído', tagStyle: done, price: 'R$ 150', initials: 'TB', avatarStyle: av('#DDF5E6', '#0B7A3D'), title: 'Garçonete', company: 'Restaurante Trem Bão', when: 'Sexta, 19h às 00h', done: true, rating: '5,0' },
+        { tag: 'Concluído', tagStyle: done, price: 'R$ 130', initials: 'EV', avatarStyle: av('#D9E9FE', '#0B54AD'), title: 'Atendimento em evento', company: 'Espaço Villa', when: 'Sábado, 16h às 22h', done: true, rating: '4,0' }
+      ]
+    };
+    const on = 'height: 44px; border: 0; border-radius: 999px; background: #FFFFFF; color: #161A2B; font: 700 14px Figtree, system-ui, sans-serif; box-shadow: 0 1px 3px rgba(22,26,43,.12); display: flex; align-items: center; justify-content: center; gap: 6px;';
+    const off = 'height: 44px; border: 0; border-radius: 999px; background: transparent; color: #555B73; font: 600 14px Figtree, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 6px;';
+    const defs = [ { id: 'analise', label: 'Em análise' }, { id: 'conf', label: 'Confirmados', badge: '1' }, { id: 'fim', label: 'Concluídos' } ];
+    const tabs = defs.map((d) => ({ label: d.label, badge: d.badge || '', sel: this.state.tab === d.id ? 'true' : 'false', style: this.state.tab === d.id ? on : off, pick: () => this.setState({ tab: d.id }) }));
+    const items = data[this.state.tab].map((i) => ({ confirmed: false, done: false, rating: '', ...i }));
+    return { tabs, items };
+  }
+}
+</script>
+
+
+</body></html>

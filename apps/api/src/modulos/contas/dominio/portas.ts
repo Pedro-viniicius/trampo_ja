@@ -157,8 +157,8 @@ export const FORMATO_DA_EXPORTACAO = 'trampo-ja.exportacao.v1';
 /**
  * Partes da exportação que vêm dos outros módulos (ADR-005). Datas em ISO 8601
  * (`prazo` em `AAAA-MM-DD`). Só dados da própria conta: de terceiros, apenas o
- * `outroUsuarioId` das conversas; nada de colunas derivadas (`cidade_normalizada`,
- * `texto_busca`).
+ * `outroUsuarioId` das conversas e o `contaId` dos favoritos; nada de colunas
+ * derivadas (`cidade_normalizada`, `texto_busca`).
  */
 export interface PerfilExportado {
   readonly nome: string;
@@ -216,12 +216,40 @@ export interface ConversaExportada {
   readonly minhasMensagens: readonly MensagemExportada[];
 }
 
+/** Avaliação feita pela conta (CA93), com o comentário que ela escreveu. */
+export interface AvaliacaoFeitaExportada {
+  readonly trampoId: string;
+  readonly nota: number;
+  readonly destaques: readonly string[];
+  readonly comentario: string | null;
+  readonly criadaEm: string;
+}
+
+/**
+ * Avaliação recebida pela conta (CA93): só a nota, os destaques e a data. O
+ * comentário é texto de terceiro e o avaliador fica de fora.
+ */
+export interface AvaliacaoRecebidaExportada {
+  readonly nota: number;
+  readonly destaques: readonly string[];
+  readonly criadaEm: string;
+}
+
+/** Conta na equipe favorita da conta (CA93): só o id e a data. */
+export interface FavoritoExportado {
+  readonly contaId: string;
+  readonly criadoEm: string;
+}
+
 export interface PartesExportadas {
   readonly perfil: PerfilExportado | null;
   readonly trampos: readonly TrampoExportado[];
   readonly servicos: readonly ServicoExportado[];
   readonly candidaturas: readonly CandidaturaExportada[];
   readonly conversas: readonly ConversaExportada[];
+  readonly avaliacoesFeitas: readonly AvaliacaoFeitaExportada[];
+  readonly avaliacoesRecebidas: readonly AvaliacaoRecebidaExportada[];
+  readonly favoritos: readonly FavoritoExportado[];
 }
 
 /** JSON `trampo-ja.exportacao.v1` devolvido por `POST /contas/eu/exportacao`. */

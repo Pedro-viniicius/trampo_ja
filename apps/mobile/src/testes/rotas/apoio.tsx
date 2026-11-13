@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { MockContextConfig } from 'expo-router/testing-library';
+import { Text } from 'react-native';
 import { NavegacaoRaiz } from '../../app/_layout';
 import * as LayoutPublico from '../../app/(publico)/_layout';
 import Cadastro from '../../app/(publico)/cadastro';
@@ -11,6 +12,11 @@ import {
   type ArmazenamentoEmMemoria,
   criarArmazenamentoEmMemoria,
 } from '../../estado/armazenamento-token';
+import {
+  type ArmazenamentoDoModoEmMemoria,
+  criarArmazenamentoDoModoEmMemoria,
+  type Modo,
+} from '../../estado/modo';
 import { Provedores } from '../../estado/provedores';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
@@ -52,6 +58,16 @@ export interface OpcoesDasRotas {
    * `criarArmazenamentoEmMemoria(TOKEN_DE_TESTE)`.
    */
   readonly armazenamento?: ArmazenamentoEmMemoria;
+  /**
+   * Modo gravado no aparelho ao abrir o app. Padrão: `null` (nada gravado:
+   * abre em freela). Ignorado se `armazenamentoDoModo` vier.
+   */
+  readonly modo?: Modo | null;
+  /**
+   * Padrão: fake em memória com `modo`. Passe o mesmo fake em duas
+   * renderizações para simular reabrir o app.
+   */
+  readonly armazenamentoDoModo?: ArmazenamentoDoModoEmMemoria;
   /** Padrão: `criarFetchFalso()` sem rotas (tudo 404). */
   readonly fetch?: FetchFalso;
   /** Padrão: `criarQueryClientDeTeste()`. */
@@ -60,6 +76,7 @@ export interface OpcoesDasRotas {
 
 export type RotasRenderizadas = RenderRouterResult & {
   readonly armazenamento: ArmazenamentoEmMemoria;
+  readonly armazenamentoDoModo: ArmazenamentoDoModoEmMemoria;
   readonly fetch: FetchFalso;
   readonly queryClient: QueryClient;
 };
@@ -71,6 +88,26 @@ export const ROTAS_PUBLICAS: MapaDeRotas = {
   '(publico)/entrar': Entrar,
   '(publico)/cadastro': Cadastro,
 };
+
+/**
+ * As seis rotas que o layout das abas declara (ADR-010), cada uma como um
+ * texto `stub: <rota>`. O layout avisa no console quando falta uma delas no
+ * mapa: espalhe isto antes das rotas reais que o teste usa.
+ */
+export function abasDeStub(): MapaDeRotas {
+  const stub = (nome: string) =>
+    function Stub() {
+      return <Text>{`stub: ${nome}`}</Text>;
+    };
+  return {
+    '(app)/(abas)/index': stub('index'),
+    '(app)/(abas)/meus-trampos': stub('meus-trampos'),
+    '(app)/(abas)/demandas': stub('demandas'),
+    '(app)/(abas)/buscar': stub('buscar'),
+    '(app)/(abas)/conversas': stub('conversas'),
+    '(app)/(abas)/perfil': stub('perfil'),
+  };
+}
 
 /** Rotas legais da raiz (fora das guardas), nas rotas padrão. */
 export const ROTAS_LEGAIS: MapaDeRotas = {
@@ -99,6 +136,8 @@ export async function renderizarRotas(
   {
     initialUrl = '/',
     armazenamento = criarArmazenamentoEmMemoria(),
+    modo = null,
+    armazenamentoDoModo = criarArmazenamentoDoModoEmMemoria(modo),
     fetch = criarFetchFalso(),
     queryClient = criarQueryClientDeTeste(),
   }: OpcoesDasRotas = {},
@@ -107,6 +146,7 @@ export async function renderizarRotas(
     return (
       <Provedores
         armazenamento={armazenamento}
+        armazenamentoDoModo={armazenamentoDoModo}
         queryClient={queryClient}
         fetch={fetch.fetch}
         urlBase={URL_BASE_DE_TESTE}
@@ -124,5 +164,10 @@ export async function renderizarRotas(
     },
     { initialUrl },
   );
-  return Object.assign(resultado, { armazenamento, fetch, queryClient });
+  return Object.assign(resultado, {
+    armazenamento,
+    armazenamentoDoModo,
+    fetch,
+    queryClient,
+  });
 }

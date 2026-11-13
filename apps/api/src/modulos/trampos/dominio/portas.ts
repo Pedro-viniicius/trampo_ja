@@ -37,6 +37,19 @@ export interface PaginaDoAutor {
 /** O que `alterarSobTrava` faz com o agregado depois de `decidir`. */
 export type GravacaoSobTrava = 'salvar' | 'excluir' | 'nada';
 
+/**
+ * Resposta de `vinculoParaAvaliacao` (ADR-011): quem a conta pode avaliar no
+ * trampo e em que papel; `'nao_encerrado'` se ela é parte, mas o trampo ainda
+ * não está encerrado; `null` se ela não é parte (ou não há a quem avaliar).
+ */
+export type VinculoParaAvaliacao =
+  | {
+      readonly avaliadoId: string;
+      readonly papelDoAvaliado: 'freela' | 'contratante';
+    }
+  | 'nao_encerrado'
+  | null;
+
 export interface RepositorioDeTrampos {
   /**
    * Grava o agregado com trava otimista. Um trampo novo chega com `versao` 1;
@@ -82,6 +95,23 @@ export interface RepositorioDeTrampos {
   buscar(filtros: FiltrosDeBusca): Promise<TrampoResumo[]>;
   /** Verdadeiro se há candidatura, em qualquer estado, de um para o trampo do outro. */
   existeCandidaturaEntre(a: string, b: string): Promise<boolean>;
+  /**
+   * Para `avaliacoes` (CA87, ADR-011). São partes o autor do trampo e o
+   * freelancer da candidatura `aceita`; mais ninguém, nem quem teve
+   * candidatura pendente ou recusada.
+   * - Quem não é parte, trampo inexistente ou id fora do formato: `null`,
+   *   igual em qualquer status, para não revelar a terceiros que o trampo
+   *   existe nem em que estado está.
+   * - Parte com o trampo aberto ou em andamento: `'nao_encerrado'`.
+   * - Trampo encerrado: o autor avalia o freelancer aceito (`'freela'`), e o
+   *   freelancer aceito avalia o autor (`'contratante'`). Encerrado sem
+   *   candidatura aceita não tem a quem avaliar: `null`.
+   * Leitura sem trava: o encerrado é estado final e a aceita não muda mais.
+   */
+  vinculoParaAvaliacao(
+    trampoId: string,
+    contaId: string,
+  ): Promise<VinculoParaAvaliacao>;
   /**
    * Candidaturas enviadas pelo freelancer, em qualquer estado e de qualquer
    * trampo, mais recentes primeiro (`criadaEm` e `id` decrescentes).

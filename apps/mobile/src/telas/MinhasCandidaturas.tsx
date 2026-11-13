@@ -1,22 +1,41 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { View } from 'react-native';
 import {
+  AbasSegmentadas,
+  ALTURA_DA_BARRA_DE_ABAS,
   Aviso,
-  Botao,
+  CartaoDeMinhaCandidatura,
   DialogoDeConfirmacao,
   EstadoVazio,
-  Motivo,
-  SeloDeCandidatura,
+  MARGEM_DA_BARRA_DE_ABAS,
   Toast,
 } from '../componentes';
-import { estiloDeFoco, useFoco } from '../componentes/utilitarios';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { EstadoDeTela, Rolavel } from './base';
+import { Carregando, ErroDoBloco, EstadoDeTela, Rolavel } from './base';
 import type {
   MinhaCandidaturaParaExibir,
   PropsDasMinhasCandidaturas,
+  SegmentoDeMeusTrampos,
 } from './tipos';
+
+/**
+ * CA78: cada candidatura cai em exatamente um segmento. Pendente = Em
+ * análise; recusada, ou aceita com trampo encerrado = Encerrados; aceita com
+ * o trampo em andamento (ou sem status conhecido) = Confirmados.
+ */
+export function segmentoDaCandidatura(
+  item: Pick<MinhaCandidaturaParaExibir, 'status' | 'statusDoTrampo'>,
+): SegmentoDeMeusTrampos {
+  switch (item.status) {
+    case 'pendente':
+      return 'analise';
+    case 'recusada':
+      return 'encerrados';
+    case 'aceita':
+      return item.statusDoTrampo === 'encerrado' ? 'encerrados' : 'confirmados';
+  }
+}
 
 export function MinhasCandidaturas({
   lista,
@@ -30,62 +49,26 @@ export function MinhasCandidaturas({
   onAbrirTrampo,
   onBuscarTrampos,
   onVoltar,
+  segmentada = false,
+  segmentoInicial = 'analise',
+  onMensagem,
 }: PropsDasMinhasCandidaturas) {
   const [pendente, setPendente] = useState<MinhaCandidaturaParaExibir | null>(
     null,
   );
+  const [segmento, setSegmento] =
+    useState<SegmentoDeMeusTrampos>(segmentoInicial);
   const vazio = (
     <EstadoVazio
-      icone="document-text-outline"
+      icone="file-text"
       titulo={textos.minhasCandidaturas.vazio}
       texto={textos.minhasCandidaturas.vazioTexto}
       textoAcao={textos.minhasCandidaturas.buscarTrampos}
       onAcao={onBuscarTrampos}
     />
   );
-  return (
+  const dialogoEToast = (
     <>
-      <Rolavel
-        titulo={textos.minhasCandidaturas.titulo}
-        onVoltar={onVoltar}
-        semConexao={semConexao}
-        acima={
-          aviso ? (
-            <View style={{ padding: espaco[4], paddingBottom: 0 }}>
-              <Aviso
-                variante="erro"
-                texto={aviso}
-                textoAcao={
-                  onFecharAviso ? textos.candidatura.fecharAviso : undefined
-                }
-                onAcao={onFecharAviso}
-              />
-            </View>
-          ) : null
-        }
-      >
-        <EstadoDeTela estado={lista} vazio={vazio}>
-          {(itens) =>
-            itens.length === 0 ? (
-              vazio
-            ) : (
-              <View style={{ gap: espaco[3] }}>
-                {itens.map((item) => (
-                  <Linha
-                    key={item.id}
-                    item={item}
-                    onAbrir={onAbrirTrampo}
-                    onRetirar={onRetirar ? () => setPendente(item) : undefined}
-                    retirandoEsta={retirando === item.id}
-                    bloqueado={Boolean(retirando) || Boolean(semConexao)}
-                    semConexao={semConexao}
-                  />
-                ))}
-              </View>
-            )
-          }
-        </EstadoDeTela>
-      </Rolavel>
       <DialogoDeConfirmacao
         visivel={pendente !== null}
         titulo={textos.candidatura.retirarTitulo}
@@ -104,129 +87,193 @@ export function MinhasCandidaturas({
         mensagem={toast ?? ''}
         onFechar={onFecharToast ?? (() => undefined)}
         rotuloFechar={textos.gerais.toastFechar}
+        // Na aba (segmentada, sem voltar), o toast sobe acima da barra flutuante.
+        deslocamentoInferior={
+          segmentada && !onVoltar
+            ? ALTURA_DA_BARRA_DE_ABAS + MARGEM_DA_BARRA_DE_ABAS
+            : 0
+        }
       />
+    </>
+  );
+  const avisoNoTopo = aviso ? (
+    <View style={{ paddingHorizontal: espaco.l, paddingTop: espaco.s }}>
+      <Aviso
+        variante="erro"
+        texto={aviso}
+        textoAcao={onFecharAviso ? textos.candidatura.fecharAviso : undefined}
+        onAcao={onFecharAviso}
+      />
+    </View>
+  ) : null;
+
+  if (segmentada) {
+    const itens = lista.situacao === 'ok' ? lista.dados : ([] as const);
+    const doSegmento = itens.filter(
+      (item) => segmentoDaCandidatura(item) === segmento,
+    );
+    const confirmados = itens.filter(
+      (item) => segmentoDaCandidatura(item) === 'confirmados',
+    ).length;
+    const prontaOuVazia = lista.situacao === 'ok' || lista.situacao === 'vazio';
+    return (
+      <>
+        <Rolavel
+          titulo={textos.meusTrampos.titulo}
+          subtitulo={textos.meusTrampos.subtitulo}
+          raiz={!onVoltar}
+          onVoltar={onVoltar}
+          comBarraDeAbas={!onVoltar}
+          semConexao={semConexao}
+          acima={avisoNoTopo}
+        >
+          <AbasSegmentadas
+            rotulo={textos.meusTrampos.titulo}
+            itens={[
+              { chave: 'analise', rotulo: textos.meusTrampos.abaAnalise },
+              {
+                chave: 'confirmados',
+                rotulo: textos.meusTrampos.abaConfirmados,
+                ...(prontaOuVazia && { contador: confirmados }),
+              },
+              { chave: 'encerrados', rotulo: textos.meusTrampos.abaEncerrados },
+            ]}
+            selecionada={segmento}
+            onSelecionar={setSegmento}
+          />
+          {prontaOuVazia ? (
+            doSegmento.length === 0 ? (
+              <VazioDoSegmento
+                segmento={segmento}
+                onBuscarTrampos={onBuscarTrampos}
+              />
+            ) : (
+              <View style={{ gap: espaco.m }}>
+                {doSegmento.map((item) => (
+                  <CartaoDeMinhaCandidatura
+                    key={item.id}
+                    titulo={item.tituloDoTrampo}
+                    autor={item.autor}
+                    valorFormatado={item.valorPropostoFormatado}
+                    prazoFormatado={item.prazoFormatado}
+                    status={item.status}
+                    onPress={() => onAbrirTrampo(item.trampoId)}
+                    onMensagem={onMensagem ? () => onMensagem(item) : undefined}
+                    onRetirar={
+                      item.podeRetirar && onRetirar
+                        ? () => {
+                            if (!retirando) setPendente(item);
+                          }
+                        : undefined
+                    }
+                    retirando={retirando === item.id}
+                    retirarDesabilitado={
+                      Boolean(retirando) && retirando !== item.id
+                    }
+                    motivoDoRetirar={
+                      semConexao ? textos.candidatura.semConexaoMotivo : null
+                    }
+                  />
+                ))}
+              </View>
+            )
+          ) : lista.situacao === 'erro' ? (
+            <ErroDoBloco
+              mensagem={lista.mensagem}
+              onTentarDeNovo={lista.onTentarDeNovo}
+            />
+          ) : (
+            <Carregando cartoes={3} />
+          )}
+        </Rolavel>
+        {dialogoEToast}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Rolavel
+        titulo={textos.minhasCandidaturas.titulo}
+        onVoltar={onVoltar}
+        semConexao={semConexao}
+        acima={avisoNoTopo}
+      >
+        <EstadoDeTela estado={lista} vazio={vazio}>
+          {(itens) =>
+            itens.length === 0 ? (
+              vazio
+            ) : (
+              <View style={{ gap: espaco.m }}>
+                {itens.map((item) => (
+                  <CartaoDeMinhaCandidatura
+                    key={item.id}
+                    titulo={item.tituloDoTrampo}
+                    autor={item.autor}
+                    valorFormatado={item.valorPropostoFormatado}
+                    prazoFormatado={item.prazoFormatado}
+                    enviadaEm={textos.minhasCandidaturas.enviadaEm(
+                      item.dataFormatada,
+                    )}
+                    status={item.status}
+                    onPress={() => onAbrirTrampo(item.trampoId)}
+                    onRetirar={
+                      item.podeRetirar && onRetirar
+                        ? () => {
+                            if (!retirando) setPendente(item);
+                          }
+                        : undefined
+                    }
+                    retirando={retirando === item.id}
+                    retirarDesabilitado={
+                      Boolean(retirando) && retirando !== item.id
+                    }
+                    motivoDoRetirar={
+                      semConexao ? textos.candidatura.semConexaoMotivo : null
+                    }
+                  />
+                ))}
+              </View>
+            )
+          }
+        </EstadoDeTela>
+      </Rolavel>
+      {dialogoEToast}
     </>
   );
 }
 
-function Linha({
-  item,
-  onAbrir,
-  onRetirar,
-  retirandoEsta,
-  bloqueado,
-  semConexao,
+/** Vazio de cada segmento (spec, quadro 07). */
+function VazioDoSegmento({
+  segmento,
+  onBuscarTrampos,
 }: {
-  item: MinhaCandidaturaParaExibir;
-  onAbrir: (trampoId: string) => void;
-  onRetirar?: () => void;
-  retirandoEsta: boolean;
-  bloqueado: boolean;
-  semConexao?: boolean;
+  segmento: SegmentoDeMeusTrampos;
+  onBuscarTrampos: () => void;
 }) {
-  const { focado, aoFocar, aoDesfocar } = useFoco();
-  const titulo =
-    item.tituloDoTrampo ?? textos.minhasCandidaturas.trampoIndisponivel;
-  const rotulo = [
-    titulo,
-    textos.gerais.status(textos.selos[item.status].toLowerCase()),
-    `${textos.minhasCandidaturas.valorProposto}: ${item.valorPropostoFormatado}`,
-    textos.minhasCandidaturas.enviadaEm(item.dataFormatada),
-  ].join(', ');
-  const mostrarRetirar = Boolean(item.podeRetirar && onRetirar);
-  return (
-    <View
-      style={{
-        borderRadius: raio.md,
-        borderWidth: 1,
-        borderColor: cores.borda,
-        backgroundColor: cores.fundo,
-        overflow: 'hidden',
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={rotulo}
-        onPress={() => onAbrir(item.trampoId)}
-        onFocus={aoFocar}
-        onBlur={aoDesfocar}
-        style={({ pressed }) => [
-          {
-            minHeight: toqueMinimo,
-            gap: espaco[2],
-            padding: espaco[4],
-            backgroundColor: pressed ? cores.superficie : cores.fundo,
-          },
-          focado && estiloDeFoco,
-        ]}
-      >
-        <Text
-          numberOfLines={2}
-          style={{
-            color: cores.texto,
-            fontSize: tipografia.tamanho.tituloDeSeção,
-            lineHeight: tipografia.lineHeight.tituloDeSeção,
-            fontWeight: tipografia.peso.semibold,
-          }}
-        >
-          {titulo}
-        </Text>
-        <SeloDeCandidatura status={item.status} />
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            columnGap: espaco[2],
-          }}
-        >
-          <Text
-            style={{
-              flexShrink: 1,
-              color: cores.texto,
-              fontSize: tipografia.tamanho.corpo,
-              lineHeight: tipografia.lineHeight.corpo,
-              fontWeight: tipografia.peso.negrito,
-            }}
-          >
-            {item.valorPropostoFormatado}
-          </Text>
-          <Text
-            style={{
-              color: cores.textoSecundario,
-              fontSize: tipografia.tamanho.legenda,
-              lineHeight: tipografia.lineHeight.legenda,
-            }}
-          >
-            {textos.minhasCandidaturas.enviadaEm(item.dataFormatada)}
-          </Text>
-        </View>
-      </Pressable>
-      {mostrarRetirar ? (
-        <View
-          style={{
-            gap: espaco[2],
-            paddingHorizontal: espaco[4],
-            paddingBottom: espaco[4],
-          }}
-        >
-          <Botao
-            texto={textos.candidatura.retirar}
-            textoCarregando={textos.candidatura.retirando}
-            rotuloDeAcessibilidade={textos.candidatura.retirarDe(
-              item.tituloDoTrampo,
-            )}
-            variante="secundario"
-            carregando={retirandoEsta}
-            desabilitado={bloqueado && !retirandoEsta}
-            onPress={() => onRetirar?.()}
-          />
-          {semConexao ? (
-            <Motivo texto={textos.candidatura.semConexaoMotivo} />
-          ) : null}
-        </View>
-      ) : null}
-    </View>
-  );
+  switch (segmento) {
+    case 'analise':
+      return (
+        <EstadoVazio
+          icone="clock"
+          titulo={textos.meusTrampos.vazioAnalise}
+          textoAcao={textos.meusTrampos.verTrampos}
+          onAcao={onBuscarTrampos}
+        />
+      );
+    case 'confirmados':
+      return (
+        <EstadoVazio
+          icone="check-circle"
+          titulo={textos.meusTrampos.vazioConfirmados}
+        />
+      );
+    case 'encerrados':
+      return (
+        <EstadoVazio
+          icone="archive"
+          titulo={textos.meusTrampos.vazioEncerrados}
+        />
+      );
+  }
 }

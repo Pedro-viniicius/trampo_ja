@@ -124,6 +124,14 @@ describe('montarAplicacao — rotas', () => {
         'GET /conversas',
         'GET /conversas/:id/mensagens',
         'POST /conversas/:id/mensagens',
+        // V2b (CA87 a CA92): o módulo avaliacoes.
+        'POST /avaliacoes',
+        'GET /avaliacoes',
+        'GET /avaliacoes/resumos',
+        'GET /avaliacoes/feitas',
+        'GET /favoritos',
+        'PUT /favoritos/:contaId',
+        'DELETE /favoritos/:contaId',
       ].sort(),
     );
   });
@@ -166,6 +174,15 @@ describe('montarAplicacao — rotas', () => {
       'GET /conversas/:id/mensagens': ['leitura'],
       // S1 da L1: 30/min e, somado, o teto de 1000 a cada 24 h.
       'POST /conversas/:id/mensagens': ['mensagens', 'mensagens_dia'],
+      // CA94: avaliar é publicacao (30/h); favoritar e desfavoritar, escrita;
+      // os GET, leitura.
+      'POST /avaliacoes': ['publicacao'],
+      'GET /avaliacoes': ['leitura'],
+      'GET /avaliacoes/resumos': ['leitura'],
+      'GET /avaliacoes/feitas': ['leitura'],
+      'GET /favoritos': ['leitura'],
+      'PUT /favoritos/:contaId': ['escrita'],
+      'DELETE /favoritos/:contaId': ['escrita'],
     };
 
     const autenticadas = rotas.filter(

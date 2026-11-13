@@ -14,7 +14,8 @@ import {
   Selo,
   Toast,
 } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { EstadoDeTela, NaoEncontrado, Rolavel, rolarAteOAlvo } from './base';
 import type { PropsDasCandidaturasRecebidas } from './tipos';
@@ -69,7 +70,17 @@ export function CandidaturasRecebidas({
           vazio={<NaoEncontrado onVoltar={onVoltar} />}
         >
           {(dados) => (
-            <View style={{ gap: espaco[2] }}>
+            <View
+              style={[
+                {
+                  gap: espaco.s,
+                  padding: espaco.m,
+                  borderRadius: raio.card,
+                  backgroundColor: cores.superficie,
+                },
+                sombra.sm,
+              ]}
+            >
               <Selo
                 variante={dados.status}
                 texto={
@@ -82,15 +93,20 @@ export function CandidaturasRecebidas({
               />
               <Text
                 accessibilityRole="header"
-                style={{
-                  color: cores.texto,
-                  fontSize: tipografia.tamanho.tituloDeSeção,
-                  lineHeight: tipografia.lineHeight.tituloDeSeção,
-                  fontWeight: tipografia.peso.semibold,
-                }}
+                style={[estiloDeTexto('h2'), { color: cores.texto }]}
               >
                 {dados.titulo}
               </Text>
+              {lista.situacao === 'ok' && lista.dados.length > 0 ? (
+                <Text
+                  style={[
+                    estiloDeTexto('legenda'),
+                    { color: cores.textoSecundario },
+                  ]}
+                >
+                  {textos.candidatos.subtitulo(lista.dados.length)}
+                </Text>
+              ) : null}
               {dados.status !== 'aberto' ? (
                 <Aviso
                   variante="info"
@@ -116,17 +132,17 @@ export function CandidaturasRecebidas({
           estado={lista}
           vazio={
             <EstadoVazio
-              icone="people-outline"
+              icone="users"
               titulo={textos.candidaturasRecebidas.vazio}
               texto={textos.candidaturasRecebidas.vazioTexto}
             />
           }
         >
           {(candidaturas) => (
-            <View style={{ gap: espaco[3] }}>
+            <View style={{ gap: espaco.m }}>
               {candidaturas.length === 0 ? (
                 <EstadoVazio
-                  icone="people-outline"
+                  icone="users"
                   titulo={textos.candidaturasRecebidas.vazio}
                   texto={textos.candidaturasRecebidas.vazioTexto}
                 />

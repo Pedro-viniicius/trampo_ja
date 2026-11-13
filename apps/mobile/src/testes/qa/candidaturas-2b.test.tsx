@@ -16,8 +16,10 @@ import { ACEITAR_QUALQUER } from '../rotas/apoio';
 import {
   abrirApp,
   CATEGORIAS,
+  esperarCandidaturaEnviada,
   PERFIL_COMPLETO,
   vigiarConsole,
+  voltarDaCandidaturaEnviada,
 } from './apoio-qa';
 
 jest.mock('expo-splash-screen', () => ({
@@ -207,27 +209,32 @@ describe('jornada do candidato (CA8, CA9)', () => {
 
     await preencherFolha('  Posso fazer.  ', 'R$ 150');
     await fireEvent.press(botaoEnviar());
-    expect(
-      await screen.findByText(textos.candidatar.enviada),
-    ).toBeOnTheScreen();
+    await esperarCandidaturaEnviada();
     expect(
       requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')[0]?.corpo,
     ).toEqual({ mensagem: 'Posso fazer.', valorPropostoCentavos: 15000 });
-    expect(
-      screen.getByText(textos.detalheTrampo.jaCandidatou),
-    ).toBeOnTheScreen();
 
-    await irPara('/candidaturas');
+    // "Ver em Meus trampos" segue a jornada (CA80).
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: textos.candidaturaEnviada.verMeusTrampos,
+      }),
+    );
+    await waitFor(() => expect(screen).toHavePathname('/meus-trampos'));
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
     expect(screen.getByText(textos.selos.pendente)).toBeOnTheScreen();
     expect(screen.getByText(/R\$ 150,00/)).toBeOnTheScreen();
 
-    // "Voltar" leva de novo ao detalhe, que segue com o selo.
-    await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
+    // Meus trampos é aba (sem "Voltar"): o detalhe aberto de novo segue
+    // com o selo.
+    await irPara('/trampos/t1');
     await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
     expect(
-      screen.getByText(textos.detalheTrampo.jaCandidatou),
+      await screen.findByText(textos.detalheTrampo.jaCandidatou),
     ).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: textos.detalheTrampo.candidatar }),
+    ).toBeNull();
   });
 
   it.each([
@@ -254,7 +261,7 @@ describe('jornada do candidato (CA8, CA9)', () => {
     await abrirFolha();
     await preencherFolha('Posso fazer.', '21474836,47');
     await fireEvent.press(botaoEnviar());
-    await screen.findByText(textos.candidatar.enviada);
+    await esperarCandidaturaEnviada();
     expect(
       requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')[0]?.corpo,
     ).toEqual({ mensagem: 'Posso fazer.', valorPropostoCentavos: 2147483647 });
@@ -276,14 +283,14 @@ describe('jornada do candidato (CA8, CA9)', () => {
     );
     await fireEvent.press(botaoEnviar());
 
-    await screen.findByText(textos.candidatar.enviada);
+    await esperarCandidaturaEnviada();
     expect(screen.queryByText(textos.erros.mensagem_tamanho)).toBeNull();
     const envios = requisicoes(fetch, 'POST', '/trampos/t1/candidaturas');
     expect(envios).toHaveLength(1);
     expect(envios[0]?.corpo).toMatchObject({ mensagem: 'a'.repeat(2000) });
   });
 
-  it('se Minhas candidaturas falha na recarga depois do POST, a folha fecha com o toast e não fica em "Enviando…"', async () => {
+  it('se Minhas candidaturas falha na recarga depois do POST, abre Candidatura enviada e, ao voltar, a folha está fechada e não fica em "Enviando…"', async () => {
     let enviada = false;
     const fetch = criarFake()
       .responder('GET /candidaturas/minhas', () =>
@@ -298,9 +305,8 @@ describe('jornada do candidato (CA8, CA9)', () => {
     await preencherFolha('Posso fazer.', '150');
     await fireEvent.press(botaoEnviar());
 
-    expect(
-      await screen.findByText(textos.candidatar.enviada),
-    ).toBeOnTheScreen();
+    await esperarCandidaturaEnviada();
+    await voltarDaCandidaturaEnviada('/trampos/t1');
     expect(screen.queryByLabelText(textos.candidatar.mensagem)).toBeNull();
     expect(screen.queryByText(textos.candidatar.enviando)).toBeNull();
     expect(requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')).toHaveLength(
@@ -391,10 +397,12 @@ describe('jornada do candidato (CA8, CA9)', () => {
     await abrirFolha();
     await preencherFolha('Posso fazer.', '150');
     await tocarDuasVezes(botaoEnviar());
-    await screen.findByText(textos.candidatar.enviada);
+    await esperarCandidaturaEnviada();
     expect(requisicoes(fetch, 'POST', '/trampos/t1/candidaturas')).toHaveLength(
       1,
     );
+    // Uma só tela na pilha: voltar já leva ao detalhe.
+    await voltarDaCandidaturaEnviada('/trampos/t1');
   });
 });
 
@@ -672,27 +680,35 @@ describe('minhas candidaturas e meus anúncios', () => {
     ).toBeOnTheScreen();
   });
 
-  it('"Voltar" de Minhas candidaturas e de Meus anúncios devolve à tela anterior', async () => {
+  it('"Voltar" de Meus serviços devolve à tela anterior; `/candidaturas` e `/meus-anuncios` sem tipo levam às abas (CA77)', async () => {
     const fetch = criarFake();
     await abrirApp('/', { fetch });
     await screen.findByText(textos.inicio.trampos);
-    await irPara('/meus-anuncios');
-    await screen.findByText(textos.meusAnuncios.vazioTrampos);
+    await irPara('/meus-anuncios?tipo=servico');
+    await screen.findByText(textos.meusAnuncios.vazioServicos);
     await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
     await waitFor(() => expect(screen).toHavePathname('/'));
 
     await irPara('/candidaturas');
-    await screen.findByText(textos.minhasCandidaturas.vazio);
-    await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
-    await waitFor(() => expect(screen).toHavePathname('/'));
+    await waitFor(() => expect(screen).toHavePathname('/meus-trampos'));
+    expect(
+      await screen.findByText(textos.meusTrampos.vazioAnalise),
+    ).toBeOnTheScreen();
+
+    await irPara('/meus-anuncios');
+    await waitFor(() => expect(screen).toHavePathname('/demandas'));
+    expect(
+      await screen.findByText(textos.demandas.vazioAbertas),
+    ).toBeOnTheScreen();
   });
 
-  it('`tipo` repetido (?tipo=servico&tipo=trampo) cai em Meus trampos', async () => {
+  it('`tipo` repetido (?tipo=servico&tipo=trampo) cai em Demandas', async () => {
     const fetch = criarFake();
     await abrirApp('/meus-anuncios?tipo=servico&tipo=trampo', { fetch });
     expect(
-      await screen.findByText(textos.meusAnuncios.vazioTrampos),
+      await screen.findByText(textos.demandas.vazioAbertas),
     ).toBeOnTheScreen();
+    expect(screen).toHavePathname('/demandas');
     expect(requisicoes(fetch, 'GET', '/servicos/meus')).toEqual([]);
   });
 });

@@ -1,9 +1,10 @@
 import { onlineManager } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { Text, TextInput } from 'react-native';
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
-import RotaDePublicar from '../../app/(app)/(abas)/publicar';
+import RotaDePublicar from '../../app/(app)/publicar';
 import RotaDeOfertarServico from '../../app/(app)/servicos/novo';
 import RotaDePublicarTrampo from '../../app/(app)/trampos/novo';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
@@ -15,7 +16,7 @@ import { useBusca } from '../../estado/consultas/busca';
 import { chaves } from '../../estado/consultas/chaves';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
-import { renderizarRotas, TOKEN_DE_TESTE } from './apoio';
+import { abasDeStub, renderizarRotas, TOKEN_DE_TESTE } from './apoio';
 
 const t = textos.formularioDeAnuncio;
 
@@ -67,11 +68,12 @@ function LayoutComSonda() {
 const ROTAS = {
   '(app)/_layout': LayoutComSonda,
   '(app)/(abas)/_layout': LayoutDasAbas,
+  ...abasDeStub(),
   '(app)/(abas)/index': stub('stub: início'),
   '(app)/(abas)/buscar': stub('stub: buscar'),
-  '(app)/(abas)/publicar': RotaDePublicar,
   '(app)/(abas)/conversas': stub('stub: conversas'),
   '(app)/(abas)/perfil': stub('stub: perfil'),
+  '(app)/publicar': RotaDePublicar,
   '(app)/perfil/editar': stub('stub: editar perfil'),
   '(app)/trampos/novo': RotaDePublicarTrampo,
   '(app)/trampos/[id]': stub('stub: detalhe do trampo'),
@@ -148,52 +150,36 @@ async function esperarSonda(texto: string) {
   );
 }
 
-describe('aba Publicar (CA16)', () => {
-  it('fica entre Buscar e Conversas e abre a escolha com as duas rotas', async () => {
+describe('Publicar deixou de ser aba (CA76, CA77)', () => {
+  it('a barra não tem Publicar, e /publicar abre o formulário de trampo', async () => {
     await abrir('/');
     await screen.findByText('stub: início');
 
     const nomes: string[] = [
       textos.abas.inicio,
-      textos.abas.buscar,
-      textos.abas.publicar,
+      textos.abas.meusTrampos,
       textos.abas.conversas,
       textos.abas.perfil,
     ];
     const naBarra = screen
       .getAllByRole('button')
       .map((b) => b.props.accessibilityLabel as string)
-      .filter((nome) => nomes.includes(nome));
+      .filter((nome) => [...nomes, textos.abas.publicar].includes(nome));
     expect(naBarra).toEqual(nomes);
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: textos.abas.publicar }),
-    );
-    await waitFor(() => expect(screen).toHavePathname('/publicar'));
-    expect(
-      await screen.findByText(textos.escolhaDePublicacao.pergunta),
-    ).toBeOnTheScreen();
-
-    await fireEvent.press(
-      screen.getByRole('button', {
-        name: `${textos.escolhaDePublicacao.trampo}. ${textos.escolhaDePublicacao.trampoAjuda}`,
-      }),
-    );
+    await act(async () => router.push('/publicar'));
     await waitFor(() => expect(screen).toHavePathname('/trampos/novo'));
     expect(await screen.findByLabelText(t.prazo)).toBeOnTheScreen();
+    expect(screen.queryByText(textos.escolhaDePublicacao.pergunta)).toBeNull();
     expect(screen.queryByText('stub: detalhe do trampo')).toBeNull();
+  });
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
-    await waitFor(() => expect(screen).toHavePathname('/publicar'));
-    await fireEvent.press(
-      screen.getByRole('button', {
-        name: `${textos.escolhaDePublicacao.servico}. ${textos.escolhaDePublicacao.servicoAjuda}`,
-      }),
-    );
-    await waitFor(() => expect(screen).toHavePathname('/servicos/novo'));
-    expect(await screen.findByLabelText(t.precoBase)).toBeOnTheScreen();
-    expect(screen.queryByLabelText(t.prazo)).toBeNull();
-    expect(screen.queryByText('stub: detalhe do serviço')).toBeNull();
+  it('o link /publicar aberto de fora também leva ao formulário de trampo', async () => {
+    await abrir('/publicar');
+
+    await waitFor(() => expect(screen).toHavePathname('/trampos/novo'));
+    expect(await screen.findByLabelText(t.prazo)).toBeOnTheScreen();
+    expect(screen.queryByLabelText(t.precoBase)).toBeNull();
   });
 
   it('/trampos/novo e /servicos/novo ganham de /trampos/[id] e /servicos/[id]', async () => {
@@ -642,12 +628,9 @@ describe('perfil incompleto (D9)', () => {
 
   it('"Agora não" volta à tela anterior', async () => {
     const fetch = criarFake().responder('GET /perfis/eu', { status: 404 });
-    await abrir('/publicar', fetch);
-    await fireEvent.press(
-      await screen.findByRole('button', {
-        name: `${textos.escolhaDePublicacao.trampo}. ${textos.escolhaDePublicacao.trampoAjuda}`,
-      }),
-    );
+    await abrir('/', fetch);
+    await screen.findByText('stub: início');
+    await act(async () => router.push('/trampos/novo'));
     await waitFor(() => expect(screen).toHavePathname('/trampos/novo'));
     await screen.findByText(/Falta: /);
 
@@ -655,7 +638,8 @@ describe('perfil incompleto (D9)', () => {
       screen.getByRole('button', { name: textos.avisoPerfil.agoraNao }),
     );
 
-    await waitFor(() => expect(screen).toHavePathname('/publicar'));
+    await waitFor(() => expect(screen).toHavePathname('/'));
+    expect(await screen.findByText('stub: início')).toBeOnTheScreen();
   });
 
   it('409 perfil_incompleto no trampo mostra o aviso e "Completar perfil" navega', async () => {

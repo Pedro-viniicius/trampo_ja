@@ -151,7 +151,7 @@ Sugestão: manter em um arquivo único de textos/traduções da stack (pt-BR), c
 - "Escreva uma mensagem para o empregador." / "O valor proposto precisa ser maior que zero."
 - "Você não pode se candidatar ao seu próprio trampo." / "Você já se candidatou a este trampo." (CA9)
 - "Este trampo não recebe mais candidaturas." (CA11)
-- Sucesso: "Candidatura enviada! Você pode acompanhar em Minhas candidaturas." / "Candidatura aceita. Que tal combinar os detalhes na conversa?"
+- Sucesso: "Candidatura enviada! Você pode acompanhar em Minhas candidaturas." / "Candidatura aceita. Que tal combinar os detalhes na conversa?" (V2: o primeiro virou a tela "Candidatura enviada", CA80 em `specs/visual-v2.md`.)
 **Conversas**: "Escreva uma mensagem"; "Enviar"; "Não enviada. Toque para tentar de novo."; "Você só pode conversar com quem tem uma candidatura ou contratação com você." (CA13); vazio: "Suas conversas aparecem aqui depois de uma candidatura ou contratação."
 **Perfil**: "Editar perfil"; "Nome"; "Cidade"; "Sobre você (opcional)"; "Habilidades"; "Adicionar habilidade"; "Salvar alterações"; "Informe seu nome." / "Informe sua cidade." / "Adicione ao menos uma habilidade." (CA3); "Perfil atualizado."; "Sair" -> "Sair da conta?" / "Sair" / "Cancelar".
 

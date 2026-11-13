@@ -97,6 +97,41 @@ export function formatarHoraDaMensagem(iso: string, agora: Date): string {
   return mesmoDia ? hora : `${dia}/${mes} ${hora}`;
 }
 
+/** Meia-noite (no fuso do aparelho) do dia `deslocamento` dias depois de `data`. */
+function inicioDoDia(data: Date, deslocamento = 0): number {
+  return new Date(
+    data.getFullYear(),
+    data.getMonth(),
+    data.getDate() + deslocamento,
+  ).getTime();
+}
+
+/**
+ * Dia de uma mensagem para o separador do chat, no fuso do aparelho e
+ * relativo a `agora`: `rotulos.hoje`, `rotulos.ontem` ou `dd/mm/aaaa`. Só
+ * aceita instante ISO 8601 com hora; entrada inválida dá `null` (sem
+ * separador).
+ */
+export function formatarDiaDaMensagem(
+  iso: string,
+  agora: Date,
+  rotulos: { readonly hoje: string; readonly ontem: string },
+): string | null {
+  const instante = INSTANTE_ISO.test(iso)
+    ? new Date(iso).getTime()
+    : Number.NaN;
+  if (Number.isNaN(instante)) {
+    return null;
+  }
+  if (instante >= inicioDoDia(agora) && instante < inicioDoDia(agora, 1)) {
+    return rotulos.hoje;
+  }
+  if (instante >= inicioDoDia(agora, -1) && instante < inicioDoDia(agora)) {
+    return rotulos.ontem;
+  }
+  return formatarDataHora(iso);
+}
+
 /** Rótulo da categoria, ou o próprio id se a lista ainda não o tem. */
 export function rotuloDaCategoria(
   categorias: readonly Categoria[] | undefined,

@@ -9,10 +9,13 @@ import {
 } from 'react';
 import type { FuncaoFetch } from '../api/cliente';
 import type { ArmazenamentoDeToken } from './armazenamento-token';
+import { type ArmazenamentoDoModo, ModoProvider } from './modo';
 import { SessaoProvider } from './sessao';
 
 export interface PropsDosProvedores {
   readonly armazenamento: ArmazenamentoDeToken;
+  /** Onde o modo de navegação fica gravado (ADR-010). */
+  readonly armazenamentoDoModo: ArmazenamentoDoModo;
   readonly queryClient: QueryClient;
   /** Padrão: `globalThis.fetch`. Os testes passam o fake. */
   readonly fetch?: FuncaoFetch;
@@ -35,14 +38,19 @@ function RastreadorDeRota({
 }
 
 /**
- * Provedores do app: `QueryClientProvider` e `SessaoProvider`, com a rota
- * atual (do Expo Router) ligada à sessão para o retorno depois de um 401
- * (CA14). As dependências vêm por props: a raiz passa as reais, os testes de
- * rota passam os fakes. Fica fora de `src/app/` porque todo arquivo de lá
- * vira rota.
+ * Provedores do app: `QueryClientProvider`, `SessaoProvider` e
+ * `ModoProvider`, com a rota atual (do Expo Router) ligada à sessão para o
+ * retorno depois de um 401 (CA14). As dependências vêm por props: a raiz
+ * passa as reais, os testes de rota passam os fakes. Fica fora de `src/app/`
+ * porque todo arquivo de lá vira rota.
+ *
+ * O `ModoProvider` fica dentro da sessão só para as duas leituras do
+ * secure-store correrem juntas; ele não depende dela, e sair da conta não
+ * muda o modo (P3).
  */
 export function Provedores({
   armazenamento,
+  armazenamentoDoModo,
   queryClient,
   fetch,
   urlBase,
@@ -60,7 +68,9 @@ export function Provedores({
         {...(urlBase !== undefined && { urlBase })}
       >
         <RastreadorDeRota destino={rotaAtual} />
-        {children}
+        <ModoProvider armazenamento={armazenamentoDoModo}>
+          {children}
+        </ModoProvider>
       </SessaoProvider>
     </QueryClientProvider>
   );

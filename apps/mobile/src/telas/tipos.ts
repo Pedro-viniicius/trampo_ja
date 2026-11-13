@@ -4,6 +4,7 @@ import type {
   StatusDaCandidatura,
   StatusDoTrampo,
 } from '../api/tipos';
+import type { Dica } from '../textos/dicas';
 
 /** Estado de um bloco de dados, já traduzido: a tela só desenha, o contêiner decide. */
 export type Estado<T> =
@@ -23,6 +24,9 @@ export interface PerfilIncompleto {
 }
 
 export type TipoDeAnuncio = 'trampo' | 'servico';
+
+/** V2: modo de navegação (freela ou contratante); igual ao `Modo` do estado. */
+export type ModoDoApp = 'freela' | 'contratante';
 
 /** Status aceito pelas telas. `encerrado` entra em `StatusDoTrampo` na etapa 5 (L2). */
 export type StatusDoTrampoParaExibir = StatusDoTrampo | 'encerrado';
@@ -70,6 +74,12 @@ export interface ItemParaExibir {
   cidade: string | null;
   valorFormatado: string;
   dataFormatada: string;
+  /**
+   * V2: nome de quem publicou, quando o contêiner o tiver (`null` = perfil
+   * indisponível). Na busca de serviços com `tipo` fixo, o item vira
+   * `CartaoDeFreelancer`; sem o campo, fica o cartão de anúncio.
+   */
+  autor?: string | null;
 }
 
 /** Opção de categoria: `id` vai para a API, `rotulo` para a tela. */
@@ -120,6 +130,13 @@ export interface PropsDeCadastro {
   onPolitica: () => void;
   onTermos: () => void;
   onVoltar?: () => void;
+  /**
+   * V2 (CA75): objetivo escolhido ("Quero contratar" = `contratante`, "Quero
+   * trampar" = `freela`); define só o modo inicial. Com `onEscolherObjetivo`,
+   * os cartões aparecem e "Criar conta" fica desabilitado até a escolha.
+   */
+  objetivo?: ModoDoApp | null;
+  onEscolherObjetivo?: (modo: ModoDoApp) => void;
 }
 
 export interface PropsDoInicio {
@@ -137,6 +154,13 @@ export interface PropsDoInicio {
   onPublicarTrampo?: () => void;
   onOfertarServico?: () => void;
   onMinhasCandidaturas?: () => void;
+  /**
+   * V2: candidaturas pendentes, para o destaque "{n} em análise" (mesma chave
+   * de cache de Meus trampos). Sem o número, o destaque mostra um convite.
+   */
+  candidaturasEmAnalise?: number | null;
+  /** V2: cartão de Dicas & minicursos no fim do Início. */
+  onDicas?: () => void;
   /** L4: aviso de retorno (ex.: "Trampo excluído."). */
   toast?: string | null;
   onFecharToast?: () => void;
@@ -154,7 +178,15 @@ export interface PropsDaBusca {
   cidade: string | null;
   categorias: readonly OpcaoDeCategoria[];
   cidadesSugeridas?: readonly string[];
-  aba: AbaDaBusca;
+  /** Aba atual; ignorada quando `tipo` vem. */
+  aba?: AbaDaBusca;
+  /**
+   * V2 (CA84): busca de um tipo só, sem abas. `servicos` = aba Buscar do
+   * contratante ("Buscar freelancers"); `trampos` = busca do freela.
+   */
+  tipo?: AbaDaBusca;
+  /** V2: botão voltar no cabeçalho (busca de trampos do freela). */
+  onVoltar?: () => void;
   /** Na situação `ok`, `dados` são os itens já carregados; a contagem sai deles e de `temMais`. */
   estado: EstadoDaBusca;
   temMais: boolean;
@@ -173,7 +205,8 @@ export interface PropsDaBusca {
   onCarregarMais: () => void;
   onLimparFiltros: () => void;
   onAbrirItem: (item: ItemParaExibir) => void;
-  onTrocarAba: (aba: AbaDaBusca) => void;
+  /** Obrigatório sem `tipo` (é quem troca a aba). */
+  onTrocarAba?: (aba: AbaDaBusca) => void;
 }
 
 /** Trampo pronto para exibir: valor, prazo e categoria já formatados pelo contêiner. */
@@ -250,6 +283,35 @@ export interface PropsDoPerfil {
   onMeusServicos?: () => void;
   /** Atalho da L1 para "Conta e privacidade". */
   onContaEPrivacidade?: () => void;
+  /** V2 (CA75): cartão de modo ("Modo contratante"); só no próprio perfil. */
+  onTrocarModo?: () => void;
+  /** V2: linha "Dicas & minicursos". */
+  onDicas?: () => void;
+  /**
+   * V2 (CA83): números de `/candidaturas/minhas`; ausente ou `null`, os
+   * cartões de número não aparecem.
+   */
+  contagens?: ContagensDoPerfil | null;
+}
+
+/** V2: números do Perfil do freela. */
+export interface ContagensDoPerfil {
+  enviadas: number;
+  confirmadas: number;
+}
+
+/** V2 (quadro 18): Perfil da empresa, o Perfil do modo contratante. */
+export interface PropsDoPerfilDaEmpresa {
+  estado: Estado<PerfilParaExibir>;
+  perfilIncompleto?: PerfilIncompleto | null;
+  semConexao?: boolean;
+  /** Cartão "Modo freela". */
+  onTrocarModo: () => void;
+  /** "Editar perfil" e "Informações da empresa" (cidade e sobre ficam lá). */
+  onEditar: () => void;
+  onContaEPrivacidade: () => void;
+  /** Chamado depois da confirmação do diálogo "Sair da conta?". */
+  onSair: () => void;
 }
 
 export interface ValoresDoPerfil {
@@ -302,11 +364,6 @@ export type SituacaoDoRodape =
   /** `quantidade` null: "Ver candidaturas" sem número. */
   | { tipo: 'autor'; quantidade: number | null }
   | { tipo: 'candidatado'; status: StatusDaCandidatura };
-
-export interface PropsDaEscolhaDePublicacao {
-  onPublicarTrampo: () => void;
-  onOfertarServico: () => void;
-}
 
 export type CampoDoAnuncio =
   | 'titulo'
@@ -390,6 +447,8 @@ export interface FolhaDeCandidatura {
 
 export interface PropsDoRodapeDoTrampo {
   situacao: SituacaoDoRodape;
+  /** V2 (quadro 05): valor à esquerda do "Quero me candidatar". */
+  valorFormatado?: string;
   semConexao?: boolean;
   folha: FolhaDeCandidatura;
   onCandidatar: () => void;
@@ -453,7 +512,19 @@ export interface MinhaCandidaturaParaExibir {
   status: StatusDaCandidatura;
   /** Mostra "Retirar candidatura" (só pendente) (L2). */
   podeRetirar?: boolean;
+  /**
+   * V2 (CA78): status do trampo, para o segmento. `aceita` com trampo
+   * `encerrado` cai em Encerrados; sem o campo, em Confirmados.
+   */
+  statusDoTrampo?: StatusDoTrampoParaExibir | null;
+  /** V2: nome de quem publicou (`GET /perfis/:id`, com cache). */
+  autor?: string | null;
+  /** V2: prazo do trampo, já formatado. */
+  prazoFormatado?: string | null;
 }
+
+/** V2 (CA78): segmentos de Meus trampos. */
+export type SegmentoDeMeusTrampos = 'analise' | 'confirmados' | 'encerrados';
 
 export interface PropsDasMinhasCandidaturas {
   lista: Estado<readonly MinhaCandidaturaParaExibir[]>;
@@ -470,12 +541,27 @@ export interface PropsDasMinhasCandidaturas {
   onFecharToast?: () => void;
   onAbrirTrampo: (trampoId: string) => void;
   onBuscarTrampos: () => void;
-  onVoltar: () => void;
+  /** Sem ela, não há voltar (aba Meus trampos). */
+  onVoltar?: () => void;
+  /**
+   * V2 (CA78): aba "Meus trampos" com os segmentos Em análise, Confirmados e
+   * Encerrados (título grande, sem voltar). Sem a prop, a lista é única.
+   */
+  segmentada?: boolean;
+  /** Segmento aberto ao montar (padrão: Em análise). */
+  segmentoInicial?: SegmentoDeMeusTrampos;
+  /** V2: "Mensagem" na candidatura aceita. */
+  onMensagem?: (item: MinhaCandidaturaParaExibir) => void;
 }
 
 export type MeuAnuncioParaExibir = ItemParaExibir & {
   status: StatusDoTrampoParaExibir | 'ativo';
+  /** V2: candidaturas recebidas (selo "{n} interessados"); só trampo. */
+  interessados?: number;
 };
+
+/** V2 (CA79): abas de Demandas, pelo `status` do trampo. */
+export type AbaDeDemandas = 'aberto' | 'em_andamento' | 'encerrado';
 
 export interface PropsDosMeusAnuncios {
   tipo: TipoDeAnuncio;
@@ -483,7 +569,8 @@ export interface PropsDosMeusAnuncios {
   semConexao?: boolean;
   onAbrirItem: (item: MeuAnuncioParaExibir) => void;
   onPublicar: () => void;
-  onVoltar: () => void;
+  /** Sem ela, não há voltar (aba Demandas, com `segmentada`). */
+  onVoltar?: () => void;
   /** L2: folha "Mais opções" do item aberto, toast de resultado. */
   folha?: PropsDaFolhaDeAcoes;
   onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
@@ -495,6 +582,13 @@ export interface PropsDosMeusAnuncios {
     erro?: string;
     onCarregarMais: () => void;
   };
+  /**
+   * V2 (CA79): aba "Demandas" (só `tipo` trampo): título grande com "+"
+   * (`onPublicar`) e as abas Abertas, Em andamento e Encerradas, que filtram
+   * as páginas já carregadas. Sem a prop, a lista é única.
+   */
+  segmentada?: boolean;
+  abaInicial?: AbaDeDemandas;
 }
 
 // ---- Entrega 2c: conversas ----
@@ -512,6 +606,8 @@ export interface PropsDaListaDeConversas {
   lista: Estado<readonly ConversaParaExibir[]>;
   semConexao?: boolean;
   onAbrir: (id: string) => void;
+  /** V2: escolhe o subtítulo ("com seus contratantes" / "com os profissionais"). */
+  modo?: ModoDoApp;
 }
 
 export type SituacaoDaMensagem = 'enviada' | 'enviando' | 'falhou';
@@ -524,6 +620,21 @@ export interface MensagemParaExibir {
   /** `null` enquanto não há hora confirmada. */
   horaFormatada: string | null;
   situacao: SituacaoDaMensagem;
+  /**
+   * Dia da mensagem no fuso do aparelho ("Hoje", "Ontem" ou `dd/mm/aaaa`). A
+   * tela põe o separador de dia antes da primeira mensagem e sempre que ele
+   * muda entre duas seguidas. Sem o campo (ou `null`), nenhum separador.
+   */
+  diaFormatado?: string | null;
+}
+
+/** Faixa de contexto do chat: título do trampo, selo da candidatura e valor; o toque abre o trampo. */
+export interface FaixaDaConversa {
+  titulo: string;
+  statusDaCandidatura: StatusDaCandidatura;
+  /** Ex.: "R$ 120,00". */
+  valorFormatado: string;
+  onAbrir: () => void;
 }
 
 export interface PropsDaConversa {
@@ -543,6 +654,12 @@ export interface PropsDaConversa {
   atualizacaoFalhando?: boolean;
   /** Texto já traduzido de falha ao enviar (ex.: limite de ações, 429); aparece acima do campo. */
   avisoDoEnvio?: string;
+  /** V2: título do trampo da conversa, abaixo do nome ("Sobre: {título}"). */
+  contexto?: string | null;
+  /** V2: chips de resposta rápida (só freela com candidatura confirmada); preenchem o campo. */
+  comRespostasRapidas?: boolean;
+  /** V2 (quadro 09): card compacto do trampo da conversa, abaixo do cabeçalho. Sem a prop, não aparece. */
+  faixa?: FaixaDaConversa | null;
   onMudarRascunho: (texto: string) => void;
   onEnviar: () => void;
   onTentarDeNovo: (chave: string) => void;
@@ -616,4 +733,67 @@ export interface PropsDeExportarDados {
   semConexao?: boolean;
   onGerar: () => void;
   onVoltar: () => void;
+}
+
+// ---- V2a: telas novas ----
+
+/** Resumo da candidatura (do cache); `null` = só o título e os passos. */
+export interface ResumoDaCandidaturaEnviada {
+  titulo: string;
+  /** Nome de quem publicou; `null` = sem nome no cache. */
+  autor: string | null;
+  prazoFormatado: string | null;
+  /** Valor proposto ou do trampo, já formatado. */
+  valorFormatado: string | null;
+}
+
+/** V2 (quadro 06; CA80). */
+export interface PropsDaCandidaturaEnviada {
+  resumo: ResumoDaCandidaturaEnviada | null;
+  onVerMeusTrampos: () => void;
+  onBuscarMais: () => void;
+  /** Volta ao detalhe do trampo (o voltar do sistema faz o mesmo). */
+  onVoltar?: () => void;
+}
+
+/** Conteúdo de Dicas: o formato de `textos/dicas.ts`. */
+export type DicaParaExibir = Dica;
+
+/** V2 (quadro 11; CA81): lista local, sem rede. */
+export interface PropsDasDicas {
+  /** Padrão: `DICAS` de `textos/dicas.ts`. */
+  conteudos?: readonly DicaParaExibir[];
+  onAbrir: (id: string) => void;
+  onVoltar: () => void;
+}
+
+/** V2 (CA81): leitura; `dica` nula = conteúdo não encontrado. */
+export interface PropsDaLeituraDeDica {
+  dica: DicaParaExibir | null;
+  onVoltar: () => void;
+}
+
+/** Demanda aberta no Início do contratante (CA82). */
+export interface DemandaParaExibir {
+  id: string;
+  titulo: string;
+  prazoFormatado: string | null;
+  /** `candidaturasRecebidas` do trampo. */
+  interessados: number;
+}
+
+/** V2 (quadro 12; CA82). */
+export interface PropsDoInicioDoContratante {
+  /** Nome da empresa; sem ele, a saudação é "Olá!". */
+  nome?: string;
+  perfilIncompleto?: PerfilIncompleto | null;
+  /** Trampos `aberto` de `/trampos/meus`; a tela mostra até 3. */
+  demandas: Estado<readonly DemandaParaExibir[]>;
+  semConexao?: boolean;
+  onNovaDemanda: () => void;
+  onVerDemandas: () => void;
+  onVerCandidatos: (id: string) => void;
+  onCompletarPerfil?: () => void;
+  toast?: string | null;
+  onFecharToast?: () => void;
 }

@@ -9,6 +9,7 @@ import type {
   GravacaoSobTrava,
   PaginaDoAutor,
   RepositorioDeTrampos,
+  VinculoParaAvaliacao,
 } from '../../dominio/portas.js';
 import {
   type DadosDoTrampo,
@@ -139,6 +140,35 @@ export class RepositorioDeTramposEmMemoria implements RepositorioDeTrampos {
       }
     }
     return false;
+  }
+
+  async vinculoParaAvaliacao(
+    trampoId: string,
+    contaId: string,
+  ): Promise<VinculoParaAvaliacao> {
+    const dados = this.#guardados.get(trampoId);
+    if (!dados) {
+      return null;
+    }
+    const aceitos = dados.candidaturas
+      .filter((c) => c.status === 'aceita')
+      .map((c) => c.freelancerId);
+    const ehAutor = contaId === dados.autorId;
+    const ehFreelaAceito = aceitos.length === 1 && aceitos[0] === contaId;
+    if (ehAutor === ehFreelaAceito) {
+      // Nenhum dos dois (terceiro) ou os dois ao mesmo tempo (dado incoerente).
+      return null;
+    }
+    if (dados.status !== 'encerrado') {
+      return 'nao_encerrado';
+    }
+    if (ehFreelaAceito) {
+      return { avaliadoId: dados.autorId, papelDoAvaliado: 'contratante' };
+    }
+    const freela = aceitos.length === 1 ? aceitos[0] : undefined;
+    return freela === undefined
+      ? null
+      : { avaliadoId: freela, papelDoAvaliado: 'freela' };
   }
 
   async listarCandidaturasDoFreelancer(

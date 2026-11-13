@@ -1,12 +1,12 @@
 // Etapa 15 da L4: o autor do trampo vem da visão do autor (D46), a folha
-// "Mais opções" acompanha o anúncio atual (CA61, R8) e Meus anúncios carrega
-// mais (CA66, D47). Rotas reais com o fake de `fetch`; o servidor do teste
-// pagina `GET /trampos/meus` como a API.
+// "Mais opções" acompanha o anúncio atual (CA61, R8) e Meus anúncios (a aba
+// Demandas desde a V2, CA79) carrega mais (CA66, D47). Rotas reais com o
+// fake de `fetch`; o servidor do teste pagina `GET /trampos/meus` como a API.
 import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import { Text } from 'react-native';
 import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
-import RotaDosMeusAnuncios from '../../app/(app)/meus-anuncios';
+import RotaDasDemandas from '../../app/(app)/(abas)/demandas';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
 import { esquecerAvisoDeRetorno } from '../../estado/aviso-de-retorno';
@@ -133,7 +133,7 @@ function stub(texto: string) {
 const ROTAS: MapaDeRotas = {
   '(app)/_layout': LayoutDaAreaAutenticada,
   '(app)/(abas)/index': stub('stub: início'),
-  '(app)/meus-anuncios': RotaDosMeusAnuncios,
+  '(app)/(abas)/demandas': RotaDasDemandas,
   '(app)/trampos/[id]': RotaDoTrampo,
   '(app)/trampos/editar/[id]': stub('stub: editar trampo'),
   '(app)/candidaturas/[trampoId]': stub('stub: recebidas'),
@@ -210,7 +210,7 @@ describe('detalhe do trampo: o autor pela visão do autor (CA66, D46)', () => {
   });
 
   it('de Meus anúncios, depois de "Carregar mais": o trampo da página 2 abre com "Mais opções"', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await screen.findByText(tituloDe(TOTAL));
     expect(screen.queryByText(tituloDe(1))).toBeNull();
     await fireEvent.press(
@@ -331,7 +331,7 @@ describe('folha "Mais opções" depois do 409 trampo_nao_aberto (CA61, R8)', () 
 
   it('em Meus anúncios: a folha aberta acompanha a lista relida', async () => {
     const servidor = servidorQueMudaNoDelete(idDe(TOTAL));
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await abrirFolha(tituloDe(TOTAL));
     expect(acao(a.excluirTrampo)).toBeEnabled();
 
@@ -363,7 +363,7 @@ describe('folha "Mais opções" depois do 409 trampo_nao_aberto (CA61, R8)', () 
         corpo: paginaDe(servidor.trampos, r.query),
         ...(mudou && { demoraMs: 1000 }),
       }));
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await abrirFolha(tituloDe(TOTAL));
 
     await excluirComConfirmacao();
@@ -420,7 +420,7 @@ describe('Meus anúncios: "Carregar mais" (CA66, D47)', () => {
       corpo: paginaDe(servidor.trampos, r.query),
       ...(r.query.antesDeId !== undefined && { demoraMs: 300 }),
     }));
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await screen.findByText(tituloDe(TOTAL));
     expect(
       screen.getByText(tituloDe(TOTAL - POR_PAGINA + 1)),
@@ -464,7 +464,7 @@ describe('Meus anúncios: "Carregar mais" (CA66, D47)', () => {
   it('lista curta (menos de 20): sem botão e uma requisição só', async () => {
     const servidor = criarServidor();
     servidor.trampos.splice(0, TOTAL - 3);
-    const { servidor: s } = await abrir('/meus-anuncios', servidor);
+    const { servidor: s } = await abrir('/demandas', servidor);
     await screen.findByText(tituloDe(TOTAL));
 
     expect(botaoCarregarMais()).toBeNull();
@@ -479,7 +479,7 @@ describe('Meus anúncios: "Carregar mais" (CA66, D47)', () => {
         ? { status: 500, corpo: { erro: 'interno' } }
         : { corpo: paginaDe(servidor.trampos, r.query) },
     );
-    await abrir('/meus-anuncios', servidor);
+    await abrir('/demandas', servidor);
     await screen.findByText(tituloDe(TOTAL));
     await fireEvent.press(
       screen.getByRole('button', { name: textos.gerais.carregarMais }),
@@ -502,7 +502,7 @@ describe('Meus anúncios: "Carregar mais" (CA66, D47)', () => {
   });
 
   it('sem conexão: o botão fica desabilitado e nenhuma página nova sai', async () => {
-    const { servidor } = await abrir('/meus-anuncios');
+    const { servidor } = await abrir('/demandas');
     await screen.findByText(tituloDe(TOTAL));
     await act(async () => onlineManager.setOnline(false));
 

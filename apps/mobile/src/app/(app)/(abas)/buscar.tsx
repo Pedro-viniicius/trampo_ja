@@ -18,51 +18,62 @@ interface Formulario {
   readonly texto: string;
   readonly categoria: string | null;
   readonly cidade: string | null;
-  readonly aba: AbaDaBusca;
 }
 
-function tipoValido(tipo: string | undefined): AbaDaBusca | undefined {
-  return tipo === 'trampos' || tipo === 'servicos' ? tipo : undefined;
-}
-
-/** Formulário zerado numa aba: é como "Ver todos" abre a Buscar. */
-function formularioLimpo(aba: AbaDaBusca): Formulario {
-  return { texto: '', categoria: null, cidade: null, aba };
-}
+/** Formulário zerado: é como "Ver todos" abre a busca. */
+const FORMULARIO_LIMPO: Formulario = {
+  texto: '',
+  categoria: null,
+  cidade: null,
+};
 
 /** Filtros da query; o que está em branco nem entra (a consulta também normaliza). */
-function filtrosDo(formulario: Formulario): FiltrosDeConsulta {
-  const { texto, categoria, cidade, aba } = formulario;
+function filtrosDo(
+  tipo: AbaDaBusca,
+  formulario: Formulario,
+): FiltrosDeConsulta {
+  const { texto, categoria, cidade } = formulario;
   return {
-    tipo: aba,
+    tipo,
     ...(texto.trim() !== '' && { texto }),
     ...(categoria !== null && { categoria }),
     ...(cidade !== null && { cidade }),
   };
 }
 
-/**
- * Buscar. A busca só dispara ao enviar o texto ou ao mudar filtro/aba (nunca a
- * cada letra); `?tipo=` (vindo de "Ver todos") escolhe a aba, zera os filtros
- * e já lista tudo daquele tipo. Cada "Ver todos" manda um `pedido` novo, e é
- * a mudança dele que reaplica o tipo com a tela já montada.
- */
+/** Aba Buscar do contratante (CA84): busca serviços ("Buscar freelancers"). */
 export default function BuscarRota() {
+  return <BuscaDeUmTipo tipo="servicos" />;
+}
+
+/**
+ * Busca de um tipo só (CA84): serviços na aba Buscar do contratante, trampos
+ * em `/buscar-trampos` (freela, com voltar). A busca só dispara ao enviar o
+ * texto ou ao mudar um filtro (nunca a cada letra). `?tipo=` igual ao tipo
+ * da tela (vindo de "Ver todos") zera os filtros e já lista tudo. Cada "Ver
+ * todos" manda um `pedido` novo, e é a mudança dele que reaplica a lista com
+ * a tela já montada.
+ */
+export function BuscaDeUmTipo({
+  tipo,
+  onVoltar,
+}: {
+  readonly tipo: AbaDaBusca;
+  readonly onVoltar?: () => void;
+}) {
   const router = useRouter();
   const { online } = useConexao();
   const { categorias } = useCategorias();
   // CA63: ver `Inicio`; o detalhe aberto daqui que exclui volta com o aviso.
   const aviso = useAvisoDeRetorno(useIsFocused());
   const params = useLocalSearchParams<{ tipo?: string; pedido?: string }>();
-  const tipoDaUrl = tipoValido(params.tipo);
+  const tipoDaUrl = params.tipo === tipo ? tipo : undefined;
   const pedidoDaUrl = tipoDaUrl === undefined ? undefined : params.pedido;
 
-  const [formulario, setFormulario] = useState<Formulario>(
-    formularioLimpo(tipoDaUrl ?? 'trampos'),
-  );
+  const [formulario, setFormulario] = useState<Formulario>(FORMULARIO_LIMPO);
   // `null`: nada enviado ainda, e a tela mostra as categorias sugeridas.
   const [enviados, setEnviados] = useState<FiltrosDeConsulta | null>(
-    tipoDaUrl ? { tipo: tipoDaUrl } : null,
+    tipoDaUrl ? { tipo } : null,
   );
   const [pedidoAplicado, setPedidoAplicado] = useState({
     tipo: tipoDaUrl,
@@ -77,9 +88,8 @@ export default function BuscarRota() {
   ) {
     setPedidoAplicado({ tipo: tipoDaUrl, pedido: pedidoDaUrl });
     if (tipoDaUrl !== undefined) {
-      const novo = formularioLimpo(tipoDaUrl);
-      setFormulario(novo);
-      setEnviados(filtrosDo(novo));
+      setFormulario(FORMULARIO_LIMPO);
+      setEnviados(filtrosDo(tipo, FORMULARIO_LIMPO));
     }
   }
 
@@ -87,11 +97,11 @@ export default function BuscarRota() {
 
   function enviar(novo: Formulario) {
     setFormulario(novo);
-    setEnviados(filtrosDo(novo));
+    setEnviados(filtrosDo(tipo, novo));
   }
 
   function limparFiltros() {
-    enviar(formularioLimpo(formulario.aba));
+    enviar(FORMULARIO_LIMPO);
   }
 
   function carregarMais() {
@@ -117,7 +127,8 @@ export default function BuscarRota() {
       categoria={formulario.categoria}
       cidade={formulario.cidade}
       categorias={categorias}
-      aba={formulario.aba}
+      tipo={tipo}
+      onVoltar={onVoltar}
       estado={estadoDaBusca()}
       temMais={busca.temMais}
       carregandoMais={busca.carregandoMais}
@@ -133,7 +144,6 @@ export default function BuscarRota() {
       onCarregarMais={carregarMais}
       onLimparFiltros={limparFiltros}
       onAbrirItem={abrirItem}
-      onTrocarAba={(aba) => enviar({ ...formulario, aba })}
     />
   );
 

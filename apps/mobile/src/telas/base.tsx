@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import {
   type ComponentRef,
   createContext,
@@ -22,27 +22,37 @@ import {
 import {
   Avatar,
   Aviso,
+  BotaoDeIcone,
   Cabecalho,
   Esqueleto,
   EstadoVazio,
+  FaixaDeDestaque,
+  folgaDaBarraDeAbas,
+  Logo,
 } from '../componentes';
 import {
   estiloDeFoco,
+  type NomeDeIcone,
   useFoco,
   useMargensSeguras,
 } from '../componentes/utilitarios';
+import { texto as estiloDeTexto } from '../tema/texto';
 import {
   cores,
   espaco,
   larguraMaxima,
+  margemDaTela,
   raio,
-  tipografia,
+  sombra,
   toqueMinimo,
 } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import type { Estado } from './tipos';
 
 export const LINHAS_DA_DESCRICAO = 5;
+
+/** Quanto o primeiro card do detalhe sobe sobre a faixa gradiente. */
+const SOBREPOSICAO_DA_FAIXA = espaco['3xl'] + espaco.m;
 
 /** Alvo de foco: `TextInput` (campo) ou `View`/`Pressable` (seletor, botão). */
 export type RefDeCampo = RefObject<
@@ -81,7 +91,7 @@ export function rolarAteOAlvo(rolagem: RefDaRolagem | null, alvo: unknown) {
     medivel.measureLayout(
       interno,
       (_x, y) =>
-        rolavel.scrollTo({ y: Math.max(0, y - espaco[6]), animated: false }),
+        rolavel.scrollTo({ y: Math.max(0, y - espaco.xl), animated: false }),
       () => {},
     );
   } catch {
@@ -96,10 +106,10 @@ export function Pagina({ children }: { children: ReactNode }) {
   );
 }
 
-/** Coluna de conteúdo: margem de 16, espaçamento de 16 e largura máxima 560. */
+/** Coluna de conteúdo: margem lateral de 24, espaçamento de 16 e largura máxima 560. */
 export function Coluna({
   children,
-  gap = espaco[4],
+  gap = espaco.m,
 }: {
   children: ReactNode;
   gap?: number;
@@ -109,7 +119,8 @@ export function Coluna({
       style={{
         width: '100%',
         maxWidth: larguraMaxima,
-        padding: espaco[4],
+        paddingHorizontal: margemDaTela,
+        paddingVertical: espaco.m,
         gap,
       }}
     >
@@ -129,9 +140,28 @@ export function Rolavel({
   sobreposicao,
   aoMedirRodape,
   direita,
+  comBarraDeAbas,
+  subtitulo,
+  raiz = false,
+  faixa = false,
 }: {
   titulo: string;
+  /**
+   * V2 (detalhes, quadro 05): no lugar do cabeçalho, a faixa gradiente rola
+   * junto com o conteúdo, com voltar e `direita` por cima; o conteúdo sobe
+   * sobre ela. O título da tela fica para o conteúdo (o `header` é o do card).
+   */
+  faixa?: boolean;
+  /** V2: linha de apoio abaixo do título. */
+  subtitulo?: string;
+  /** V2: raiz de aba (título `h1`, sem voltar). */
+  raiz?: boolean;
   onVoltar?: () => void;
+  /**
+   * Raiz de aba: o fim da rolagem ganha folga para nada ficar atrás da barra
+   * de abas flutuante (altura + margens + 16). Padrão: o valor de `raiz`.
+   */
+  comBarraDeAbas?: boolean;
   /** Só a tela usa (ações); a faixa única fica na raiz (`NavegacaoRaiz`). */
   semConexao?: boolean;
   rodape?: ReactNode;
@@ -149,17 +179,43 @@ export function Rolavel({
   const propria = useRef<ComponentRef<typeof ScrollView>>(null);
   const rolagem = scrollRef ?? propria;
   const [alturaDoRodape, setAlturaDoRodape] = useState(0);
+  const margens = useMargensSeguras();
   return (
     <Pagina>
-      <Cabecalho titulo={titulo} onVoltar={onVoltar} direita={direita} />
+      {faixa ? null : (
+        <Cabecalho
+          titulo={titulo}
+          subtitulo={subtitulo}
+          raiz={raiz}
+          onVoltar={onVoltar}
+          direita={direita}
+        />
+      )}
       {acima}
       <ScrollView
         ref={rolagem}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ alignItems: 'center' }}
+        contentContainerStyle={{
+          alignItems: 'center',
+          paddingBottom:
+            (comBarraDeAbas ?? raiz) ? folgaDaBarraDeAbas(margens.bottom) : 0,
+        }}
       >
+        {faixa ? (
+          <View style={{ alignSelf: 'stretch' }}>
+            <FaixaDeDestaque onVoltar={onVoltar} direita={direita} />
+          </View>
+        ) : null}
         <ContextoDeRolagem.Provider value={rolagem}>
-          <Coluna>{children}</Coluna>
+          <View
+            style={{
+              width: '100%',
+              alignItems: 'center',
+              marginTop: faixa ? -SOBREPOSICAO_DA_FAIXA : 0,
+            }}
+          >
+            <Coluna>{children}</Coluna>
+          </View>
         </ContextoDeRolagem.Provider>
       </ScrollView>
       {rodape ? (
@@ -197,10 +253,19 @@ export function Formulario({
   onVoltar,
   rodape,
   aoMedirRodape,
+  ilustracao,
+  subtitulo,
   children,
 }: {
   titulo: string;
   onVoltar?: () => void;
+  /**
+   * V2 (quadro 02): ilustração no topo do conteúdo. Com ela, o título vira
+   * `h1` centralizado abaixo da ilustração e o topo fica só com o voltar.
+   */
+  ilustracao?: ReactNode;
+  /** Linha de apoio abaixo do título (só com `ilustracao`). */
+  subtitulo?: string;
   /** Só a tela usa (ações); a faixa única fica na raiz (`NavegacaoRaiz`). */
   semConexao?: boolean;
   rodape: ReactNode;
@@ -211,7 +276,11 @@ export function Formulario({
   const rolagem = useRef<ComponentRef<typeof ScrollView>>(null);
   return (
     <Pagina>
-      <Cabecalho titulo={titulo} onVoltar={onVoltar} />
+      {ilustracao ? (
+        <SoVoltar onVoltar={onVoltar} />
+      ) : (
+        <Cabecalho titulo={titulo} onVoltar={onVoltar} />
+      )}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
           ref={rolagem}
@@ -219,12 +288,127 @@ export function Formulario({
           contentContainerStyle={{ alignItems: 'center' }}
         >
           <ContextoDeRolagem.Provider value={rolagem}>
-            <Coluna>{children}</Coluna>
+            <Coluna>
+              {ilustracao ? (
+                <View
+                  style={{
+                    alignItems: 'center',
+                    gap: espaco.s,
+                    marginBottom: espaco.s,
+                  }}
+                >
+                  {ilustracao}
+                  <Text
+                    accessibilityRole="header"
+                    style={[
+                      estiloDeTexto('h1'),
+                      { color: cores.texto, textAlign: 'center' },
+                    ]}
+                  >
+                    {titulo}
+                  </Text>
+                  {subtitulo ? (
+                    <Text
+                      style={[
+                        estiloDeTexto('corpoG'),
+                        { color: cores.textoSecundario, textAlign: 'center' },
+                      ]}
+                    >
+                      {subtitulo}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              {children}
+            </Coluna>
           </ContextoDeRolagem.Provider>
         </ScrollView>
         <RodapeFixo aoMedir={aoMedirRodape}>{rodape}</RodapeFixo>
       </KeyboardAvoidingView>
     </Pagina>
+  );
+}
+
+/** Topo só com o voltar (telas cujo título está no conteúdo). */
+function SoVoltar({ onVoltar }: { onVoltar?: () => void }) {
+  const margens = useMargensSeguras();
+  return (
+    <View
+      style={{
+        minHeight: margens.top + espaco.s,
+        paddingTop: margens.top + espaco.s,
+        paddingHorizontal: margemDaTela,
+        alignItems: 'flex-start',
+      }}
+    >
+      {onVoltar ? (
+        <BotaoDeIcone
+          icone="chevron-left"
+          rotulo={textos.gerais.voltar}
+          onPress={onVoltar}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Ilustração de Entrar (quadro 02): a logo sobre um círculo roxo claro, com
+ * duas formas decorativas. Só a logo é falada.
+ */
+export function IlustracaoDaMarca() {
+  return (
+    <View
+      style={{
+        width: 220,
+        height: 180,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: 180,
+          height: 180,
+          borderRadius: 90,
+          backgroundColor: cores.roxo[50],
+        }}
+      />
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: espaco.m,
+          left: 0,
+          width: 44,
+          height: 44,
+          borderRadius: raio.campo,
+          backgroundColor: cores.azul[100],
+          transform: [{ rotate: '-12deg' }],
+        }}
+      />
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          bottom: espaco.m,
+          right: espaco.s,
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          backgroundColor: cores.roxo[200],
+        }}
+      />
+      <Logo tamanho="grande" />
+    </View>
   );
 }
 
@@ -239,20 +423,24 @@ export function RodapeFixo({
   return (
     <View
       onLayout={(evento) => aoMedir?.(evento.nativeEvent.layout.height)}
-      style={{
-        alignItems: 'center',
-        paddingBottom: margens.bottom,
-        borderTopWidth: 1,
-        borderTopColor: cores.superficie,
-        backgroundColor: cores.fundo,
-      }}
+      style={[
+        {
+          alignItems: 'center',
+          paddingBottom: margens.bottom,
+          borderTopLeftRadius: raio.folha,
+          borderTopRightRadius: raio.folha,
+          backgroundColor: cores.superficie,
+        },
+        sombra.lg,
+      ]}
     >
       <View
         style={{
           width: '100%',
           maxWidth: larguraMaxima,
-          padding: espaco[4],
-          gap: espaco[2],
+          paddingVertical: espaco.m,
+          paddingHorizontal: margemDaTela,
+          gap: espaco.s,
         }}
       >
         {children}
@@ -341,12 +529,7 @@ export function Titulo({ texto }: { texto: string }) {
   return (
     <Text
       accessibilityRole="header"
-      style={{
-        color: cores.texto,
-        fontSize: tipografia.tamanho.tituloDeSeção,
-        lineHeight: tipografia.lineHeight.tituloDeSeção,
-        fontWeight: tipografia.peso.semibold,
-      }}
+      style={[estiloDeTexto('h2'), { color: cores.texto }]}
     >
       {texto}
     </Text>
@@ -365,11 +548,10 @@ export function Paragrafo({
   return (
     <Text
       selectable={selecionavel}
-      style={{
-        color: secundario ? cores.textoSecundario : cores.texto,
-        fontSize: tipografia.tamanho.corpo,
-        lineHeight: tipografia.lineHeight.corpo,
-      }}
+      style={[
+        estiloDeTexto('corpo'),
+        { color: secundario ? cores.textoSecundario : cores.texto },
+      ]}
     >
       {texto}
     </Text>
@@ -389,13 +571,15 @@ export function Carregando({ cartoes = 2 }: { cartoes?: number }) {
         <View
           // biome-ignore lint/suspicious/noArrayIndexKey: esqueletos idênticos e estáticos.
           key={i}
-          style={{
-            gap: espaco[2],
-            padding: espaco[4],
-            borderRadius: raio.md,
-            borderWidth: 1,
-            borderColor: cores.superficie,
-          }}
+          style={[
+            {
+              gap: espaco.s,
+              padding: espaco.m,
+              borderRadius: raio.card,
+              backgroundColor: cores.superficie,
+            },
+            sombra.sm,
+          ]}
         >
           <Esqueleto largura="40%" altura={14} />
           <Esqueleto altura={20} />
@@ -454,7 +638,7 @@ export function EstadoDeTela<T>({
 export function NaoEncontrado({ onVoltar }: { onVoltar?: () => void }) {
   return (
     <EstadoVazio
-      icone="search-outline"
+      icone="search"
       titulo={textos.erros.nao_encontrado}
       textoAcao={onVoltar ? textos.gerais.voltar : undefined}
       onAcao={onVoltar}
@@ -477,17 +661,13 @@ export function DescricaoLonga({
   const { focado, aoFocar, aoDesfocar } = useFoco();
   const longa = linhas !== null && linhas > LINHAS_DA_DESCRICAO;
   return (
-    <View style={{ gap: espaco[1] }}>
+    <View style={{ gap: espaco.xs }}>
       <Text
         numberOfLines={longa && !expandida ? LINHAS_DA_DESCRICAO : undefined}
         onTextLayout={(evento) => {
           if (linhas === null) setLinhas(evento.nativeEvent.lines.length);
         }}
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.corpo,
-          lineHeight: tipografia.lineHeight.corpo,
-        }}
+        style={[estiloDeTexto('corpo'), { color: cores.texto }]}
       >
         {texto}
       </Text>
@@ -509,12 +689,10 @@ export function DescricaoLonga({
           ]}
         >
           <Text
-            style={{
-              color: cores.primaria,
-              fontSize: tipografia.tamanho.rotulo,
-              fontWeight: tipografia.peso.semibold,
-              textDecorationLine: 'underline',
-            }}
+            style={[
+              estiloDeTexto('corpo', 'negrito'),
+              { color: cores.primaria, textDecorationLine: 'underline' },
+            ]}
           >
             {expandida ? rotuloMenos : rotuloMais}
           </Text>
@@ -533,24 +711,15 @@ export function LinhaDeDado({
   valor: string;
 }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}>
-      <Text
-        style={{
-          color: cores.textoSecundario,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-        }}
-      >
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.s }}>
+      <Text style={[estiloDeTexto('corpo'), { color: cores.textoSecundario }]}>
         {rotulo}
       </Text>
       <Text
-        style={{
-          flexShrink: 1,
-          color: cores.texto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.semibold,
-        }}
+        style={[
+          estiloDeTexto('corpo', 'semibold'),
+          { flexShrink: 1, color: cores.texto },
+        ]}
       >
         {valor}
       </Text>
@@ -583,54 +752,36 @@ export function CartaoDaPessoa({
           minHeight: toqueMinimo,
           flexDirection: 'row',
           alignItems: 'center',
-          gap: espaco[3],
-          padding: espaco[4],
-          borderRadius: raio.md,
-          borderWidth: 1,
-          borderColor: cores.borda,
-          backgroundColor: pressed ? cores.superficie : cores.fundo,
+          gap: espaco.m - 4,
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: pressed ? cores.tinta[50] : cores.superficie,
         },
+        pressed ? sombra.md : sombra.sm,
         focado && estiloDeFoco,
       ]}
     >
       <Avatar nome={nome} />
       <View style={{ flex: 1 }}>
         <Text
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.legenda,
-            lineHeight: tipografia.lineHeight.legenda,
-          }}
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
         >
           {rotulo}
         </Text>
         <Text
           numberOfLines={1}
-          style={{
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-            fontWeight: tipografia.peso.semibold,
-          }}
+          style={[estiloDeTexto('h3'), { color: cores.texto }]}
         >
           {nome}
         </Text>
         <Text
           numberOfLines={1}
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.rotulo,
-            lineHeight: tipografia.lineHeight.rotulo,
-          }}
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
         >
           {cidade}
         </Text>
       </View>
-      <Ionicons
-        name="chevron-forward"
-        size={20}
-        color={cores.textoSecundario}
-      />
+      <Feather name="chevron-right" size={20} color={cores.textoSecundario} />
     </Pressable>
   );
 }
@@ -674,24 +825,168 @@ export function Etiqueta({ texto }: { texto: string }) {
   return (
     <View
       style={{
-        paddingVertical: espaco[1],
-        paddingHorizontal: espaco[3],
-        borderRadius: raio.lg,
-        borderWidth: 1,
-        borderColor: cores.borda,
-        backgroundColor: cores.superficie,
+        paddingVertical: espaco.xs + 2,
+        paddingHorizontal: espaco.m - 4,
+        borderRadius: raio.pill,
+        backgroundColor: cores.azul[50],
       }}
     >
       <Text
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.medio,
-        }}
+        style={[estiloDeTexto('corpo', 'semibold'), { color: cores.azul[700] }]}
       >
         {texto}
       </Text>
+    </View>
+  );
+}
+
+/** Card branco V2 (raio 24, sombra pequena) para agrupar um bloco da tela. */
+export function Cartao({
+  children,
+  gap = espaco.m,
+}: {
+  children: ReactNode;
+  gap?: number;
+}) {
+  return (
+    <View
+      style={[
+        {
+          gap,
+          padding: espaco.l - 4,
+          borderRadius: raio.card,
+          backgroundColor: cores.superficie,
+        },
+        sombra.sm,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** Ladrilho de dado (quadro 05): ícone azul, rótulo em legenda e valor em negrito. */
+export function LadrilhoDeDado({
+  icone,
+  rotulo,
+  valor,
+}: {
+  icone: NomeDeIcone;
+  rotulo: string;
+  valor: string;
+}) {
+  return (
+    <View
+      style={{
+        flexGrow: 1,
+        flexBasis: 96,
+        gap: espaco.xs,
+        padding: espaco.m - 4,
+        borderRadius: raio.campo,
+        backgroundColor: cores.fundo,
+      }}
+    >
+      <Feather name={icone} size={20} color={cores.primaria} />
+      <Text
+        style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+      >
+        {rotulo}
+      </Text>
+      <Text style={[estiloDeTexto('corpo', 'negrito'), { color: cores.texto }]}>
+        {valor}
+      </Text>
+    </View>
+  );
+}
+
+/** Linha de ladrilhos que quebra em telas estreitas. */
+export function LadrilhosDeDados({ children }: { children: ReactNode }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.s }}>
+      {children}
+    </View>
+  );
+}
+
+/**
+ * Rodapé com o valor à esquerda (legenda + `h3`) e o botão principal no resto
+ * da largura (quadros 05 e 13). Sem `valor`, só o botão.
+ */
+export function ComValorAoLado({
+  rotulo,
+  valor,
+  children,
+}: {
+  rotulo: string;
+  valor?: string | null;
+  children: ReactNode;
+}) {
+  if (!valor) return <>{children}</>;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.m }}>
+      <View style={{ maxWidth: '40%' }}>
+        <Text
+          style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+        >
+          {rotulo}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[estiloDeTexto('h3'), { color: cores.texto }]}
+        >
+          {valor}
+        </Text>
+      </View>
+      <View style={{ flex: 1 }}>{children}</View>
+    </View>
+  );
+}
+
+/** Título de bloco dentro de um card (`h3`). */
+export function TituloDoCartao({ texto }: { texto: string }) {
+  return (
+    <Text
+      accessibilityRole="header"
+      style={[estiloDeTexto('h3'), { color: cores.texto }]}
+    >
+      {texto}
+    </Text>
+  );
+}
+
+/** Lista com marcador em ícone (decorativo); cada item é um parágrafo. */
+export function ListaComMarcadores({
+  itens,
+  icone = 'check',
+  corDoIcone = cores.primaria,
+}: {
+  itens: readonly string[];
+  icone?: NomeDeIcone;
+  corDoIcone?: string;
+}) {
+  return (
+    <View style={{ gap: espaco.s }}>
+      {itens.map((item) => (
+        <View
+          key={item}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: espaco.s,
+          }}
+        >
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={{ paddingTop: 3 }}
+          >
+            <Feather name={icone} size={16} color={corDoIcone} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Paragrafo texto={item} />
+          </View>
+        </View>
+      ))}
     </View>
   );
 }

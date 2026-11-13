@@ -35,7 +35,13 @@ import {
   textosDasBolhas,
   tocarNoMesmoTick,
 } from './apoio-conversas-2c';
-import { abrirApp, textosEPropriedades, vigiarConsole } from './apoio-qa';
+import {
+  abrirApp,
+  esperarCandidaturaEnviada,
+  textosEPropriedades,
+  vigiarConsole,
+  voltarDaCandidaturaEnviada,
+} from './apoio-qa';
 
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(() => Promise.resolve(true)),
@@ -106,7 +112,8 @@ describe('jornada com duas contas (CA12, CA13, CA16)', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: textos.candidatar.enviar }),
     );
-    await screen.findByText(textos.candidatar.enviada);
+    await esperarCandidaturaEnviada();
+    await voltarDaCandidaturaEnviada('/trampos/t1');
 
     // A abre a conversa pelo rodapé do candidatado (POST /conversas com o autor).
     await fireEvent.press(
@@ -813,32 +820,33 @@ describe('lista de conversas e abertura (CA12, CA16)', () => {
     ).toBeOnTheScreen();
   });
 
-  it('a conversa aberta não mostra a barra de abas; "Voltar" devolve à lista, que tem as 5 abas na ordem', async () => {
+  it('a conversa aberta não mostra a barra de abas; "Voltar" devolve à lista, que tem as 4 abas do freela na ordem', async () => {
     const mundo = criarMundo({
       mensagens: [{ autor: AUTOR, texto: textoDe(1) }],
     });
     const fetch = criarFetchDoMundo(mundo);
     await abrirApp('/conversas', { fetch, token: FREELA.token });
+    // CA76: o modo padrão é o freela, sem aba Publicar.
     const rotulosDasAbas: string[] = [
       textos.abas.inicio,
-      textos.abas.buscar,
-      textos.abas.publicar,
+      textos.abas.meusTrampos,
       textos.abas.conversas,
       textos.abas.perfil,
+    ];
+    const todosOsRotulos: string[] = [
+      ...rotulosDasAbas,
+      textos.abas.demandas,
+      textos.abas.buscar,
+      textos.abas.mensagens,
+      textos.abas.publicar,
     ];
     // Cada aba é um botão com o rótulo da aba; a ordem é a da barra.
     const abas = () =>
       screen
         .queryAllByRole('button')
         .map((botao) => String(botao.props.accessibilityLabel))
-        .filter((rotulo) => rotulosDasAbas.includes(rotulo));
-    expect(abas()).toEqual([
-      textos.abas.inicio,
-      textos.abas.buscar,
-      textos.abas.publicar,
-      textos.abas.conversas,
-      textos.abas.perfil,
-    ]);
+        .filter((rotulo) => todosOsRotulos.includes(rotulo));
+    expect(abas()).toEqual(rotulosDasAbas);
 
     await fireEvent.press(
       await screen.findByLabelText(linhaDaListaCom(AUTOR.nome, textoDe(1))),

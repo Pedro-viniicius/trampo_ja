@@ -10,6 +10,7 @@ import LayoutDaAreaAutenticada from '../../app/(app)/_layout';
 import LayoutDasAbas from '../../app/(app)/(abas)/_layout';
 import BuscarRota from '../../app/(app)/(abas)/buscar';
 import InicioRota from '../../app/(app)/(abas)/index';
+import RotaDeBuscarTrampos from '../../app/(app)/buscar-trampos';
 import RotaDoServico from '../../app/(app)/servicos/[id]';
 import RotaDoTrampo from '../../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../../estado/armazenamento-token';
@@ -23,6 +24,7 @@ import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import { vigiarConsole } from '../qa/apoio-qa';
 import {
+  abasDeStub,
   type MapaDeRotas,
   type RotasRenderizadas,
   renderizarRotas,
@@ -190,11 +192,10 @@ function LayoutComSonda() {
 const ROTAS: MapaDeRotas = {
   '(app)/_layout': LayoutComSonda,
   '(app)/(abas)/_layout': LayoutDasAbas,
+  ...abasDeStub(),
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
-  '(app)/(abas)/conversas': () => <Text>stub: conversas</Text>,
-  '(app)/(abas)/perfil': () => <Text>stub: perfil</Text>,
-  '(app)/(abas)/publicar': () => <Text>stub: publicar</Text>,
+  '(app)/buscar-trampos': RotaDeBuscarTrampos,
   '(app)/trampos/[id]': RotaDoTrampo,
   '(app)/servicos/[id]': RotaDoServico,
   '(app)/perfis/[contaId]': () => <Text>stub: perfil público</Text>,
@@ -259,15 +260,15 @@ afterEach(() => {
 });
 
 describe('Busca: excluir pelo detalhe aberto dela (CA63)', () => {
-  it('trampo: volta à Busca, que mostra "Trampo excluído." uma vez só', async () => {
-    const { servidor } = await abrir('/buscar?tipo=trampos&pedido=1');
+  it('trampo: volta à Busca de trampos, que mostra "Trampo excluído." uma vez só', async () => {
+    const { servidor } = await abrir('/buscar-trampos?tipo=trampos');
     await fireEvent.press(await screen.findByText('Pintar a sala'));
     await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
 
     await excluirPeloDetalhe('Pintar a sala', a.excluirTrampo);
 
     expect(await screen.findByText(a.trampoExcluido)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/buscar');
+    expect(screen).toHavePathname('/buscar-trampos');
     expect(screen.getAllByText(a.trampoExcluido)).toHaveLength(1);
     expect(requisicoes(servidor.fetch, 'DELETE', '/trampos/t1')).toHaveLength(
       1,
@@ -292,9 +293,9 @@ describe('Busca: excluir pelo detalhe aberto dela (CA63)', () => {
     expect(screen).toHavePathname('/buscar');
   });
 
-  it('excluído em outro aparelho (404): a Busca mostra "já não existe"', async () => {
+  it('excluído em outro aparelho (404): a Busca de trampos mostra "já não existe"', async () => {
     await abrir(
-      '/buscar?tipo=trampos&pedido=1',
+      '/buscar-trampos?tipo=trampos',
       criarServidor({ jaRemovidoNoServidor: true }),
     );
     await fireEvent.press(await screen.findByText('Pintar a sala'));
@@ -303,7 +304,7 @@ describe('Busca: excluir pelo detalhe aberto dela (CA63)', () => {
     await excluirPeloDetalhe('Pintar a sala', a.excluirTrampo);
 
     expect(await screen.findByText(a.jaNaoExiste)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/buscar');
+    expect(screen).toHavePathname('/buscar-trampos');
     expect(screen.queryByText(a.erroAoExcluir)).toBeNull();
   });
 });

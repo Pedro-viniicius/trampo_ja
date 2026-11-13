@@ -1,28 +1,35 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, toqueMinimo } from '../tema/tokens';
 import { estiloDeFoco, type NomeDeIcone, useFoco } from './utilitarios';
 
-export type VarianteDoAviso = 'erro' | 'sucesso' | 'info';
+export type VarianteDoAviso = 'erro' | 'sucesso' | 'info' | 'alerta';
 
 export type PropsDoAviso = {
   variante: VarianteDoAviso;
   texto: string;
-  /** Ação opcional (ex.: "Tentar de novo"). */
+  /** Ação opcional (ex.: "Tentar de novo"), à direita do texto. */
   textoAcao?: string;
   onAcao?: () => void;
 };
 
-const aparencia: Record<VarianteDoAviso, { cor: string; icone: NomeDeIcone }> =
-  {
-    erro: { cor: cores.erro, icone: 'alert-circle' },
-    sucesso: { cor: cores.sucesso, icone: 'checkmark-circle' },
-    info: { cor: cores.primaria, icone: 'information-circle' },
-  };
+const aparencia: Record<
+  VarianteDoAviso,
+  { fundo: string; texto: string; icone: NomeDeIcone }
+> = {
+  erro: { ...cores.feedback.erro, icone: 'alert-circle' },
+  sucesso: { ...cores.feedback.sucesso, icone: 'check-circle' },
+  info: { ...cores.feedback.informacao, icone: 'info' },
+  alerta: { ...cores.feedback.alerta, icone: 'alert-triangle' },
+};
 
-/** Aviso em linha: ícone + texto (a cor nunca é o único sinal). Erro é anunciado na hora. */
+/**
+ * Faixa de aviso: fundo de feedback, ícone e texto (a cor nunca é o único sinal).
+ * Erro é anunciado na hora; sucesso, com educação.
+ */
 export function Aviso({ variante, texto, textoAcao, onAcao }: PropsDoAviso) {
-  const { cor, icone } = aparencia[variante];
+  const { fundo, texto: corDoTexto, icone } = aparencia[variante];
   const { focado, aoFocar, aoDesfocar } = useFoco();
 
   return (
@@ -37,55 +44,67 @@ export function Aviso({ variante, texto, textoAcao, onAcao }: PropsDoAviso) {
       }
       style={{
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: espaco[2],
-        padding: espaco[3],
-        borderRadius: raio.md,
-        borderWidth: 1,
-        borderColor: cor,
-        backgroundColor: cores.superficie,
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: espaco.s,
+        paddingVertical: espaco.s,
+        paddingHorizontal: espaco.m,
+        borderRadius: raio.campo,
+        backgroundColor: fundo,
       }}
     >
-      <Ionicons name={icone} size={20} color={cor} style={{ marginTop: 1 }} />
-      <View style={{ flex: 1, gap: espaco[1] }}>
+      <View
+        style={{
+          flex: 1,
+          minWidth: 180,
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: espaco.s,
+          paddingVertical: espaco.s,
+        }}
+      >
+        <Feather
+          name={icone}
+          size={20}
+          color={corDoTexto}
+          style={{ marginTop: 1 }}
+        />
         <Text
-          style={{
-            color: cores.texto,
-            fontSize: tipografia.tamanho.rotulo,
-            lineHeight: tipografia.lineHeight.rotulo,
-          }}
+          style={[
+            estiloDeTexto('corpo', 'medio'),
+            { flex: 1, color: corDoTexto },
+          ]}
         >
           {texto}
         </Text>
-        {textoAcao && onAcao ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={textoAcao}
-            onPress={onAcao}
-            onFocus={aoFocar}
-            onBlur={aoDesfocar}
+      </View>
+      {textoAcao && onAcao ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={textoAcao}
+          onPress={onAcao}
+          onFocus={aoFocar}
+          onBlur={aoDesfocar}
+          style={[
+            {
+              minHeight: toqueMinimo,
+              justifyContent: 'center',
+              paddingHorizontal: espaco.xs,
+              marginLeft: 'auto',
+            },
+            focado && estiloDeFoco,
+          ]}
+        >
+          <Text
             style={[
-              {
-                minHeight: toqueMinimo,
-                justifyContent: 'center',
-                alignSelf: 'flex-start',
-              },
-              focado && estiloDeFoco,
+              estiloDeTexto('corpo', 'negrito'),
+              { color: corDoTexto, textDecorationLine: 'underline' },
             ]}
           >
-            <Text
-              style={{
-                color: cores.primaria,
-                fontSize: tipografia.tamanho.rotulo,
-                fontWeight: tipografia.peso.semibold,
-                textDecorationLine: 'underline',
-              }}
-            >
-              {textoAcao}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+            {textoAcao}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

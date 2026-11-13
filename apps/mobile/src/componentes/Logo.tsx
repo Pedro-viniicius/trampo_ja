@@ -1,5 +1,5 @@
 import { Image, View } from 'react-native';
-import { cores, espaco, raio } from '../tema/tokens';
+import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 
 export type PropsDaLogo = {
@@ -14,12 +14,15 @@ export function Logo({ tamanho = 'grande' }: PropsDaLogo) {
   const lado = lados[tamanho];
   return (
     <View
-      style={{
-        alignSelf: 'center',
-        padding: espaco[4],
-        borderRadius: raio.lg,
-        backgroundColor: cores.branco,
-      }}
+      style={[
+        {
+          alignSelf: 'center',
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: cores.branco,
+        },
+        sombra.sm,
+      ]}
     >
       <Image
         source={require('../../assets/logo.png')}

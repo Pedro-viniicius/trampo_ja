@@ -13,10 +13,13 @@ import LayoutDaAreaAutenticada from '../app/(app)/_layout';
 import LayoutDasAbas from '../app/(app)/(abas)/_layout';
 import BuscarRota from '../app/(app)/(abas)/buscar';
 import RotaDasConversas from '../app/(app)/(abas)/conversas';
+import RotaDasDemandas from '../app/(app)/(abas)/demandas';
 import InicioRota from '../app/(app)/(abas)/index';
+import RotaDeMeusTrampos from '../app/(app)/(abas)/meus-trampos';
 import RotaDoMeuPerfil from '../app/(app)/(abas)/perfil';
-import RotaDePublicar from '../app/(app)/(abas)/publicar';
+import RotaDeBuscarTrampos from '../app/(app)/buscar-trampos';
 import RotaDeEditarPerfil from '../app/(app)/perfil/editar';
+import RotaDePublicar from '../app/(app)/publicar';
 import RotaDoTrampo from '../app/(app)/trampos/[id]';
 import { criarArmazenamentoEmMemoria } from '../estado/armazenamento-token';
 import {
@@ -32,7 +35,12 @@ import {
   type RequisicaoFeita,
   type RespostaFalsa,
 } from './fetch-falso';
-import { ROTAS_REAIS, textosDaArvore } from './qa/apoio-qa';
+import {
+  esperarCandidaturaEnviada,
+  ROTAS_REAIS,
+  textosDaArvore,
+  voltarDaCandidaturaEnviada,
+} from './qa/apoio-qa';
 import { criarQueryClientDeTeste } from './renderizar';
 import { ACEITAR_QUALQUER, renderizarRotas } from './rotas/apoio';
 
@@ -378,9 +386,12 @@ const ROTAS = {
   '(app)/(abas)/_layout': LayoutDasAbas,
   '(app)/(abas)/index': InicioRota,
   '(app)/(abas)/buscar': BuscarRota,
-  '(app)/(abas)/publicar': RotaDePublicar,
+  '(app)/(abas)/meus-trampos': RotaDeMeusTrampos,
+  '(app)/(abas)/demandas': RotaDasDemandas,
   '(app)/(abas)/conversas': RotaDasConversas,
   '(app)/(abas)/perfil': RotaDoMeuPerfil,
+  '(app)/publicar': RotaDePublicar,
+  '(app)/buscar-trampos': RotaDeBuscarTrampos,
   '(app)/perfil/editar': RotaDeEditarPerfil,
   '(app)/trampos/[id]': RotaDoTrampo,
 };
@@ -450,6 +461,19 @@ function primeiroBotao(nome: string) {
 async function preencherAcesso(email: string, senha: string) {
   await fireEvent.changeText(screen.getByLabelText(textos.entrar.email), email);
   await fireEvent.changeText(screen.getByLabelText(textos.entrar.senha), senha);
+}
+
+/** Cartão de modo do Perfil (CA75): troca as abas e leva ao Início. */
+async function trocarDeModo(rotulo: string) {
+  await fireEvent.press(await screen.findByRole('button', { name: rotulo }));
+  await waitFor(() => expect(screen).toHavePathname('/'));
+}
+
+/** CA75: o Cadastro só envia depois da escolha do objetivo (aqui, freela). */
+async function escolherObjetivo() {
+  await fireEvent.press(
+    screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
+  );
 }
 
 // --- Jornada da 2b: dados e API falsa ---
@@ -1381,6 +1405,7 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
 
     // 1. Cadastro ok: token só na porta e modo completar perfil.
     await screen.findByText(textos.cadastro.privacidade);
+    await escolherObjetivo();
     await preencherAcesso(EMAIL, SENHA);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),
@@ -1443,13 +1468,14 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     await waitFor(() => expect(getPathname()).toBe('/'));
 
     // 4. Busca com o texto sentinela: 200, depois queda de rede, depois 200.
+    // O "Ver todos" dos trampos abre a busca de trampos do freela (CA84).
     await fireEvent.press(
       screen.getAllByRole('button', {
         name: textos.gerais.verTodos,
       })[0] as never,
     );
-    await waitFor(() => expect(getPathname()).toBe('/buscar'));
-    const campo = await screen.findByLabelText(textos.buscar.campo);
+    await waitFor(() => expect(getPathname()).toBe('/buscar-trampos'));
+    const campo = await screen.findByLabelText(textos.buscar.campoTrampos);
     await fireEvent.changeText(campo, TEXTO_DA_BUSCA);
     await fireEvent(campo, 'submitEditing');
     expect(await screen.findByText('Resultado da varredura')).toBeOnTheScreen();
@@ -1500,6 +1526,7 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       screen.getByRole('button', { name: textos.entrada.criarConta }),
     );
     await screen.findByText(textos.cadastro.privacidade);
+    await escolherObjetivo();
     await preencherAcesso(EMAIL, SENHA);
     await fireEvent.press(
       screen.getByRole('button', { name: textos.cadastro.criarConta }),
@@ -1533,14 +1560,11 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       armazenamento: criarArmazenamentoEmMemoria(TOKEN_DA_AUTORA),
     });
 
-    // A1. Autora: aba Publicar -> Publicar trampo.
+    // A1. Autora: atalho "Publicar trampo" do Início (não há mais aba
+    // Publicar, D56).
     expect(await screen.findByText(`Olá, ${NOME}`)).toBeOnTheScreen();
-    await fireEvent.press(ultimoBotao(textos.abas.publicar));
-    await waitFor(() => expect(getPathname()).toBe('/publicar'));
     await fireEvent.press(
-      await screen.findByRole('button', {
-        name: `${textos.escolhaDePublicacao.trampo}. ${textos.escolhaDePublicacao.trampoAjuda}`,
-      }),
+      await screen.findByRole('button', { name: textos.inicio.publicarTrampo }),
     );
     await waitFor(() => expect(getPathname()).toBe('/trampos/novo'));
 
@@ -1596,13 +1620,12 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     );
     estado.meusTramposFalham = false;
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
-    await waitFor(() => expect(getPathname()).toBe('/publicar'));
+    await waitFor(() => expect(getPathname()).toBe('/'));
 
-    // A4. Ofertar serviço: queda de rede no envio, depois 201.
+    // A4. Ofertar serviço pelo atalho do Início: queda de rede no envio,
+    // depois 201.
     await fireEvent.press(
-      screen.getByRole('button', {
-        name: `${textos.escolhaDePublicacao.servico}. ${textos.escolhaDePublicacao.servicoAjuda}`,
-      }),
+      await screen.findByRole('button', { name: textos.inicio.ofertarServico }),
     );
     await waitFor(() => expect(getPathname()).toBe('/servicos/novo'));
     await screen.findByDisplayValue(CIDADE);
@@ -1627,17 +1650,11 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       precoBaseCentavos: CENTAVOS_DO_SERVICO,
     });
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
-    await waitFor(() => expect(getPathname()).toBe('/publicar'));
+    await waitFor(() => expect(getPathname()).toBe('/'));
 
-    // A5. Perfil -> Meus trampos e Meus serviços.
+    // A5. Perfil -> Meus serviços; depois o modo contratante -> Demandas
+    // (Meus trampos virou a aba Demandas, CA79) e de volta ao freela.
     await fireEvent.press(ultimoBotao(textos.abas.perfil));
-    await waitFor(() => expect(getPathname()).toBe('/perfil'));
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.perfil.meusTrampos }),
-    );
-    await waitFor(() => expect(getPathname()).toBe('/meus-anuncios'));
-    expect((await screen.findAllByText(TITULO)).length).toBeGreaterThan(0);
-    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
     await waitFor(() => expect(getPathname()).toBe('/perfil'));
     await fireEvent.press(
       await screen.findByRole('button', { name: textos.perfil.meusServicos }),
@@ -1647,6 +1664,14 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       (await screen.findAllByText(TITULO_DO_SERVICO)).length,
     ).toBeGreaterThan(0);
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+    await waitFor(() => expect(getPathname()).toBe('/perfil'));
+    await trocarDeModo(textos.modo.trocarParaContratante);
+    await fireEvent.press(ultimoBotao(textos.abas.demandas));
+    await waitFor(() => expect(getPathname()).toBe('/demandas'));
+    expect((await screen.findAllByText(TITULO)).length).toBeGreaterThan(0);
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
+    await trocarDeModo(textos.modo.trocarParaFreela);
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
     await waitFor(() => expect(getPathname()).toBe('/perfil'));
 
     // A6. Sair e entrar como o freelancer.
@@ -1696,11 +1721,12 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       await screen.findByText(textos.erros.candidatura_duplicada),
     ).toBeOnTheScreen();
     await enviarCandidatura();
+    // CA80: a tela Candidatura enviada no lugar do toast; voltar leva ao
+    // detalhe, já com o selo.
+    await esperarCandidaturaEnviada();
+    await voltarDaCandidaturaEnviada('/trampos/t-novo');
     expect(
-      await screen.findByText(textos.candidatar.enviada),
-    ).toBeOnTheScreen();
-    expect(
-      screen.getByText(textos.detalheTrampo.jaCandidatou),
+      await screen.findByText(textos.detalheTrampo.jaCandidatou),
     ).toBeOnTheScreen();
     const candidaturaEsperada = {
       mensagem: MENSAGEM,
@@ -1711,9 +1737,6 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     );
 
     // B3. Minhas candidaturas pelo atalho do Início.
-    await fireEvent.press(
-      screen.getByRole('button', { name: textos.gerais.toastFechar }),
-    );
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
     await waitFor(() => expect(getPathname()).toBe('/'));
     await fireEvent.press(
@@ -1721,9 +1744,11 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
         name: textos.inicio.minhasCandidaturas,
       }),
     );
-    await waitFor(() => expect(getPathname()).toBe('/candidaturas'));
+    // Minhas candidaturas virou a aba Meus trampos (CA77); a pendente fica
+    // em "Em análise" (CA78).
+    await waitFor(() => expect(getPathname()).toBe('/meus-trampos'));
     expect(await screen.findByText(TITULO)).toBeOnTheScreen();
-    await fireEvent.press(ultimoBotao(textos.gerais.voltar));
+    await fireEvent.press(ultimoBotao(textos.abas.inicio));
     await waitFor(() => expect(getPathname()).toBe('/'));
 
     // B4. Sessão do freelancer expira em Meus serviços: volta ao login (CA14).
@@ -1747,12 +1772,12 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     await waitFor(() => expect(getPathname()).toBe('/'));
     expect(armazenamento.atual()).toBe(TOKEN_DA_AUTORA);
 
-    // C2. Meus trampos -> detalhe -> Candidaturas recebidas com os nomes.
+    // C2. Modo contratante -> Demandas -> detalhe -> Candidaturas recebidas
+    // com os nomes.
     await fireEvent.press(ultimoBotao(textos.abas.perfil));
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.perfil.meusTrampos }),
-    );
-    await waitFor(() => expect(getPathname()).toBe('/meus-anuncios'));
+    await trocarDeModo(textos.modo.trocarParaContratante);
+    await fireEvent.press(ultimoBotao(textos.abas.demandas));
+    await waitFor(() => expect(getPathname()).toBe('/demandas'));
     const [meuTrampo] = await screen.findAllByText(TITULO);
     await fireEvent.press(meuTrampo as NonNullable<typeof meuTrampo>);
     await waitFor(() => expect(getPathname()).toBe('/trampos/t-novo'));

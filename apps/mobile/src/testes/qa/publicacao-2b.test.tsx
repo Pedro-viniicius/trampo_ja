@@ -372,8 +372,9 @@ describe('rascunho e confirmação (CA4)', () => {
 async function abrirFormularioComMeusTrampos(fetch: FetchFalso) {
   await abrirApp('/', { fetch });
   await screen.findByText(textos.inicio.trampos);
-  await act(async () => router.push('/meus-anuncios'));
-  await screen.findByText(textos.meusAnuncios.vazioTrampos);
+  // Meus trampos é a aba Demandas (CA79).
+  await act(async () => router.push('/demandas'));
+  await screen.findByText(textos.demandas.vazioAbertas);
   await act(async () => router.push('/trampos/novo'));
 }
 
@@ -663,7 +664,7 @@ describe('jornada: publicar e ver o trampo em todo lugar (CA4)', () => {
     valorCentavos: 150000,
   };
 
-  it('depois de publicar: "Ver trampo" reconhece o autor e o anúncio aparece em Meus trampos, no Início e na Buscar', async () => {
+  it('depois de publicar: "Ver trampo" reconhece o autor e o anúncio aparece em Demandas e no Início', async () => {
     let publicado = false;
     const fetch = criarFake()
       .responder('POST /trampos', () => {
@@ -686,15 +687,15 @@ describe('jornada: publicar e ver o trampo em todo lugar (CA4)', () => {
       .responder('GET /perfis/c-eu', {
         corpo: { contaId: 'c-eu', ...PERFIL_COMPLETO },
       });
-    await abrirApp('/', { fetch });
-    await screen.findByText(textos.inicio.trampos);
+    // Publicar deixou de ser aba: o contratante publica pelo "+" do Início.
+    await abrirApp('/', { fetch, modo: 'contratante' });
+    expect(
+      await screen.findByText(textos.inicioContratante.semDemandas),
+    ).toBeOnTheScreen();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: textos.abas.publicar }),
-    );
-    await fireEvent.press(
-      await screen.findByRole('button', {
-        name: `${textos.escolhaDePublicacao.trampo}. ${textos.escolhaDePublicacao.trampoAjuda}`,
+      screen.getByRole('button', {
+        name: textos.inicioContratante.novaDemanda,
       }),
     );
     await preencherTrampo({ prazo: '31/12/2026' });
@@ -713,14 +714,22 @@ describe('jornada: publicar e ver o trampo em todo lugar (CA4)', () => {
       screen.queryByRole('button', { name: textos.detalheTrampo.candidatar }),
     ).toBeNull();
 
-    // Meus trampos (pelo Perfil).
+    // Meus trampos virou a aba Demandas.
     await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
     await fireEvent.press(
-      await screen.findByRole('button', { name: textos.abas.perfil }),
+      await screen.findByRole('button', { name: textos.abas.demandas }),
     );
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.perfil.meusTrampos }),
-    );
+    await waitFor(() => expect(screen).toHavePathname('/demandas'));
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
+
+    // E nas demandas abertas do Início.
+    await fireEvent.press(
+      screen.getByRole('button', { name: textos.abas.inicio }),
+    );
+    expect(
+      await screen.findByRole('button', {
+        name: textos.demandas.verCandidatosDe('Pintar a sala'),
+      }),
+    ).toBeOnTheScreen();
   });
 });

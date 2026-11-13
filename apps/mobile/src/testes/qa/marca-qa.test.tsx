@@ -46,15 +46,22 @@ const PROPRIEDADES_DE_COR = [
   'tintColor',
 ] as const;
 
-/** Cores do tema e as transparências do mesmo tema (scrim do diálogo e da folha). */
+/** Todas as cores (strings) dos tokens, inclusive as das escalas e do feedback (V2). */
+function coresDosTokens(valor: unknown): string[] {
+  if (typeof valor === 'string') return [valor];
+  if (Array.isArray(valor)) return valor.flatMap(coresDosTokens);
+  if (typeof valor === 'object' && valor !== null) {
+    return Object.values(valor).flatMap(coresDosTokens);
+  }
+  return [];
+}
+
+/** Cores do tema. O véu da folha e do diálogo é tinta 900 com `opacity`, sem cor nova. */
 const PALETA = new Set<string | number>([
-  ...Object.values(cores).flat(),
+  ...coresDosTokens(cores),
   // O LinearGradient entrega as cores já processadas (número ARGB).
-  ...Object.values(cores)
-    .flat()
-    .map((cor) => processColor(cor) as number),
+  ...coresDosTokens(cores).map((cor) => processColor(cor) as number),
   'transparent',
-  'rgba(27, 31, 39, 0.5)',
 ]);
 
 /** Cor padrão da borda de topo da barra de abas; o app a sobrepõe com `borderTopColor`. */
@@ -214,19 +221,15 @@ const TELAS = [
   ['Cadastro', '/cadastro', null, textos.cadastro.titulo],
   ['Entrar', '/entrar', null, textos.entrar.titulo],
   ['Início', '/', 'token', 'Olá, Maria Souza'],
-  ['Buscar', '/buscar', 'token', textos.buscar.titulo],
+  // `/buscar` é a aba do contratante (serviços); a do freela é `/buscar-trampos` (CA84).
+  ['Buscar', '/buscar', 'token', textos.buscarFreelancers.titulo],
+  ['Buscar trampos', '/buscar-trampos', 'token', textos.buscar.tituloTrampos],
   ['Detalhe do trampo', '/trampos/t1', 'token', 'Pintar a sala'],
   ['Detalhe do serviço', '/servicos/s1', 'token', 'Aulas de matemática'],
   ['Perfil', '/perfil', 'token', 'Maria Souza'],
   ['Perfil de outra pessoa', '/perfis/c1', 'token', 'Carla Souza'],
   ['Editar perfil', '/perfil/editar', 'token', textos.editarPerfil.titulo],
-  // 2b
-  [
-    'Publicar (escolha)',
-    '/publicar',
-    'token',
-    textos.escolhaDePublicacao.pergunta,
-  ],
+  // 2b (Publicar deixou de ser aba: `/publicar` leva ao formulário, CA77)
   [
     'Publicar trampo',
     '/trampos/novo',
@@ -239,9 +242,10 @@ const TELAS = [
     'token',
     textos.formularioDeAnuncio.precoBase,
   ],
-  ['Minhas candidaturas', '/candidaturas', 'token', 'Pintar a sala'],
+  ['Meus trampos (freela)', '/meus-trampos', 'token', 'Pintar a sala'],
   ['Candidaturas recebidas', '/candidaturas/t2', 'token', 'João Pereira'],
-  ['Meus trampos', '/meus-anuncios', 'token', 'Montar estante'],
+  // Meus trampos do contratante é a aba Demandas (CA79); Abertas primeiro.
+  ['Demandas', '/demandas', 'token', 'Trocar o telhado'],
   [
     'Meus serviços',
     '/meus-anuncios?tipo=servico',
@@ -340,7 +344,10 @@ describe('CA16: as telas usam só as cores da marca (tokens)', () => {
       await abrirApp(url, { fetch: fakeDasTelas(), token: null });
       await screen.findByRole('button', { name: rotulo });
 
-      expect(coresDaArvore(screen.toJSON())).toContain(cores.primaria);
+      // V2: o primário é o gradiente de ação, que começa no azul 600 (`primaria`).
+      expect(coresDaArvore(screen.toJSON())).toEqual(
+        expect.arrayContaining([processColor(cores.primaria)]),
+      );
     },
   );
 

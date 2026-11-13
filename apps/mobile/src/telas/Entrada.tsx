@@ -1,10 +1,14 @@
-import { ScrollView, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { Botao, CabecalhoGradiente, Logo } from '../componentes';
-import { cores, espaco, larguraMaxima } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, larguraMaxima, margemDaTela } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import type { PropsDaEntrada } from './tipos';
 
-/** Primeira tela: marca em destaque, frase de valor e as duas portas de entrada. */
+/**
+ * Primeira tela (spec, 02 · Entrada): faixa da marca com a logo, a frase em
+ * `display` e as duas portas de entrada.
+ */
 export function Entrada({
   onCriarConta,
   onJaTenhoConta,
@@ -18,7 +22,7 @@ export function Entrada({
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
-        <CabecalhoGradiente titulo={textos.entrada.frase}>
+        <CabecalhoGradiente>
           <Logo tamanho="grande" />
         </CabecalhoGradiente>
         <View
@@ -28,14 +32,29 @@ export function Entrada({
             style={{
               width: '100%',
               maxWidth: larguraMaxima,
-              padding: espaco[4],
-              gap: espaco[3],
+              paddingHorizontal: margemDaTela,
+              paddingVertical: espaco.l,
+              gap: espaco.m,
             }}
           >
-            <Botao texto={textos.entrada.criarConta} onPress={onCriarConta} />
+            <Text
+              accessibilityRole="header"
+              style={[
+                estiloDeTexto('display'),
+                { color: cores.texto, marginBottom: espaco.s },
+              ]}
+            >
+              {textos.entrada.frase}
+            </Text>
+            <Botao
+              texto={textos.entrada.criarConta}
+              tamanho="grande"
+              onPress={onCriarConta}
+            />
             <Botao
               texto={textos.entrada.jaTenhoConta}
-              variante="secundario"
+              variante="contorno"
+              tamanho="grande"
               onPress={onJaTenhoConta}
             />
             {onTermos || onPolitica ? (
@@ -44,13 +63,14 @@ export function Entrada({
                   flexDirection: 'row',
                   flexWrap: 'wrap',
                   justifyContent: 'center',
-                  columnGap: espaco[2],
+                  columnGap: espaco.m,
                 }}
               >
                 {onTermos ? (
                   <Botao
                     texto={textos.cadastro.aceiteTermos}
                     variante="texto"
+                    tamanho="pequeno"
                     larguraCheia={false}
                     onPress={onTermos}
                   />
@@ -59,6 +79,7 @@ export function Entrada({
                   <Botao
                     texto={textos.cadastro.aceitePolitica}
                     variante="texto"
+                    tamanho="pequeno"
                     larguraCheia={false}
                     onPress={onPolitica}
                   />

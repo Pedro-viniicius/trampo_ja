@@ -47,6 +47,13 @@ const botaoCriarConta = () =>
 const botaoEntrar = () =>
   screen.getByRole('button', { name: textos.entrar.entrar });
 
+/** CA75: o Cadastro só envia depois da escolha do objetivo (aqui, freela). */
+async function escolherObjetivo() {
+  await fireEvent.press(
+    screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
+  );
+}
+
 /** O diálogo repete o nome "Sair": o de confirmação é o último botão. */
 async function confirmarSaida() {
   const botoes = screen.getAllByRole('button', {
@@ -71,6 +78,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher('  Qa.Teste@Exemplo.COM  ', SENHA);
     await fireEvent.press(botaoCriarConta());
 
@@ -94,6 +102,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await screen.findByText(textos.cadastro.privacidade);
 
     const oitoEmojis = '😀'.repeat(8);
+    await escolherObjetivo();
     await preencher(EMAIL, oitoEmojis);
     await fireEvent.press(botaoCriarConta());
 
@@ -112,6 +121,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, '😀'.repeat(7));
     await fireEvent.press(botaoCriarConta());
 
@@ -131,6 +141,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, 'ç'.repeat(129));
     expect(screen.getByLabelText(textos.entrar.senha).props.value).toBe(
       'ç'.repeat(128),
@@ -157,6 +168,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, 'ç'.repeat(128));
     await fireEvent.press(botaoCriarConta());
 
@@ -174,6 +186,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, '  senha  ');
     await fireEvent.press(botaoCriarConta());
 
@@ -189,6 +202,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(`${'a'.repeat(243)}@exemplo.com`, SENHA);
     await fireEvent.press(botaoCriarConta());
 
@@ -209,6 +223,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     await fireEvent.press(botaoCriarConta());
 
@@ -229,6 +244,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     await fireEvent.press(botaoCriarConta());
 
@@ -244,6 +260,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     const botao = botaoCriarConta();
     await fireEvent.press(botao);
@@ -288,6 +305,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
       });
       await screen.findByText(textos.cadastro.privacidade);
 
+      await escolherObjetivo();
       await preencher(EMAIL, SENHA);
       await fireEvent.press(botaoCriarConta());
 
@@ -308,6 +326,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     await abrirApp('/cadastro', { fetch, token: null });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     await fireEvent.press(botaoCriarConta());
 
@@ -331,6 +350,7 @@ describe('Cadastro: validação local e envio (CA1, CA2)', () => {
     });
     await screen.findByText(textos.cadastro.privacidade);
 
+    await escolherObjetivo();
     await preencher(EMAIL, SENHA);
     await fireEvent.press(botaoCriarConta());
     await screen.findByText(textos.erros.email_em_uso);

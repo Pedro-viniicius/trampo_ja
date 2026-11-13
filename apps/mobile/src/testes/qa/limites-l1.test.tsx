@@ -345,11 +345,11 @@ describe('leituras com 429', () => {
 
   it('um 429 em qualquer leitura não derruba a sessão nem o token', async () => {
     const fetch = criarFake().responder('GET /candidaturas/minhas', LIMITE);
-    const rotas = await abrirApp('/candidaturas', { fetch });
+    const rotas = await abrirApp('/meus-trampos', { fetch });
 
     expect(await screen.findByText(MUITAS_ACOES)).toBeOnTheScreen();
     expect(rotas.armazenamento.atual()).not.toBeNull();
-    expect(screen).toHavePathname('/candidaturas');
+    expect(screen).toHavePathname('/meus-trampos');
     expect(pedidos(fetch, 'DELETE', '/sessoes')).toHaveLength(0);
   });
 });

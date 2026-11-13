@@ -17,7 +17,6 @@ import {
   FaixaSemConexao,
   FolhaInferior,
   Logo,
-  opcoesDaAba,
   opcoesDaBarraDeAbas,
   opcoesDoCabecalho,
   Seletor,
@@ -335,10 +334,19 @@ describe('CartaoDeAnuncio', () => {
 });
 
 describe('Avatar', () => {
-  it('mostra a inicial em maiúscula e fica oculto para leitor de tela', async () => {
-    await render(<Avatar nome="  ana silva" />);
+  it('mostra as iniciais (primeira e última palavra) em maiúscula e fica oculto para leitor de tela', async () => {
+    await render(<Avatar nome="  ana maria silva" />);
+    expect(
+      screen.getByText('AS', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(screen.queryByText('AS')).toBeNull();
+  });
+
+  it('nome de uma palavra mostra uma inicial; neutro mostra "?"', async () => {
+    await render(<Avatar nome="ana" />);
     expect(screen.getByText('A', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.queryByText('A')).toBeNull();
+    await render(<Avatar nome="" neutro />);
+    expect(screen.getByText('?', { includeHiddenElements: true })).toBeTruthy();
   });
 });
 
@@ -383,7 +391,7 @@ describe('Avisos e estados', () => {
     const onAcao = jest.fn();
     await render(
       <EstadoVazio
-        icone="albums-outline"
+        icone="inbox"
         titulo="Ainda não há anúncios"
         texto="Assim que alguém publicar, aparece aqui."
         textoAcao="Buscar trampos"
@@ -490,14 +498,10 @@ describe('Cabeçalhos e logo', () => {
 });
 
 describe('navegacao', () => {
-  it('opções das abas com altura 56 e ícone por rota', () => {
-    expect(opcoesDaBarraDeAbas.tabBarStyle.height).toBe(56);
-    const opcoes = opcoesDaAba('buscar', 'Buscar');
-    expect(opcoes.tabBarLabel).toBe('Buscar');
-    expect(
-      opcoes.tabBarIcon({ color: '#000', size: 24, focused: true }),
-    ).toBeTruthy();
-    expect(opcoesDoCabecalho.headerTitleStyle.fontSize).toBe(22);
+  it('barra flutuante de 72 e título do cabeçalho em h2 (24)', () => {
+    expect(opcoesDaBarraDeAbas.tabBarStyle.height).toBe(72);
+    expect(opcoesDaBarraDeAbas.tabBarStyle.position).toBe('absolute');
+    expect(opcoesDoCabecalho.headerTitleStyle.fontSize).toBe(24);
   });
 });
 

@@ -106,3 +106,25 @@ Aprovados pelo dono o plano `docs/produto/planos/pre-lancamento-l4.md` (ADR-008)
 49. **Retirar candidatura** trava o trampo, como encerrar e excluir, e nunca responde `conflito_de_versao`.
 50. **Exclusão de conta grande** (condicional): se a medida passar de 5 s, a transação da exclusão ganha `statement_timeout` próprio de 60 s, como exceção à D42.
 51. **Faixa sem conexão:** uma só, na raiz, com o texto "Sem conexão. Ações que precisam de internet ficam indisponíveis."
+
+## 2026-11-13 — Visual V2 (redesign)
+
+O dono pediu o visual V2 do arquivo `Trampo Já — Redesign.html` em todas as telas, inclusive as que ainda não existem. Referências extraídas em `docs/produto/design/v2/`. Decisões tomadas na abertura (plano e spec ainda a aprovar):
+
+52. **Fontes:** Bricolage Grotesque (títulos) e Figtree (texto e interface), do Google Fonts, empacotadas no app. Substitui a fonte do sistema da D14.
+53. **Ícones:** Feather (`@expo/vector-icons`), equivalente ao Lucide do redesign, traço 2 px. Substitui o Ionicons da D14.
+54. **Dois modos de navegação:** freela (Início, Meus trampos, Conversas e Perfil) e contratante (Início, Demandas, Buscar, Mensagens e Perfil). A conta continua única e faz as duas coisas. A troca de modo fica no Perfil.
+55. **Avaliações e equipe favorita** entram no planejamento: o arquiteto planeja API e app, e a implementação espera a aprovação do plano. Revê o "fora do escopo" do brief do MVP só para esses dois itens. Pagamento dentro do app continua fora: o redesign mostra ganhos e faturamento, mas esses blocos não entram.
+56. **Telas novas só no app**, já no V2: Candidatura enviada, Dicas & minicursos (conteúdo estático), Início do contratante e Perfil da empresa.
+
+Aprovados pelo dono em 2026-11-13 o plano `docs/produto/planos/visual-v2.md` (ADR-009 fontes, ADR-010 modo, ADR-011 avaliações) e a spec `docs/produto/specs/visual-v2.md`, entregas V2a e V2b, com as recomendações:
+
+57. **Fora do V2:** recuperação de senha (o link "Esqueceu sua senha?" sai), horário/experiência/quantidade no trampo, contagem de mensagens não lidas e a lista de pendentes com "Recusar" no Início do contratante.
+58. **Nomes:** "demanda" no modo contratante e "trampo" no modo freela, para o mesmo anúncio. Troca de modo por cartão com interruptor no Perfil. Aba ativa com pílula e cor (Feather não tem ícone preenchido). A exportação continua no formato v1, com os campos novos.
+59. **Avaliações:** imutáveis e sem prazo depois do encerramento; excluir a conta apaga as avaliações que ela deu; destaques do contratante: pagamento em dia, ambiente organizado, instruções claras, respeitoso e pontual.
+60. **Dicas & minicursos:** a equipe escreve 7 conteúdos curtos marcados como rascunho, para o dono revisar.
+
+Decididos pelo dono em 2026-11-13, na revisão da trilha da API da V2b:
+
+61. **Favorito que já existe:** `PUT /favoritos/:contaId` responde 204 quando o favorito já está gravado, mesmo que o vínculo tenha sumido (por exemplo, o trampo que ligava as duas contas foi excluído). O vínculo só é exigido para gravar um favorito novo. A idempotência do CA92 vence.
+62. **Favoritos na exportação:** saem como `[{contaId, criadoEm}]`, no mesmo formato do `GET /favoritos`, e não só os ids. A data é dado da própria conta.

@@ -1,7 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { type ComponentRef, type Ref, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Botao } from './Botao';
 import { CampoDeTexto } from './CampoDeTexto';
@@ -81,14 +82,9 @@ export function Seletor({
   };
 
   return (
-    <View style={{ gap: espaco[1] }}>
+    <View style={{ gap: espaco.s - 2 }}>
       <Text
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-          fontWeight: tipografia.peso.medio,
-        }}
+        style={[estiloDeTexto('legenda', 'negrito'), { color: cores.texto }]}
       >
         {rotulo}
       </Text>
@@ -104,31 +100,42 @@ export function Seletor({
         onBlur={aoDesfocar}
         style={({ pressed }) => [
           {
-            minHeight: toqueMinimo + 4,
+            minHeight: 56,
             flexDirection: 'row',
             alignItems: 'center',
-            gap: espaco[2],
-            paddingHorizontal: espaco[3],
-            borderWidth: 2,
-            borderRadius: raio.sm,
-            borderColor: erro ? cores.erro : cores.borda,
-            backgroundColor: pressed ? cores.fundo : cores.superficie,
-            opacity: desabilitado ? 0.6 : 1,
+            gap: espaco.s,
+            paddingHorizontal: espaco.m,
+            borderWidth: erro ? 2 : 1.5,
+            borderRadius: raio.campo,
+            borderColor: erro ? cores.feedback.erro.base : cores.bordaDeCampo,
+            backgroundColor: desabilitado
+              ? cores.tinta[100]
+              : erro
+                ? cores.feedback.erro.fundo
+                : pressed
+                  ? cores.tinta[50]
+                  : cores.superficie,
           },
           focado && estiloDeFoco,
         ]}
       >
         <Text
           numberOfLines={2}
-          style={{
-            flex: 1,
-            color: valor ? cores.texto : cores.textoSecundario,
-            fontSize: tipografia.tamanho.corpo,
-          }}
+          style={[
+            estiloDeTexto('corpo'),
+            {
+              flex: 1,
+              color: desabilitado
+                ? cores.tinta[500]
+                : valor
+                  ? cores.texto
+                  : cores.textoSecundario,
+            },
+          ]}
         >
           {valor ?? textoVazio}
         </Text>
-        <Ionicons name="chevron-down" size={20} color={cores.textoSecundario} />
+        <Feather name="chevron-down" size={20} color={cores.textoSecundario} />
       </Pressable>
       <View accessibilityLiveRegion="polite">
         {erro ? (
@@ -139,19 +146,14 @@ export function Seletor({
               alignItems: 'flex-start',
             }}
           >
-            <Ionicons
+            <Feather
               name="alert-circle"
               size={16}
               color={cores.erro}
-              style={{ marginTop: 2 }}
+              style={{ marginTop: 1 }}
             />
             <Text
-              style={{
-                flex: 1,
-                color: cores.erro,
-                fontSize: tipografia.tamanho.rotulo,
-                lineHeight: tipografia.lineHeight.rotulo,
-              }}
+              style={[estiloDeTexto('legenda'), { flex: 1, color: cores.erro }]}
             >
               {erro}
             </Text>
@@ -181,11 +183,10 @@ export function Seletor({
           style={{ flexGrow: 0 }}
           ListEmptyComponent={
             <Text
-              style={{
-                color: cores.textoSecundario,
-                fontSize: tipografia.tamanho.corpo,
-                paddingVertical: espaco[3],
-              }}
+              style={[
+                estiloDeTexto('corpo'),
+                { color: cores.textoSecundario, paddingVertical: espaco.m - 4 },
+              ]}
             >
               {textoSemOpcoes}
             </Text>
@@ -229,28 +230,28 @@ function LinhaDeOpcao({
           minHeight: toqueMinimo + 4,
           flexDirection: 'row',
           alignItems: 'center',
-          gap: espaco[2],
-          paddingHorizontal: espaco[2],
-          borderRadius: raio.sm,
-          backgroundColor: pressed ? cores.superficie : 'transparent',
+          gap: espaco.s,
+          paddingHorizontal: espaco.m - 4,
+          borderRadius: raio.campo,
+          backgroundColor: selecionada
+            ? cores.azul[50]
+            : pressed
+              ? cores.tinta[50]
+              : 'transparent',
         },
         focado && estiloDeFoco,
       ]}
     >
       <Text
-        style={{
-          flex: 1,
-          color: cores.texto,
-          fontSize: tipografia.tamanho.corpo,
-          fontWeight: selecionada
-            ? tipografia.peso.semibold
-            : tipografia.peso.normal,
-        }}
+        style={[
+          estiloDeTexto('corpo', selecionada ? 'semibold' : 'normal'),
+          { flex: 1, color: selecionada ? cores.azul[700] : cores.texto },
+        ]}
       >
         {texto}
       </Text>
       {selecionada ? (
-        <Ionicons name="checkmark" size={20} color={cores.primaria} />
+        <Feather name="check" size={20} color={cores.primaria} />
       ) : null}
     </Pressable>
   );

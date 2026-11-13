@@ -15,7 +15,12 @@ import {
   passar,
   requisicoesDe,
 } from './apoio-anuncios-l2';
-import { abrirApp, vigiarConsole } from './apoio-qa';
+import {
+  abrirApp,
+  esperarCandidaturaEnviada,
+  vigiarConsole,
+  voltarDaCandidaturaEnviada,
+} from './apoio-qa';
 
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(() => Promise.resolve(true)),
@@ -96,11 +101,13 @@ describe('CA34 — retirar e se candidatar de novo', () => {
     expect(servidor.candidaturas).toHaveLength(0);
 
     await candidatarPelaFolha();
-    await screen.findByText(textos.candidatar.enviada);
+    await esperarCandidaturaEnviada();
     expect(servidor.candidaturas).toHaveLength(1);
     const segunda = servidor.candidaturas[0]?.id;
     expect(segunda).toBeDefined();
     expect(segunda).not.toBe('k1');
+    // De volta ao detalhe, o rodapé já mostra a candidatura nova.
+    await voltarDaCandidaturaEnviada('/trampos/t9');
     await passar();
 
     await retirarPeloRodape();

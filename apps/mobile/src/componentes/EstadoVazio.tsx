@@ -1,7 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { Text, View } from 'react-native';
-import { cores, espaco, tipografia } from '../tema/tokens';
-import { Botao } from './Botao';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco } from '../tema/tokens';
+import { Botao, type VarianteDoBotao } from './Botao';
 import type { NomeDeIcone } from './utilitarios';
 
 export type PropsDoEstadoVazio = {
@@ -10,57 +11,78 @@ export type PropsDoEstadoVazio = {
   texto?: string;
   textoAcao?: string;
   onAcao?: () => void;
+  /** Variante de erro: círculo de erro (a ação costuma ser "Tentar de novo"). */
+  erro?: boolean;
+  /** `tonal` (padrão) ou `primario`, quando é a ação principal da tela. */
+  varianteDaAcao?: Extract<VarianteDoBotao, 'tonal' | 'primario'>;
 };
 
+const LADO_DO_CIRCULO = 80;
+
+/** Vazio ou erro de uma lista: ícone em círculo, título, texto e uma ação. */
 export function EstadoVazio({
   icone,
   titulo,
   texto,
   textoAcao,
   onAcao,
+  erro = false,
+  varianteDaAcao = 'tonal',
 }: PropsDoEstadoVazio) {
   return (
     <View
       style={{
         alignItems: 'center',
-        gap: espaco[2],
-        paddingVertical: espaco[6],
-        paddingHorizontal: espaco[4],
+        gap: espaco.s,
+        paddingVertical: espaco.xl,
+        paddingHorizontal: espaco.m,
       }}
     >
-      <Ionicons
-        name={icone}
-        size={48}
-        color={cores.acento}
+      <View
         accessibilityElementsHidden
-      />
+        importantForAccessibility="no-hide-descendants"
+        style={{
+          width: LADO_DO_CIRCULO,
+          height: LADO_DO_CIRCULO,
+          borderRadius: LADO_DO_CIRCULO / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: espaco.s,
+          backgroundColor: erro ? cores.feedback.erro.fundo : cores.azul[50],
+        }}
+      >
+        <Feather
+          name={icone}
+          size={32}
+          color={erro ? cores.feedback.erro.texto : cores.primaria}
+        />
+      </View>
       <Text
         accessibilityRole="header"
-        style={{
-          color: cores.texto,
-          fontSize: tipografia.tamanho.tituloDeSeção,
-          lineHeight: tipografia.lineHeight.tituloDeSeção,
-          fontWeight: tipografia.peso.semibold,
-          textAlign: 'center',
-        }}
+        style={[
+          estiloDeTexto('h3'),
+          { color: cores.texto, textAlign: 'center' },
+        ]}
       >
         {titulo}
       </Text>
       {texto ? (
         <Text
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-            textAlign: 'center',
-          }}
+          style={[
+            estiloDeTexto('corpo'),
+            {
+              color: cores.textoSecundario,
+              textAlign: 'center',
+              maxWidth: 420,
+            },
+          ]}
         >
           {texto}
         </Text>
       ) : null}
       {textoAcao && onAcao ? (
-        <View style={{ marginTop: espaco[2], alignSelf: 'stretch' }}>
-          <Botao texto={textoAcao} onPress={onAcao} />
+        <View style={{ marginTop: espaco.s, alignSelf: 'stretch' }}>
+          <Botao texto={textoAcao} variante={varianteDaAcao} onPress={onAcao} />
         </View>
       ) : null}
     </View>

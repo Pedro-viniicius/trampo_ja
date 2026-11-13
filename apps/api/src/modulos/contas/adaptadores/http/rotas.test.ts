@@ -557,6 +557,27 @@ describe('rotas de contas (HTTP)', () => {
           ],
         },
       ],
+      // CA93: a feita leva o comentário da própria conta; a recebida, não.
+      avaliacoesFeitas: [
+        {
+          trampoId: 't9',
+          nota: 5,
+          destaques: ['pagamento_em_dia'],
+          comentario: 'Comentario Sentinela',
+          criadaEm: CRIADO_EM,
+        },
+        {
+          trampoId: 't8',
+          nota: 3,
+          destaques: [],
+          comentario: null,
+          criadaEm: CRIADO_EM,
+        },
+      ],
+      avaliacoesRecebidas: [
+        { nota: 4, destaques: ['pontual', 'educado'], criadaEm: CRIADO_EM },
+      ],
+      favoritos: [{ contaId: 'u3', criadoEm: CRIADO_EM }],
     };
 
     /** As mesmas partes com uma chave a mais em cada nível. */
@@ -584,6 +605,23 @@ describe('rotas de contas (HTTP)', () => {
             autorId: 'u1',
             ...extra,
           })),
+        })),
+        avaliacoesFeitas: partes.avaliacoesFeitas.map((a) => ({
+          ...a,
+          avaliadoId: 'u2',
+          ...extra,
+        })),
+        // CA93: o comentário e o avaliador de uma recebida são de terceiro.
+        avaliacoesRecebidas: partes.avaliacoesRecebidas.map((a) => ({
+          ...a,
+          comentario: 'Comentario De Terceiro',
+          avaliadorId: 'u2',
+          ...extra,
+        })),
+        favoritos: partes.favoritos.map((f) => ({
+          ...f,
+          donoId: 'u1',
+          ...extra,
         })),
       };
       return comChavesAMais as PartesExportadas;
@@ -643,6 +681,10 @@ describe('rotas de contas (HTTP)', () => {
         'freelancerId',
         'autorId',
         'usuarioAId',
+        'avaliadoId',
+        'avaliadorId',
+        'Comentario De Terceiro',
+        'donoId',
       ]) {
         expect(resposta.body).not.toContain(proibido);
       }
@@ -659,6 +701,9 @@ describe('rotas de contas (HTTP)', () => {
         'servicos',
         'candidaturas',
         'conversas',
+        'avaliacoesFeitas',
+        'avaliacoesRecebidas',
+        'favoritos',
       ]) {
         expect(corpo[lista]).toEqual([]);
       }
@@ -692,6 +737,9 @@ describe('rotas de contas (HTTP)', () => {
           'servicos',
           'candidaturas',
           'conversas',
+          'avaliacoesFeitas',
+          'avaliacoesRecebidas',
+          'favoritos',
         ]);
         expect(Object.keys(corpo.conta)).toEqual(['id', 'email', 'criadaEm']);
         expect(Object.keys(corpo.sessoes[0])).toEqual(['criadaEm', 'expiraEm']);
@@ -867,6 +915,17 @@ describe('rotas de contas (HTTP)', () => {
           servicos: [],
           candidaturas: [],
           conversas: [],
+          avaliacoesFeitas: [
+            {
+              trampoId: 't1',
+              nota: 2,
+              destaques: [],
+              comentario: 'Comentario Sentinela',
+              criadaEm: AGORA,
+            },
+          ],
+          avaliacoesRecebidas: [],
+          favoritos: [],
         },
       });
       const { token } = (await cadastrar()).json();

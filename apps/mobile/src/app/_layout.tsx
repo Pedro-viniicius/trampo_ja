@@ -1,3 +1,4 @@
+import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -13,8 +14,10 @@ import {
 } from '../estado/cliente-de-consultas';
 import { useConexao } from '../estado/conexao';
 import { limparExportacoesAntigas } from '../estado/exportacao';
+import { criarArmazenamentoDoModoSeguro } from '../estado/modo';
 import { Provedores } from '../estado/provedores';
 import { useSessao } from '../estado/sessao';
+import { FONTES } from '../tema/fontes';
 
 // A splash fica até a sessão saber se há token (ver `NavegacaoRaiz`). Chamada
 // fora do componente, como pede o expo-splash-screen; falhar só a esconde antes.
@@ -96,17 +99,29 @@ export function NavegacaoRaiz() {
 export default function LayoutRaiz() {
   const [dependencias] = useState(() => ({
     armazenamento: criarArmazenamentoSeguro(),
+    armazenamentoDoModo: criarArmazenamentoDoModoSeguro(),
     queryClient: criarQueryClient(),
   }));
+
+  // As fontes carregam em tempo de execução (ADR-009). Enquanto carregam, nada
+  // é desenhado e a splash continua. Se falhar, o app abre com a fonte do
+  // sistema: nunca fica em tela branca (CA72), e `hideAsync` roda na
+  // `NavegacaoRaiz`, quando a sessão resolve.
+  const [fontesCarregadas, erroDeFontes] = useFonts(FONTES);
 
   // `onlineManager` (expo-network) e `focusManager` (AppState), uma vez.
   useEffect(() => ligarGerenciadores(), []);
   // Exportação que sobrou no cache se o app morreu com a folha aberta (S4).
   useEffect(() => limparExportacoesAntigas(), []);
 
+  if (!fontesCarregadas && !erroDeFontes) {
+    return null;
+  }
+
   return (
     <Provedores
       armazenamento={dependencias.armazenamento}
+      armazenamentoDoModo={dependencias.armazenamentoDoModo}
       queryClient={dependencias.queryClient}
     >
       <NavegacaoRaiz />

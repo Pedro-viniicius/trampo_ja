@@ -1,37 +1,82 @@
+import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Avatar, EstadoVazio } from '../componentes';
+import { Avatar, CampoDeBusca, EstadoVazio } from '../componentes';
 import { estiloDeFoco, useFoco } from '../componentes/utilitarios';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { EstadoDeTela, Rolavel } from './base';
 import type { ConversaParaExibir, PropsDaListaDeConversas } from './tipos';
 
+/** Sem acento e em minúsculas, para a busca por nome no aparelho. */
+function normalizar(texto: string): string {
+  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+/**
+ * Conversas (quadro 08): título de aba, busca por nome na lista já carregada
+ * (sem chamar a API) e uma linha em cartão por conversa.
+ */
 export function ListaDeConversas({
   lista,
   semConexao,
   onAbrir,
+  modo,
 }: PropsDaListaDeConversas) {
+  const [busca, setBusca] = useState('');
   const vazio = (
     <EstadoVazio
-      icone="chatbubbles-outline"
+      icone="message-circle"
       titulo={textos.conversas.vazio}
       texto={textos.conversas.vazioTexto}
     />
   );
+  const termo = normalizar(busca);
   return (
-    <Rolavel titulo={textos.conversas.titulo} semConexao={semConexao}>
+    <Rolavel
+      titulo={textos.conversas.titulo}
+      subtitulo={
+        modo === 'contratante'
+          ? textos.conversas.subtituloContratante
+          : modo === 'freela'
+            ? textos.conversas.subtituloFreela
+            : undefined
+      }
+      raiz
+      semConexao={semConexao}
+    >
       <EstadoDeTela estado={lista} vazio={vazio}>
-        {(itens) =>
-          itens.length === 0 ? (
-            vazio
-          ) : (
-            <View style={{ gap: espaco[2] }}>
-              {itens.map((item) => (
-                <Linha key={item.id} item={item} onAbrir={onAbrir} />
-              ))}
-            </View>
-          )
-        }
+        {(itens) => {
+          if (itens.length === 0) return vazio;
+          const filtrados = termo
+            ? itens.filter((item) =>
+                normalizar(
+                  item.nome ?? textos.conversas.perfilIndisponivel,
+                ).includes(termo),
+              )
+            : itens;
+          return (
+            <>
+              <CampoDeBusca
+                rotulo={textos.conversas.buscar}
+                valor={busca}
+                onChangeText={setBusca}
+              />
+              {filtrados.length === 0 ? (
+                <EstadoVazio
+                  icone="search"
+                  titulo={textos.conversas.semResultadoDaBusca}
+                />
+              ) : (
+                <View style={{ gap: espaco.s }}>
+                  {filtrados.map((item) => (
+                    <Linha key={item.id} item={item} onAbrir={onAbrir} />
+                  ))}
+                </View>
+              )}
+            </>
+          );
+        }}
       </EstadoDeTela>
     </Rolavel>
   );
@@ -59,51 +104,49 @@ function Linha({
       onBlur={aoDesfocar}
       style={({ pressed }) => [
         {
-          minHeight: toqueMinimo + espaco[5],
+          minHeight: 72,
           flexDirection: 'row',
           alignItems: 'center',
-          gap: espaco[3],
-          padding: espaco[3],
-          borderRadius: raio.md,
-          backgroundColor: pressed ? cores.superficie : cores.fundo,
+          gap: espaco.m - 4,
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: pressed ? cores.tinta[100] : cores.superficie,
         },
+        pressed ? sombra.md : sombra.sm,
         focado && estiloDeFoco,
       ]}
     >
       <Avatar nome={nome} neutro={item.nome === null} />
-      <View style={{ flex: 1, gap: espaco[1] }}>
-        <Text
-          numberOfLines={1}
+      <View style={{ flex: 1, gap: 2 }}>
+        <View
           style={{
-            color: cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-            fontWeight: tipografia.peso.semibold,
+            flexDirection: 'row',
+            alignItems: 'baseline',
+            gap: espaco.s,
           }}
         >
-          {nome}
-        </Text>
+          <Text
+            numberOfLines={1}
+            style={[
+              estiloDeTexto('corpo', 'negrito'),
+              { flex: 1, color: cores.texto },
+            ]}
+          >
+            {nome}
+          </Text>
+          <Text
+            style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+          >
+            {item.horaFormatada}
+          </Text>
+        </View>
         <Text
           numberOfLines={1}
-          style={{
-            color: cores.textoSecundario,
-            fontSize: tipografia.tamanho.rotulo,
-            lineHeight: tipografia.lineHeight.rotulo,
-          }}
+          style={[estiloDeTexto('corpo'), { color: cores.textoSecundario }]}
         >
           {item.previa ?? textos.conversas.previaVazia}
         </Text>
       </View>
-      <Text
-        style={{
-          color: cores.textoSecundario,
-          fontSize: tipografia.tamanho.legenda,
-          lineHeight: tipografia.lineHeight.legenda,
-          alignSelf: 'flex-start',
-        }}
-      >
-        {item.horaFormatada}
-      </Text>
     </Pressable>
   );
 }

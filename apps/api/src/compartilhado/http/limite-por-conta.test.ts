@@ -40,6 +40,11 @@ const ROTAS_PROTEGIDAS = [
   { metodo: 'DELETE', url: '/trampos/:id' },
   { metodo: 'DELETE', url: '/servicos/:id' },
   { metodo: 'DELETE', url: '/candidaturas/:id' },
+  // Rotas da V2b (CA94), com a url modelo do módulo avaliacoes.
+  { metodo: 'POST', url: '/avaliacoes' },
+  { metodo: 'GET', url: '/favoritos' },
+  { metodo: 'PUT', url: '/favoritos/:contaId' },
+  { metodo: 'DELETE', url: '/favoritos/:contaId' },
 ] as const;
 
 type Metodo = (typeof ROTAS_PROTEGIDAS)[number]['metodo'];
@@ -161,15 +166,32 @@ describe('grupoDaRota (D29)', () => {
       ['DELETE', '/trampos/:id', 'escrita'],
       ['DELETE', '/servicos/:id', 'escrita'],
       ['DELETE', '/candidaturas/:id', 'escrita'],
+      // V2b (CA94): avaliar é publicacao; favoritar e desfavoritar, escrita;
+      // as leituras, leitura.
+      ['POST', '/avaliacoes', 'publicacao'],
+      ['GET', '/avaliacoes', 'leitura'],
+      ['GET', '/avaliacoes/resumos', 'leitura'],
+      ['GET', '/avaliacoes/feitas', 'leitura'],
+      ['GET', '/favoritos', 'leitura'],
+      ['PUT', '/favoritos/:contaId', 'escrita'],
+      ['DELETE', '/favoritos/:contaId', 'escrita'],
     ];
 
   it.each(TODAS_AS_ROTAS)('%s %s → %s', (metodo, url, grupo) => {
     expect(grupoDaRota(metodo, url)).toBe(grupo);
   });
 
-  it('cobre as 30 rotas (22 do MVP, 2 da L1 e 6 da L2), sem repetição', () => {
+  it('cobre as 37 rotas (22 do MVP, 2 da L1, 6 da L2 e 7 da V2b), sem repetição', () => {
     const chaves = new Set(TODAS_AS_ROTAS.map(([m, u]) => `${m} ${u}`));
-    expect(chaves.size).toBe(30);
+    expect(chaves.size).toBe(37);
+  });
+
+  it('CA94 — o publicacao de avaliar vale só para POST /avaliacoes', () => {
+    expect(grupoDaRota('post', '/avaliacoes')).toBe('publicacao');
+    expect(grupoDaRota('PUT', '/avaliacoes')).toBe('escrita');
+    expect(grupoDaRota('POST', '/avaliacoes/resumos')).toBe('escrita');
+    expect(grupoDaRota('POST', '/favoritos/:contaId')).toBe('escrita');
+    expect(grupoDaRota('HEAD', '/avaliacoes')).toBe('leitura');
   });
 
   it('D36 — o grupo próprio vale só para o par método e url exato', () => {
@@ -413,6 +435,49 @@ describe('CA20 — criarLimitePorConta', () => {
     expect(
       await repetir(2, () => pedir(servidor, 'PUT', '/trampos/t1', TOKEN_A)),
     ).toEqual([200, 429]);
+  });
+
+  it('CA94 — avaliar gasta o contador de publicacao junto com publicar e candidatar', async () => {
+    const servidor = await montar({ limites: limitesCom({ publicacao: 2 }) });
+
+    expect(
+      (await pedir(servidor, 'POST', '/avaliacoes', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'POST', '/trampos', TOKEN_A)).statusCode,
+    ).toBe(200);
+    const bloqueada = await pedir(servidor, 'POST', '/avaliacoes', TOKEN_A);
+    expect(bloqueada.statusCode).toBe(429);
+    expect(bloqueada.headers['retry-after']).toBe('60');
+    // Favoritar (escrita), ler (leitura) e a outra conta seguem livres.
+    expect(
+      (await pedir(servidor, 'PUT', '/favoritos/x', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'GET', '/favoritos', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'POST', '/avaliacoes', TOKEN_B)).statusCode,
+    ).toBe(200);
+  });
+
+  it('CA94 — favoritar e desfavoritar somam em escrita e não tocam em publicacao', async () => {
+    const servidor = await montar({
+      limites: limitesCom({ escrita: 2, publicacao: 1 }),
+    });
+
+    expect(
+      (await pedir(servidor, 'PUT', '/favoritos/x', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'DELETE', '/favoritos/x', TOKEN_A)).statusCode,
+    ).toBe(200);
+    expect(
+      (await pedir(servidor, 'PUT', '/favoritos/y', TOKEN_A)).statusCode,
+    ).toBe(429);
+    expect(
+      (await pedir(servidor, 'POST', '/avaliacoes', TOKEN_A)).statusCode,
+    ).toBe(200);
   });
 
   it('sem contaId (rota pública), não limita', async () => {

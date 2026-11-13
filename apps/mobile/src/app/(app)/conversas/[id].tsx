@@ -8,6 +8,7 @@ import {
   useConversas,
   useEnviarMensagem,
   useMensagens,
+  useVinculoDaConversa,
 } from '../../../estado/consultas/conversas';
 import { usePerfisPublicos } from '../../../estado/consultas/perfil';
 import {
@@ -16,9 +17,11 @@ import {
   mensagensParaExibir,
   type Pendente,
   reconciliar,
+  temRespostasRapidas,
   textoEnviavel,
 } from '../../../estado/conversa';
 import { mensagemDoErro } from '../../../estado/erros';
+import { formatarCentavos } from '../../../estado/formatacao';
 import { Conversa, type Estado, type MensagemParaExibir } from '../../../telas';
 import { textos } from '../../../textos/pt-BR';
 
@@ -98,6 +101,10 @@ export default function RotaDaConversa() {
     resumo === null && lista.erro !== null && !conferindo && !listaBuscando;
 
   const perfis = usePerfisPublicos(outroId === null ? [] : [outroId]);
+  // Quadro 09: o trampo da conversa, só com o que já está no cache (a API não
+  // liga a conversa a um trampo). Sem dado, nem contexto, nem faixa, nem
+  // respostas rápidas.
+  const vinculo = useVinculoDaConversa(outroId);
   const consulta = useMensagens(conversaId, { ativa });
   const { mensagens, recarregar, conferirDesde } = consulta;
   const { enviar } = useEnviarMensagem(conversaId);
@@ -395,6 +402,21 @@ export default function RotaDaConversa() {
       {...(limiteNoEnvio && {
         avisoDoEnvio: textos.erros.muitas_tentativas_acao,
       })}
+      {...(vinculo !== null && {
+        contexto: vinculo.titulo,
+        faixa: {
+          titulo: vinculo.titulo,
+          statusDaCandidatura: vinculo.statusDaCandidatura,
+          valorFormatado: formatarCentavos(vinculo.valorCentavos),
+          onAbrir: () =>
+            router.push({
+              pathname: '/trampos/[id]',
+              params: { id: vinculo.trampoId },
+            }),
+        },
+      })}
+      // Só preenchem o campo: a pessoa revisa e envia.
+      comRespostasRapidas={temRespostasRapidas(vinculo)}
       onMudarRascunho={aoMudarRascunho}
       onEnviar={aoEnviar}
       onTentarDeNovo={(chave) => {

@@ -1,4 +1,4 @@
-// Decisões D12, D14 e D15: bibliotecas, fonte do sistema e fronteira entre
+// Decisões D12, D14, D15 e D52: bibliotecas, fontes e fronteira entre
 // rotas (dev), telas e componentes (designer) e regra de negócio.
 const { readdirSync, readFileSync, statSync } = require('node:fs') as {
   readdirSync: (pasta: string) => string[];
@@ -103,7 +103,7 @@ describe('D15: fronteira entre rotas, telas e regra de negócio', () => {
   });
 });
 
-describe('D12 e D14: bibliotecas e fonte', () => {
+describe('D12, D14 e D52: bibliotecas e fonte', () => {
   const pacote = require('../../../package.json') as {
     dependencies: Record<string, string>;
   };
@@ -129,15 +129,45 @@ describe('D12 e D14: bibliotecas e fonte', () => {
     expect(soltas).toEqual([]);
   });
 
-  it('usa a fonte do sistema: nenhum fontFamily nem expo-font', () => {
+  it('fontes (ADR-009): fontFamily, expo-font e @expo-google-fonts só em src/tema', () => {
     const achados = arquivos(raiz)
       .filter(naoTeste)
+      .filter((a) => !/^tema\//.test(relativo(a)))
       .filter((a) =>
-        /fontFamily|expo-font|useFonts/.test(readFileSync(a, 'utf8')),
+        /fontFamily|@expo-google-fonts/.test(readFileSync(a, 'utf8')),
       )
       .map(relativo);
 
     expect(achados).toEqual([]);
-    expect(Object.keys(pacote.dependencies)).not.toContain('expo-font');
+  });
+
+  it('CA73: ícones só do Feather (D53), nenhum arquivo cita Ionicons', () => {
+    const esteArquivo = relativo(expect.getState().testPath ?? '');
+    const comIonicons = arquivos(raiz)
+      .filter((a) => relativo(a) !== esteArquivo)
+      .filter((a) => /Ionicons/.test(readFileSync(a, 'utf8')))
+      .map(relativo);
+    const outrosConjuntos = arquivos(raiz).flatMap((a) =>
+      importacoes(a)
+        .filter((i) => /^@expo\/vector-icons/.test(i.origem))
+        .filter(
+          (i) =>
+            !/^import (type )?\{ Feather \} from '@expo\/vector-icons';$/.test(
+              i.linha,
+            ),
+        )
+        .map((i) => `${relativo(a)}: ${i.linha}`),
+    );
+
+    expect(comIonicons).toEqual([]);
+    expect(outrosConjuntos).toEqual([]);
+  });
+
+  it('as fontes entram como dependências de versão fixa', () => {
+    expect(pacote.dependencies['expo-font']).toBe('57.0.4');
+    expect(pacote.dependencies['@expo-google-fonts/bricolage-grotesque']).toBe(
+      '0.4.1',
+    );
+    expect(pacote.dependencies['@expo-google-fonts/figtree']).toBe('0.4.1');
   });
 });

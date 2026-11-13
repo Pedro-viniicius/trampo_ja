@@ -197,8 +197,8 @@ describe('CA21 — conteúdo previsto (D25 a D28)', () => {
     expect(texto).toContain('Encerramento da conta');
   });
 
-  it('cada documento tem a sua versão: a política (L3) não é anterior aos termos', () => {
-    expect(politicaDePrivacidade.versao).toBe('2026-10-23');
+  it('cada documento tem a sua versão: a política (V2b) não é anterior aos termos', () => {
+    expect(politicaDePrivacidade.versao).toBe('2026-11-13');
     expect(politicaDePrivacidade.versao >= termosDeUso.versao).toBe(true);
   });
 });
@@ -251,5 +251,65 @@ describe('CA48 — exportação grande e limpeza de sessões (D40 e D41)', () =>
       .flatMap((s) => s.paragrafos)
       .join('\n');
     for (const marcador of MARCADORES) expect(texto).toContain(marcador);
+  });
+});
+
+describe('S1 (V2b) — avaliações e favoritos na política (CA93)', () => {
+  const secao = (titulo: string): string =>
+    (
+      politicaDePrivacidade.secoes.find((s) => s.titulo === titulo)
+        ?.paragrafos ?? []
+    ).join('\n');
+
+  it('"Dados que coletamos" cita a avaliação (nota, destaques, comentário) e os favoritos', () => {
+    const texto = secao('Dados que coletamos');
+    expect(texto).toContain('Avaliações e favoritos:');
+    expect(texto).toContain('nota de 1 a 5');
+    expect(texto).toContain('destaques');
+    expect(texto).toContain('comentário');
+  });
+
+  it('"Quem vê": avaliação pública a quem tem conta, com quem avaliou, sem editar nem apagar; favoritos privados', () => {
+    const texto = secao('Quem vê os seus dados');
+    expect(texto).toContain('qualquer pessoa que tem conta no aplicativo');
+    expect(texto).toContain('quem avaliou');
+    expect(texto).toContain('as duas pessoas trabalharam juntas');
+    expect(texto).toContain('não pode ser editada nem apagada pelo aplicativo');
+    expect(texto).toContain('remoção de um comentário específico');
+    expect(texto).toContain('[E-MAIL DE CONTATO]');
+    expect(texto).toContain('Os favoritos são privados');
+    expect(texto).toContain('não é avisada');
+  });
+
+  it('"Por quanto tempo": avaliação até a exclusão de uma das contas; favorito até desfazer ou a exclusão', () => {
+    const texto = secao('Por quanto tempo guardamos os dados');
+    expect(texto).toContain(
+      'Uma avaliação fica guardada até que uma das duas contas',
+    );
+    expect(texto).toContain('até você desfazer o favorito');
+  });
+
+  it('"Exportar" traz as avaliações feitas, as recebidas (sem comentário e sem autor) e os favoritos', () => {
+    const exportar =
+      politicaDePrivacidade.secoes
+        .find((s) => s.titulo === 'Seus direitos')
+        ?.paragrafos.find((p) => p.startsWith('Exportar:')) ?? '';
+    expect(exportar).toContain('as avaliações que você fez');
+    expect(exportar).toContain('identificador do trampo avaliado');
+    expect(exportar).toContain('sem o comentário e sem quem avaliou');
+    expect(exportar).toContain('os seus favoritos');
+    expect(exportar).toContain('o das contas que você favoritou');
+    // O texto antigo dizia que o único id de terceiro era o da conversa.
+    expect(exportar).not.toContain(
+      'além do identificador da outra pessoa em cada conversa',
+    );
+  });
+
+  it('"Excluir" apaga avaliações dadas e recebidas e os favoritos dos dois lados, e avisa da média', () => {
+    const texto = secao('Seus direitos');
+    expect(texto).toContain(
+      'as avaliações que você fez e as que você recebeu, e os favoritos dos dois lados',
+    );
+    expect(texto).toContain('a média de notas dessa pessoa pode mudar');
   });
 });

@@ -109,6 +109,12 @@ describe.each([
         EMAIL,
       );
       await fireEvent.changeText(screen.getByLabelText(rotuloSenha), SENHA);
+      // CA75: o Cadastro só envia depois da escolha do objetivo.
+      if (url === '/cadastro') {
+        await fireEvent.press(
+          screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
+        );
+      }
     }
 
     it('falha na hora com a mensagem de conexão, mantém o e-mail e o botão volta ao normal', async () => {

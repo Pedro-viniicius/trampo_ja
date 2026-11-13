@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { act, fireEvent, screen, waitFor } from 'expo-router/testing-library';
 import type { ItemDaBusca } from '../../api/tipos';
 import { textos } from '../../textos/pt-BR';
@@ -65,7 +66,9 @@ function pagina(itens: readonly ItemDaBusca[], proximoCursor: string | null) {
 const buscas = (fetch: FetchFalso) =>
   fetch.requisicoes.filter((r) => r.caminho === '/busca');
 
-const campo = () => screen.getByLabelText(textos.buscar.campo);
+// A busca de trampos do freela (`/buscar-trampos`, CA84) cobre o texto, os
+// filtros e a paginação; a aba Buscar do contratante usa a mesma tela.
+const campo = () => screen.getByLabelText(textos.buscar.campoTrampos);
 const enviar = () => fireEvent(campo(), 'submitEditing');
 /** Abre o seletor `rotulo` e escolhe a opção (o último botão com o nome: a folha vem depois). */
 async function escolherNoSeletor(rotulo: string, opcao: string) {
@@ -84,10 +87,10 @@ const aoLado = (ms: number) =>
 describe('Buscar: texto e filtros (CA7)', () => {
   it('texto só de espaços não manda `texto` na query', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       '     ',
     );
     await enviar();
@@ -99,10 +102,10 @@ describe('Buscar: texto e filtros (CA7)', () => {
 
   it('texto com espaços nas pontas vai aparado', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       '  pintor  ',
     );
     await enviar();
@@ -113,11 +116,11 @@ describe('Buscar: texto e filtros (CA7)', () => {
 
   it('texto com &, =, #, % e acentos chega inteiro à API (codificado na URL)', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
     const texto = 'pintura & reforma=1 #50% açaí';
 
     await fireEvent.changeText(
-      await screen.findByLabelText(textos.buscar.campo),
+      await screen.findByLabelText(textos.buscar.campoTrampos),
       texto,
     );
     await enviar();
@@ -134,9 +137,10 @@ describe('Buscar: texto e filtros (CA7)', () => {
   // Desde a L4 (CA55, D45) o campo corta no próprio `onChangeText`, em pontos
   // de código, no lugar do `maxLength` (que o RN conta em unidades UTF-16).
   it('o campo de texto limita a 100 caracteres: corta ao digitar ou colar, nunca antes', async () => {
-    await abrirApp('/buscar');
-    await screen.findByLabelText(textos.buscar.campo);
-    const valor = () => screen.getByLabelText(textos.buscar.campo).props.value;
+    await abrirApp('/buscar-trampos');
+    await screen.findByLabelText(textos.buscar.campoTrampos);
+    const valor = () =>
+      screen.getByLabelText(textos.buscar.campoTrampos).props.value;
 
     // Exatamente no limite: nada é cortado e o aviso de corte não aparece.
     await fireEvent.changeText(campo(), 'a'.repeat(100));
@@ -160,17 +164,17 @@ describe('Buscar: texto e filtros (CA7)', () => {
     expect(campo().props.maxLength).toBeUndefined();
   });
 
-  it('combina texto, categoria, cidade e aba de serviços numa busca só, com E', async () => {
+  it('combina texto, categoria e cidade na busca de serviços do contratante, com E', async () => {
     const fetch = fakeComCategorias().responder(
       'GET /busca',
       pagina([servico('s1', 'Aula de reforço')], null),
     );
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar', { fetch, modo: 'contratante' });
 
-    await fireEvent.press(
-      await screen.findByRole('tab', { name: textos.buscar.abaServicos }),
+    await fireEvent.changeText(
+      await screen.findByLabelText(textos.buscarFreelancers.campo),
+      'matemática',
     );
-    await fireEvent.changeText(campo(), 'matemática');
     await escolherNoSeletor(textos.buscar.categoria, 'Aulas e reforço');
     await fireEvent.press(
       screen.getByRole('button', {
@@ -197,7 +201,7 @@ describe('Buscar: texto e filtros (CA7)', () => {
 
   it('voltar a "Todas as categorias" tira a categoria da query', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await screen.findByText(textos.buscar.inicial);
     await escolherNoSeletor(textos.buscar.categoria, 'Aulas e reforço');
@@ -226,7 +230,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       ),
       pagina([trampo('t3', 'Mango', '2026-06-01T00:00:00.000Z')], null),
     ]);
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
     await screen.findByText('Zebra');
@@ -249,7 +253,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       pagina([trampo('t2', 'Dois')], 'cursor-B'),
       pagina([trampo('t3', 'Tres')], null),
     ]);
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
     await screen.findByText('Um');
@@ -279,7 +283,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       pagina([trampo('t1', 'Um')], 'cursor-A'),
       { ...pagina([trampo('t2', 'Dois')], null), demoraMs: 200 },
     ]);
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
     await screen.findByText('Um');
@@ -301,39 +305,33 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       'GET /busca',
       pagina([trampo('t1', 'Um')], null),
     );
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
 
     expect(await screen.findByText('1 resultado')).toBeOnTheScreen();
   });
 
-  it('trocar de aba com a busca ainda carregando mostra só a aba nova (resposta atrasada não vaza)', async () => {
+  it('mudar o filtro com a busca ainda carregando mostra só a busca nova (resposta atrasada não vaza)', async () => {
     const fetch = fakeComCategorias()
       .responder('GET /busca?tipo=trampos', {
         ...pagina([trampo('t1', 'Trampo atrasado')], null),
         demoraMs: 500,
       })
       .responder(
-        'GET /busca?tipo=servicos',
-        pagina([servico('s1', 'Serviço rápido')], null),
+        'GET /busca?tipo=trampos&categoria=aulas',
+        pagina([trampo('t2', 'Trampo da categoria')], null),
       );
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
-    await fireEvent.press(
-      screen.getByRole('tab', { name: textos.buscar.abaServicos }),
-    );
+    await escolherNoSeletor(textos.buscar.categoria, 'Aulas e reforço');
     await aoLado(100);
-    expect(await screen.findByText('Serviço rápido')).toBeOnTheScreen();
+    expect(await screen.findByText('Trampo da categoria')).toBeOnTheScreen();
     await aoLado(1000);
 
     expect(screen.queryByText('Trampo atrasado')).toBeNull();
-    expect(screen.getByText('Serviço rápido')).toBeOnTheScreen();
-    expect(
-      screen.getByRole('tab', { name: textos.buscar.abaServicos }).props
-        .accessibilityState,
-    ).toMatchObject({ selected: true });
+    expect(screen.getByText('Trampo da categoria')).toBeOnTheScreen();
   });
 
   it('erro ao carregar a página 2 avisa a pessoa (não fica mudo) e mantém a página 1', async () => {
@@ -341,7 +339,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       pagina([trampo('t1', 'Um')], 'cursor-A'),
       { status: 500, corpo: { erro: 'interno' } },
     ]);
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
     await screen.findByText('Um');
@@ -360,7 +358,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       status: 500,
       corpo: { erro: 'erro_interno' },
     });
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
 
@@ -375,7 +373,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
       status: 429,
       corpo: { erro: 'muitas_requisicoes' },
     });
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
 
@@ -386,7 +384,7 @@ describe('Buscar: resultados e paginação (CA7)', () => {
 
   it('vazio com filtro mostra "Limpar filtros" e sem filtro não oferece o botão', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await enviar();
     expect(
@@ -408,18 +406,18 @@ describe('Buscar: resultados e paginação (CA7)', () => {
 
   it('sem enviar nada, abre com as categorias sugeridas e sem requisição de busca', async () => {
     const fetch = fakeComCategorias().responder('GET /busca', pagina([], null));
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
     expect(buscas(fetch)).toHaveLength(0);
   });
 
-  it('tocar numa categoria sugerida busca com ela (e a aba atual)', async () => {
+  it('tocar numa categoria sugerida busca com ela (e o tipo da tela)', async () => {
     const fetch = fakeComCategorias().responder(
       'GET /busca',
       pagina([trampo('t1', 'Reboco')], null),
     );
-    await abrirApp('/buscar', { fetch });
+    await abrirApp('/buscar-trampos', { fetch });
 
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Reformas e reparos' }),
@@ -434,15 +432,15 @@ describe('Buscar: resultados e paginação (CA7)', () => {
   });
 });
 
-describe('Início → "Ver todos" → Buscar (CA7)', () => {
+describe('Início → "Ver todos" → Buscar (CA7, CA84)', () => {
   const verTodos = async (indice: number) => {
     const botoes = await screen.findAllByRole('button', {
       name: textos.gerais.verTodos,
     });
     await fireEvent.press(botoes[indice] as (typeof botoes)[number]);
   };
-  const abaSelecionada = (nome: string) =>
-    screen.getByRole('tab', { name: nome }).props.accessibilityState;
+  const campoDeServicos = () =>
+    screen.getByLabelText(textos.buscarFreelancers.campo);
 
   function fakeDoInicio() {
     return fakeComCategorias()
@@ -457,51 +455,58 @@ describe('Início → "Ver todos" → Buscar (CA7)', () => {
       );
   }
 
-  it('"Ver todos" de serviços, depois de trocar a aba à mão, abre a aba de serviços de novo', async () => {
+  it('"Ver todos" de serviços com a Buscar já montada (outro `pedido`) zera os filtros e lista tudo de novo', async () => {
     const fetch = fakeDoInicio();
     const { getPathname } = await abrirApp('/', { fetch });
 
     await verTodos(1);
     await waitFor(() => expect(getPathname()).toBe('/buscar'));
-    await screen.findByRole('tab', { name: textos.buscar.abaServicos });
-    expect(abaSelecionada(textos.buscar.abaServicos)).toMatchObject({
-      selected: true,
-    });
+    expect(await screen.findByText('Violão')).toBeOnTheScreen();
 
-    // A pessoa troca para Trampos e volta ao Início pela barra de abas.
-    await fireEvent.press(
-      screen.getByRole('tab', { name: textos.buscar.abaTrampos }),
+    // A pessoa filtra à mão e volta ao Início pela barra de abas.
+    await fireEvent.changeText(campoDeServicos(), 'piano');
+    await fireEvent(campoDeServicos(), 'submitEditing');
+    await waitFor(() =>
+      expect(buscas(fetch).at(-1)?.query.texto).toBe('piano'),
     );
-    expect(abaSelecionada(textos.buscar.abaTrampos)).toMatchObject({
-      selected: true,
-    });
     await fireEvent.press(
       screen.getByRole('button', { name: /^Início(, tab|$)/ }),
     );
     await waitFor(() => expect(getPathname()).toBe('/'));
 
-    await verTodos(1);
+    // O link de "Ver todos" de serviços chega de novo, com outro `pedido`.
+    await act(async () => {
+      router.navigate({
+        pathname: '/buscar',
+        params: { tipo: 'servicos', pedido: 'pedido-novo-do-teste' },
+      });
+    });
     await waitFor(() => expect(getPathname()).toBe('/buscar'));
 
-    expect(abaSelecionada(textos.buscar.abaServicos)).toMatchObject({
-      selected: true,
-    });
-    expect(buscas(fetch).at(-1)?.query).toEqual({
-      tipo: 'servicos',
-      limite: '20',
-    });
+    await waitFor(() =>
+      expect(buscas(fetch).at(-1)?.query).toEqual({
+        tipo: 'servicos',
+        limite: '20',
+      }),
+    );
+    expect(campoDeServicos().props.value).toBe('');
   });
 
-  it('?tipo= desconhecido na URL é ignorado: abre em Trampos, sem buscar', async () => {
-    const fetch = fakeDoInicio();
-    await abrirApp('/buscar?tipo=admin', { fetch });
+  it.each([
+    ['desconhecido', 'admin'],
+    ['do outro tipo', 'servicos'],
+  ])(
+    '?tipo= %s na URL é ignorado: abre a busca de trampos sem buscar',
+    async (_caso, tipo) => {
+      const fetch = fakeDoInicio();
+      await abrirApp(`/buscar-trampos?tipo=${tipo}`, { fetch });
 
-    expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
-    expect(abaSelecionada(textos.buscar.abaTrampos)).toMatchObject({
-      selected: true,
-    });
-    expect(buscas(fetch)).toHaveLength(0);
-  });
+      expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
+      expect(screen.getByText(textos.buscar.tituloTrampos)).toBeOnTheScreen();
+      expect(screen.queryByRole('tab')).toBeNull();
+      expect(buscas(fetch)).toHaveLength(0);
+    },
+  );
 });
 
 describe('Início (CA7)', () => {

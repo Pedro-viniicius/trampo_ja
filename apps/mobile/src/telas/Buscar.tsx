@@ -1,28 +1,20 @@
+import { FlatList, Text, useWindowDimensions, View } from 'react-native';
 import {
-  FlatList,
-  Pressable,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
-import {
+  AbasSublinhadas,
   Aviso,
   Botao,
   Cabecalho,
   CampoDeTexto,
+  CartaoDeFreelancer,
   Chip,
   EstadoVazio,
+  folgaDaBarraDeAbas,
   Seletor,
   Toast,
 } from '../componentes';
-import { estiloDeFoco, useFoco } from '../componentes/utilitarios';
-import {
-  cores,
-  espaco,
-  larguraMaxima,
-  tipografia,
-  toqueMinimo,
-} from '../tema/tokens';
+import { useMargensSeguras } from '../componentes/utilitarios';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, larguraMaxima, margemDaTela } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Carregando, ErroDoBloco, Pagina, Titulo } from './base';
 import { CartaoDoItem } from './item';
@@ -40,7 +32,9 @@ export function Buscar({
   cidade,
   categorias,
   cidadesSugeridas = [],
-  aba,
+  aba = 'trampos',
+  tipo,
+  onVoltar,
   estado,
   temMais,
   carregandoMais = false,
@@ -63,11 +57,26 @@ export function Buscar({
   const { width, fontScale } = useWindowDimensions();
   const empilhar =
     width < LARGURA_PARA_EMPILHAR || fontScale > ESCALA_PARA_EMPILHAR;
+  const margens = useMargensSeguras();
+  // CA84: com `tipo`, a busca é de um tipo só, sem abas.
+  const raiz = Boolean(tipo) && !onVoltar;
+  const titulo =
+    tipo === 'servicos'
+      ? textos.buscarFreelancers.titulo
+      : tipo === 'trampos'
+        ? textos.buscar.tituloTrampos
+        : textos.buscar.titulo;
+  const rotuloDoCampo =
+    tipo === 'servicos'
+      ? textos.buscarFreelancers.campo
+      : tipo === 'trampos'
+        ? textos.buscar.campoTrampos
+        : textos.buscar.campo;
 
   const cabecalhoDaLista = (
-    <View style={{ gap: espaco[3] }}>
+    <View style={{ gap: espaco.m }}>
       <CampoDeTexto
-        rotulo={textos.buscar.campo}
+        rotulo={rotuloDoCampo}
         valor={texto}
         onChangeText={onMudarTexto}
         limite={LIMITE_DO_TEXTO}
@@ -75,7 +84,10 @@ export function Buscar({
         onSubmitEditing={onEnviar}
       />
       <View
-        style={{ flexDirection: empilhar ? 'column' : 'row', gap: espaco[2] }}
+        style={{
+          flexDirection: empilhar ? 'column' : 'row',
+          gap: empilhar ? espaco.m : espaco.s,
+        }}
       >
         <View style={{ flex: empilhar ? undefined : 1 }}>
           <Seletor
@@ -108,7 +120,17 @@ export function Buscar({
           />
         </View>
       </View>
-      <Abas aba={aba} onTrocar={onTrocarAba} />
+      {!tipo && onTrocarAba ? (
+        <AbasSublinhadas<AbaDaBusca>
+          rotulo={textos.buscar.titulo}
+          itens={[
+            { chave: 'trampos', rotulo: textos.buscar.abaTrampos },
+            { chave: 'servicos', rotulo: textos.buscar.abaServicos },
+          ]}
+          selecionada={aba}
+          onSelecionar={onTrocarAba}
+        />
+      ) : null}
       <Resumo
         estado={estado}
         temMais={temMais}
@@ -122,7 +144,7 @@ export function Buscar({
 
   return (
     <Pagina>
-      <Cabecalho titulo={textos.buscar.titulo} />
+      <Cabecalho titulo={titulo} raiz={raiz} onVoltar={onVoltar} />
       <FlatList
         data={itens}
         keyExtractor={(item) => `${item.tipo}-${item.id}`}
@@ -131,13 +153,28 @@ export function Buscar({
           width: '100%',
           maxWidth: larguraMaxima,
           alignSelf: 'center',
-          padding: espaco[4],
-          gap: espaco[3],
+          paddingHorizontal: margemDaTela,
+          paddingTop: espaco.m,
+          gap: espaco.m,
+          paddingBottom: raiz ? folgaDaBarraDeAbas(margens.bottom) : espaco.l,
         }}
         ListHeaderComponent={cabecalhoDaLista}
-        renderItem={({ item }) => (
-          <CartaoDoItem item={item} onAbrir={onAbrirItem} />
-        )}
+        renderItem={({ item }) =>
+          tipo === 'servicos' &&
+          item.tipo === 'servico' &&
+          item.autor !== undefined ? (
+            <CartaoDeFreelancer
+              nome={item.autor}
+              tituloDoServico={item.titulo}
+              categoria={item.categoria}
+              cidade={item.cidade}
+              precoFormatado={item.valorFormatado}
+              onPress={() => onAbrirItem(item)}
+            />
+          ) : (
+            <CartaoDoItem item={item} onAbrir={onAbrirItem} />
+          )
+        }
         ListEmptyComponent={
           <Vazios
             estado={estado}
@@ -149,7 +186,7 @@ export function Buscar({
         }
         ListFooterComponent={
           estado.situacao === 'ok' && (temMais || carregandoMais) ? (
-            <View style={{ gap: espaco[3] }}>
+            <View style={{ gap: espaco.s }}>
               {erroAoCarregarMais ? (
                 <Aviso
                   variante="erro"
@@ -161,7 +198,7 @@ export function Buscar({
               <Botao
                 texto={textos.gerais.carregarMais}
                 textoCarregando={textos.gerais.carregando}
-                variante="secundario"
+                variante="contorno"
                 carregando={carregandoMais}
                 onPress={onCarregarMais}
               />
@@ -206,17 +243,15 @@ function Resumo({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: espaco[2],
+        gap: espaco.s,
       }}
     >
       <Text
         accessibilityLiveRegion="polite"
-        style={{
-          flexShrink: 1,
-          color: cores.textoSecundario,
-          fontSize: tipografia.tamanho.rotulo,
-          lineHeight: tipografia.lineHeight.rotulo,
-        }}
+        style={[
+          estiloDeTexto('legenda'),
+          { flexShrink: 1, color: cores.textoSecundario },
+        ]}
       >
         {contagem ?? ''}
       </Text>
@@ -248,7 +283,7 @@ function Vazios({
 }) {
   switch (estado.situacao) {
     case 'carregando':
-      return <Carregando />;
+      return <Carregando cartoes={3} />;
     case 'erro':
       return (
         <ErroDoBloco
@@ -259,7 +294,7 @@ function Vazios({
     case 'vazio':
       return (
         <EstadoVazio
-          icone="search-outline"
+          icone="search"
           titulo={textos.buscar.semResultados}
           textoAcao={temFiltro ? textos.buscar.limparFiltros : undefined}
           onAcao={temFiltro ? onLimparFiltros : undefined}
@@ -267,19 +302,15 @@ function Vazios({
       );
     case 'inicial':
       return (
-        <View style={{ gap: espaco[3] }}>
+        <View style={{ gap: espaco.m - 4 }}>
           <Titulo texto={textos.buscar.inicial} />
           <Text
-            style={{
-              color: cores.textoSecundario,
-              fontSize: tipografia.tamanho.corpo,
-              lineHeight: tipografia.lineHeight.corpo,
-            }}
+            style={[estiloDeTexto('corpo'), { color: cores.textoSecundario }]}
           >
             {textos.buscar.inicialTexto}
           </Text>
           <View
-            style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco[2] }}
+            style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.s }}
           >
             {categorias.map((categoria) => (
               <Chip
@@ -294,78 +325,4 @@ function Vazios({
     case 'ok':
       return null;
   }
-}
-
-function Abas({
-  aba,
-  onTrocar,
-}: {
-  aba: AbaDaBusca;
-  onTrocar: (aba: AbaDaBusca) => void;
-}) {
-  return (
-    <View
-      accessibilityRole="tablist"
-      style={{
-        flexDirection: 'row',
-        borderBottomWidth: 1,
-        borderBottomColor: cores.borda,
-      }}
-    >
-      <Aba
-        texto={textos.buscar.abaTrampos}
-        ativa={aba === 'trampos'}
-        onPress={() => onTrocar('trampos')}
-      />
-      <Aba
-        texto={textos.buscar.abaServicos}
-        ativa={aba === 'servicos'}
-        onPress={() => onTrocar('servicos')}
-      />
-    </View>
-  );
-}
-
-function Aba({
-  texto,
-  ativa,
-  onPress,
-}: {
-  texto: string;
-  ativa: boolean;
-  onPress: () => void;
-}) {
-  const { focado, aoFocar, aoDesfocar } = useFoco();
-  return (
-    <Pressable
-      accessibilityRole="tab"
-      accessibilityLabel={texto}
-      accessibilityState={{ selected: ativa }}
-      onPress={onPress}
-      onFocus={aoFocar}
-      onBlur={aoDesfocar}
-      style={[
-        {
-          flex: 1,
-          minHeight: toqueMinimo,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderBottomWidth: 3,
-          borderBottomColor: ativa ? cores.primaria : 'transparent',
-          marginBottom: -1,
-        },
-        focado && estiloDeFoco,
-      ]}
-    >
-      <Text
-        style={{
-          color: ativa ? cores.primaria : cores.textoSecundario,
-          fontSize: tipografia.tamanho.corpo,
-          fontWeight: ativa ? tipografia.peso.semibold : tipografia.peso.normal,
-        }}
-      >
-        {texto}
-      </Text>
-    </Pressable>
-  );
 }

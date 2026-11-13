@@ -7,12 +7,16 @@ import {
   View,
 } from 'react-native';
 import {
+  AbasSublinhadas,
+  ALTURA_DA_BARRA_DE_ABAS,
   Aviso,
   Botao,
+  BotaoDeIcone,
   BotaoMaisOpcoes,
   CartaoDeAnuncio,
   EstadoVazio,
   FolhaDeAcoesDoAnuncio,
+  MARGEM_DA_BARRA_DE_ABAS,
   Motivo,
   Selo,
   Toast,
@@ -20,7 +24,17 @@ import {
 import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { EstadoDeTela, Rolavel } from './base';
-import type { MeuAnuncioParaExibir, PropsDosMeusAnuncios } from './tipos';
+import type {
+  AbaDeDemandas,
+  MeuAnuncioParaExibir,
+  PropsDosMeusAnuncios,
+} from './tipos';
+
+const VAZIO_DA_ABA = {
+  aberto: { icone: 'briefcase', titulo: textos.demandas.vazioAbertas },
+  em_andamento: { icone: 'clock', titulo: textos.demandas.vazioAndamento },
+  encerrado: { icone: 'archive', titulo: textos.demandas.vazioEncerradas },
+} as const;
 
 const selo = {
   aberto: { variante: 'aberto', texto: textos.selos.aberto },
@@ -41,13 +55,24 @@ export function MeusAnuncios({
   toast,
   onFecharToast,
   carregarMais,
+  segmentada = false,
+  abaInicial = 'aberto',
 }: PropsDosMeusAnuncios) {
   const ehTrampo = tipo === 'trampo';
-  const quantidade = lista.situacao === 'ok' ? lista.dados.length : 0;
+  // CA79: as abas só existem em Demandas (trampos) e filtram o que já carregou.
+  const comAbas = segmentada && ehTrampo;
+  const [aba, setAba] = useState<AbaDeDemandas>(abaInicial);
+  const todos = lista.situacao === 'ok' ? lista.dados : [];
+  const visiveis = comAbas
+    ? todos.filter((item) => item.status === aba)
+    : todos;
+  const quantidade = todos.length;
   const carregandoMais = carregarMais?.carregando ?? false;
   const antes = useRef<number | null>(null);
   const primeiroNovo = useRef<View>(null);
-  const [indiceDoNovo, setIndiceDoNovo] = useState<number | null>(null);
+  const [idDoNovo, setIdDoNovo] = useState<string | null>(null);
+  const recentes = useRef({ todos, visiveis });
+  recentes.current = { todos, visiveis };
   const [anuncio, setAnuncio] = useState<{ texto: string; n: number } | null>(
     null,
   );
@@ -57,7 +82,7 @@ export function MeusAnuncios({
   useEffect(() => {
     if (carregandoMais) {
       antes.current = quantidade;
-      setIndiceDoNovo(null);
+      setIdDoNovo(null);
       return;
     }
     const anterior = antes.current;
@@ -67,19 +92,32 @@ export function MeusAnuncios({
       quantidade - anterior,
       tipo,
     );
-    setIndiceDoNovo(anterior);
+    // Com abas, o foco vai ao primeiro novo que aparece na aba aberta.
+    const novos = recentes.current.todos.slice(anterior);
+    const visivel = novos.find((novo) =>
+      recentes.current.visiveis.some((item) => item.id === novo.id),
+    );
+    setIdDoNovo(visivel?.id ?? null);
     setAnuncio((atual) => ({ texto, n: (atual?.n ?? 0) + 1 }));
     if (Platform.OS === 'ios')
       AccessibilityInfo.announceForAccessibility(texto);
   }, [carregandoMais, quantidade, tipo]);
   useEffect(() => {
-    if (indiceDoNovo === null) return;
+    if (idDoNovo === null) return;
     const no = findNodeHandle(primeiroNovo.current);
     if (no) AccessibilityInfo.setAccessibilityFocus(no);
-  }, [indiceDoNovo]);
-  const vazio = (
+  }, [idDoNovo]);
+  const vazioDaAba = VAZIO_DA_ABA[aba];
+  const vazio = comAbas ? (
     <EstadoVazio
-      icone={ehTrampo ? 'briefcase-outline' : 'construct-outline'}
+      icone={vazioDaAba.icone}
+      titulo={vazioDaAba.titulo}
+      textoAcao={aba === 'aberto' ? textos.demandas.publicar : undefined}
+      onAcao={aba === 'aberto' ? onPublicar : undefined}
+    />
+  ) : (
+    <EstadoVazio
+      icone={ehTrampo ? 'briefcase' : 'tool'}
       titulo={
         ehTrampo
           ? textos.meusAnuncios.vazioTrampos
@@ -101,11 +139,25 @@ export function MeusAnuncios({
   return (
     <Rolavel
       titulo={
-        ehTrampo
-          ? textos.meusAnuncios.tituloTrampos
-          : textos.meusAnuncios.tituloServicos
+        comAbas
+          ? textos.demandas.titulo
+          : ehTrampo
+            ? textos.meusAnuncios.tituloTrampos
+            : textos.meusAnuncios.tituloServicos
       }
+      raiz={comAbas && !onVoltar}
+      comBarraDeAbas={comAbas && !onVoltar}
       onVoltar={onVoltar}
+      direita={
+        comAbas ? (
+          <BotaoDeIcone
+            icone="plus"
+            variante="gradiente"
+            rotulo={textos.demandas.nova}
+            onPress={onPublicar}
+          />
+        ) : undefined
+      }
       semConexao={semConexao}
       sobreposicao={
         toast ? (
@@ -114,20 +166,38 @@ export function MeusAnuncios({
             mensagem={toast}
             rotuloFechar={textos.gerais.toastFechar}
             onFechar={() => onFecharToast?.()}
+            // Na aba Demandas, o toast sobe acima da barra flutuante.
+            deslocamentoInferior={
+              comAbas && !onVoltar
+                ? ALTURA_DA_BARRA_DE_ABAS + MARGEM_DA_BARRA_DE_ABAS
+                : 0
+            }
           />
         ) : undefined
       }
     >
+      {comAbas ? (
+        <AbasSublinhadas
+          rotulo={textos.demandas.titulo}
+          itens={[
+            { chave: 'aberto', rotulo: textos.demandas.abaAbertas },
+            { chave: 'em_andamento', rotulo: textos.demandas.abaAndamento },
+            { chave: 'encerrado', rotulo: textos.demandas.abaEncerradas },
+          ]}
+          selecionada={aba}
+          onSelecionar={setAba}
+        />
+      ) : null}
       <EstadoDeTela estado={lista} vazio={vazio}>
-        {(itens) =>
-          itens.length === 0 ? (
+        {() =>
+          visiveis.length === 0 ? (
             vazio
           ) : (
-            <View style={{ gap: espaco[3] }}>
-              {itens.map((item, indice) => (
+            <View style={{ gap: espaco.l }}>
+              {visiveis.map((item) => (
                 <Anuncio
                   key={item.id}
-                  refDoFoco={indice === indiceDoNovo ? primeiroNovo : undefined}
+                  refDoFoco={item.id === idDoNovo ? primeiroNovo : undefined}
                   item={item}
                   onAbrir={onAbrirItem}
                   onMaisOpcoes={onMaisOpcoes}
@@ -138,7 +208,7 @@ export function MeusAnuncios({
         }
       </EstadoDeTela>
       {carregarMais && lista.situacao === 'ok' && quantidade > 0 ? (
-        <View style={{ gap: espaco[2] }}>
+        <View style={{ gap: espaco.s }}>
           {carregarMais.erro ? (
             <Aviso
               variante="erro"
@@ -150,7 +220,7 @@ export function MeusAnuncios({
           <Botao
             texto={textos.gerais.carregarMais}
             textoCarregando={textos.gerais.carregando}
-            variante="secundario"
+            variante="contorno"
             carregando={carregarMais.carregando}
             desabilitado={Boolean(semConexao)}
             onPress={carregarMais.onCarregarMais}
@@ -187,25 +257,30 @@ function Anuncio({
 }) {
   const { variante, texto } = selo[item.status];
   return (
-    <View ref={refDoFoco} accessible={false} style={{ gap: espaco[1] }}>
-      <Selo variante={variante} texto={texto} />
+    <View ref={refDoFoco} accessible={false} style={{ gap: espaco.s }}>
       <View
         style={{
           flexDirection: 'row',
-          alignItems: 'flex-start',
-          gap: espaco[1],
+          alignItems: 'center',
+          gap: espaco.s,
         }}
       >
-        <View style={{ flex: 1 }}>
-          <CartaoDeAnuncio
-            tipo={item.tipo}
-            titulo={item.titulo}
-            categoria={item.categoria}
-            cidade={item.cidade}
-            valorFormatado={item.valorFormatado}
-            dataFormatada={item.dataFormatada}
-            onPress={() => onAbrir(item)}
-          />
+        <View
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: espaco.s,
+          }}
+        >
+          <Selo variante={variante} texto={texto} />
+          {item.tipo === 'trampo' && item.interessados !== undefined ? (
+            <Selo
+              variante="roxo"
+              icone="users"
+              texto={textos.inicioContratante.interessados(item.interessados)}
+            />
+          ) : null}
         </View>
         {onMaisOpcoes ? (
           <BotaoMaisOpcoes
@@ -214,6 +289,15 @@ function Anuncio({
           />
         ) : null}
       </View>
+      <CartaoDeAnuncio
+        tipo={item.tipo}
+        titulo={item.titulo}
+        categoria={item.categoria}
+        cidade={item.cidade}
+        valorFormatado={item.valorFormatado}
+        dataFormatada={item.dataFormatada}
+        onPress={() => onAbrir(item)}
+      />
     </View>
   );
 }

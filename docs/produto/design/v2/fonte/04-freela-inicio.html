@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Freela · Início</title>
+<script src="ffd7f70e-1b3e-42b9-bcec-f0611da1145f"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease;cursor:pointer}
+.tj-press:active{transform:scale(.97)}
+@keyframes tj-pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5)}100%{box-shadow:0 0 0 8px rgba(22,163,74,0)}}
+.tj-pulse{animation:tj-pulse 1.6s ease-out infinite}
+@keyframes tj-in{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.tj-in{animation:tj-in .32s cubic-bezier(.2,.8,.2,1) both}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <main style="padding: 56px 24px 120px; display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 16px; font-weight: 600; color: #555B73;">Olá, Laura</span>
+        <span style="height: 32px; padding: 0 12px; border-radius: 999px; background: #DDF5E6; color: #0B7A3D; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px;"><span class="tj-pulse" style="width: 8px; height: 8px; border-radius: 50%; background: #16A34A; display: block;"></span>10 vagas perto de você</span>
+      </div>
+      <h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 30px; line-height: 34px; letter-spacing: -0.025em;">Encontre seu<br>próximo trampo</h1>
+    </div>
+
+    <!-- Ganhos + local -->
+    <div style="background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); border-radius: 28px; padding: 20px; color: #FFFFFF; display: flex; flex-direction: column; gap: 16px; position: relative; overflow: hidden; box-shadow: 0 16px 32px -16px rgba(122,59,191,.7);">
+      <div aria-hidden="true" style="position: absolute; right: -30px; top: -40px; width: 140px; height: 140px; border-radius: 48px; background: rgba(255,255,255,.12); transform: rotate(20deg);"></div>
+      <a href="F-Perfil.dc.html" style="display: flex; justify-content: space-between; align-items: flex-end; color: #FFFFFF; text-decoration: none; position: relative;">
+        <span style="display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: 14px; font-weight: 600;">Você recebeu este mês</span>
+          <b style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 32px; line-height: 36px; letter-spacing: -0.02em;">R$ 540,00</b>
+        </span>
+        <span style="height: 32px; padding: 0 12px; border-radius: 999px; background: rgba(255,255,255,.2); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 4px;">Ver extrato<svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>
+      </a>
+      <button class="tj-press" style="position: relative; height: 56px; border: 0; border-radius: 18px; background: #FFFFFF; color: #161A2B; padding: 0 12px; display: flex; align-items: center; gap: 10px; text-align: left; font-family: Figtree, system-ui, sans-serif;">
+        <span style="width: 36px; height: 36px; border-radius: 12px; background: #F8F2FE; color: #7A3BBF; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg></span>
+        <span style="flex: 1; display: flex; flex-direction: column;"><b style="font-size: 14px;">Centro, São Sebastião do Paraíso</b><span style="font-size: 13px; color: #555B73;">Buscando em um raio de {{ radius }}</span></span>
+        <svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#555B73" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+      </button>
+    </div>
+
+    <!-- Filtros -->
+    <div style="display: flex; gap: 8px; margin-right: -24px; overflow: hidden;">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+        <button class="tj-press" sc-camel-on-click="{{ c.pick }}" aria-pressed="{{ c.pressed }}" style="{{ c.style }}">{{ c.label }}</button>
+      </sc-for>
+    </div>
+
+    <section style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7A3BBF;">Para começar agora</span>
+          <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 22px; line-height: 28px;">{{ sectionTitle }}</h2>
+        </div>
+        <a href="#" style="font-size: 14px; font-weight: 700; text-decoration: none; height: 32px; display: flex; align-items: center;">Ver todas</a>
+      </div>
+      <sc-for list="{{ jobs }}" as="j" hint-placeholder-count="3">
+        <a href="F-Vaga.dc.html" class="tj-press tj-in" style="background: #FFFFFF; border-radius: 24px; padding: 16px; display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: #161A2B; box-shadow: 0 1px 2px rgba(22,26,43,.06), 0 1px 3px rgba(22,26,43,.06);">
+          <span style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="{{ j.tagStyle }}">{{ j.tag }}</span>
+            <span style="display: flex; align-items: center; gap: 4px; font-size: 13px; color: #555B73; font-weight: 600;"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>{{ j.dist }}</span>
+          </span>
+          <span style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 17px;">{{ j.title }}</b><span style="font-size: 14px; color: #555B73;">{{ j.company }}</span></span>
+          <span style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid #EEF0F5;">
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555B73; font-weight: 600;"><svg width="15" height="15" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>{{ j.when }}</span>
+            <span style="display: flex; align-items: center; gap: 10px;"><span style="font-size: 13px; color: #555B73;"><b style="font-size: 17px; color: #161A2B;">{{ j.price }}</b>/diária</span><span style="width: 32px; height: 32px; border-radius: 50%; background: #0F6AD8; color: #FFFFFF; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"></path></svg></span></span>
+          </span>
+        </a>
+      </sc-for>
+      <a href="F-Dicas.dc.html" class="tj-press" style="background: #161A2B; border-radius: 24px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; text-decoration: none; color: #FFFFFF;">
+        <span style="width: 48px; height: 48px; border-radius: 14px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><img src="3fb31b99-6f7c-4772-80b0-dca63ceea9f8" alt="" style="width: 38px; height: auto; display: block;"></span>
+        <span style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #DFC6FB;">Dicas &amp; minicursos</span><b style="font-size: 15px;">Como mandar bem na entrevista?</b></span>
+        <svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
+      </a>
+    </section>
+  </main>
+
+  <nav aria-label="Principal" style="position: absolute; left: 16px; right: 16px; bottom: 24px; background: #FFFFFF; border-radius: 28px; padding: 8px; box-shadow: 0 12px 32px -8px rgba(22,26,43,.22); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;">
+    <a href="F-Inicio.dc.html" aria-current="page" style="height: 56px; border-radius: 20px; background: #EEF5FF; color: #0F6AD8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 700;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Início</a>
+    <a href="F-MeusTrampos.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="7" rx="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>Meus trampos</a>
+    <a href="F-Conversas.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600; position: relative;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>Conversas<span style="position: absolute; top: 6px; right: 14px; min-width: 18px; height: 18px; border-radius: 999px; background: #7A3BBF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #FFFFFF;">1</span></a>
+    <a href="F-Perfil.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Perfil</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { cat: 'urg', near: false }; }
+  renderVals() {
+    const T = {
+      hoje: 'background: #FEE4E2; color: #B42318;',
+      ultima: 'background: #FEF0C7; color: #93370D;',
+      urg: 'background: #F8F2FE; color: #7A3BBF;',
+      nova: 'background: #EEF5FF; color: #0B54AD;',
+      fds: 'background: #DDF5E6; color: #0B7A3D;'
+    };
+    const tagBase = 'height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: flex; align-items: center; ';
+    const data = {
+      urg: { title: 'Vagas de urgência', list: [
+        { tag: 'Começa hoje', t: 'hoje', dist: '1,5 km', title: 'Garçom', company: 'Bistrô Estrela', when: 'Hoje, 18h às 23h', price: 'R$ 120' },
+        { tag: 'Última vaga', t: 'ultima', dist: '2,3 km', title: 'Atendente de balcão', company: 'Pizzaria BiLo', when: 'Hoje, 17h às 00h', price: 'R$ 120' },
+        { tag: 'Urgente', t: 'urg', dist: '2,0 km', title: 'Auxiliar de limpeza', company: 'Brilho Serviços', when: 'Hoje, 14h às 20h', price: 'R$ 90' }
+      ]},
+      coz: { title: 'Vagas de garçom e cozinha', list: [
+        { tag: 'Começa hoje', t: 'hoje', dist: '1,5 km', title: 'Garçom', company: 'Bistrô Estrela', when: 'Hoje, 18h às 23h', price: 'R$ 120' },
+        { tag: 'Urgente', t: 'urg', dist: '2,4 km', title: 'Auxiliar de cozinha', company: 'Restaurante Estação', when: 'Hoje, 17h às 23h', price: 'R$ 110' },
+        { tag: 'Nova vaga', t: 'nova', dist: '2,8 km', title: 'Cozinheiro auxiliar', company: 'Cantina da Praça', when: 'Amanhã, 11h às 16h', price: 'R$ 100' }
+      ]},
+      evt: { title: 'Vagas para eventos', list: [
+        { tag: 'Começa hoje', t: 'hoje', dist: '2,1 km', title: 'Montador de estruturas', company: 'Eventos Prime', when: 'Hoje, 14h às 20h', price: 'R$ 140' },
+        { tag: 'Nova vaga', t: 'nova', dist: '3,4 km', title: 'Recepcionista de eventos', company: 'Espaço Imperial', when: 'Amanhã, 16h às 22h', price: 'R$ 130' },
+        { tag: 'Fim de semana', t: 'fds', dist: '4,2 km', title: 'Recreador infantil', company: 'Alegria Festas', when: 'Sábado, 13h às 19h', price: 'R$ 120' }
+      ]}
+    };
+    const chipBase = 'height: 40px; padding: 0 14px; flex-shrink: 0; border-radius: 999px; font: 600 14px Figtree, system-ui, sans-serif; white-space: nowrap; ';
+    const on = chipBase + 'border: 1.5px solid #0F6AD8; background: #0F6AD8; color: #FFFFFF;';
+    const off = chipBase + 'border: 1.5px solid #E1E4EC; background: #FFFFFF; color: #161A2B;';
+    const cats = [ { id: 'urg', label: 'Urgentes do dia' }, { id: 'coz', label: 'Garçom/Cozinha' }, { id: 'evt', label: 'Eventos' } ];
+    const chips = cats.map((c) => ({
+      label: c.label, style: this.state.cat === c.id ? on : off, pressed: this.state.cat === c.id ? 'true' : 'false',
+      pick: () => this.setState({ cat: c.id })
+    }));
+    chips.push({ label: 'Até 5 km', style: this.state.near ? on : off, pressed: this.state.near ? 'true' : 'false', pick: () => this.setState({ near: !this.state.near }) });
+    const cur = data[this.state.cat];
+    return {
+      chips,
+      radius: this.state.near ? '5 km' : '3 km',
+      sectionTitle: cur.title,
+      jobs: cur.list.map((j) => ({ ...j, tagStyle: tagBase + T[j.t] }))
+    };
+  }
+}
+</script>
+
+
+</body></html>

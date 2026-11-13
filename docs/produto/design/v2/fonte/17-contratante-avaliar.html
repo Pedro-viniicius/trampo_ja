@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Contratante · Avaliar profissional</title>
+<script src="d9240ac7-176f-469c-8e90-407da1c310d6"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .2s ease, color .2s ease, border-color .2s ease;cursor:pointer}
+.tj-press:active{transform:scale(.95)}
+.tj-star{transition:transform .2s cubic-bezier(.2,.8,.2,1.6), color .15s ease;cursor:pointer}
+.tj-star:hover{transform:scale(1.15)}
+.tj-field:focus{border-color:#1A7FF6 !important;box-shadow:0 0 0 4px rgba(26,127,246,.18)}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <main style="padding: 56px 24px 130px; display: flex; flex-direction: column; gap: 16px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <a href="C-Demandas.dc.html" aria-label="Voltar" class="tj-press" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: #FFFFFF; color: #161A2B; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(22,26,43,.08);"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+      <h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 24px; line-height: 30px; letter-spacing: -0.02em;">Avaliar profissional</h1>
+    </div>
+
+    <div style="background: #FFFFFF; border-radius: 28px; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 1px 2px rgba(22,26,43,.06);">
+      <span style="width: 72px; height: 72px; border-radius: 24px; background: #DDF5E6; color: #0B7A3D; display: flex; align-items: center; justify-content: center; font: 800 26px 'Bricolage Grotesque', system-ui, sans-serif; transform: rotate(-4deg);">JP</span>
+      <span style="display: flex; flex-direction: column; align-items: center;"><b style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 22px;">João P.</b><span style="font-size: 14px; color: #555B73;">Chapeiro noturno · Ter (05/10)</span></span>
+      <div role="radiogroup" aria-label="Nota" style="display: flex; gap: 4px;">
+        <sc-for list="{{ stars }}" as="s" hint-placeholder-count="5">
+          <button role="radio" aria-checked="{{ s.checked }}" aria-label="{{ s.aria }}" sc-camel-on-click="{{ s.pick }}" class="tj-star" style="{{ s.style }}"><svg width="36" height="36" sc-camel-view-box="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></button>
+        </sc-for>
+      </div>
+      <span aria-live="polite" style="font-size: 15px; font-weight: 700; color: #632F9A; height: 20px;">{{ ratingLabel }}</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span style="font-size: 15px; font-weight: 700;">O que se destacou?</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <sc-for list="{{ tags }}" as="t" hint-placeholder-count="5">
+          <button class="tj-press" sc-camel-on-click="{{ t.toggle }}" aria-pressed="{{ t.pressed }}" style="{{ t.style }}">{{ t.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <label for="com" style="font-size: 15px; font-weight: 700;">Deixe seu comentário</label>
+      <textarea id="com" class="tj-field" rows="3" placeholder="Escreva um comentário sobre o serviço…" style="border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 12px 14px; font: 400 16px/22px Figtree, system-ui, sans-serif; color: #161A2B; background: #FFFFFF; outline: none; resize: none;"></textarea>
+    </div>
+
+    <div style="{{ favCard }}">
+      <span style="width: 40px; height: 40px; border-radius: 14px; background: #FFFFFF; color: #7A3BBF; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="{{ heartFill }}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></span>
+      <span style="flex: 1; display: flex; flex-direction: column;"><b style="font-size: 15px;">Favoritar para a próxima demanda</b><span style="font-size: 13px; color: #555B73;">Ele entra na sua equipe favorita.</span></span>
+      <button role="switch" aria-checked="{{ favChecked }}" aria-label="Favoritar João" sc-camel-on-click="{{ toggleFav }}" style="{{ switchStyle }}"><span style="width: 26px; height: 26px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(22,26,43,.25); display: block;"></span></button>
+    </div>
+  </main>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; background: #FFFFFF; padding: 16px 24px 32px; box-shadow: 0 -8px 24px -12px rgba(22,26,43,.18); border-radius: 28px 28px 0 0;">
+    <sc-if value="{{ rated }}" hint-placeholder-val="{{ false }}">
+      <a href="C-Inicio.dc.html" class="tj-press" style="height: 56px; border-radius: 999px; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); color: #FFFFFF; font-weight: 600; font-size: 16px; display: flex; align-items: center; justify-content: center; text-decoration: none; box-shadow: 0 12px 24px -10px rgba(122,59,191,.6);">Enviar avaliação</a>
+    </sc-if>
+    <sc-if value="{{ unrated }}" hint-placeholder-val="{{ true }}">
+      <button disabled="" style="width: 100%; height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px Figtree, system-ui, sans-serif;">Escolha uma nota</button>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { r: 0, tags: {}, fav: true }; }
+  renderVals() {
+    const r = this.state.r;
+    const labels = ['', 'Ruim', 'Regular', 'Bom', 'Muito bom', 'Excelente!'];
+    const stars = [1, 2, 3, 4, 5].map((n) => ({
+      checked: r === n ? 'true' : 'false',
+      aria: n + (n === 1 ? ' estrela' : ' estrelas'),
+      style: 'width: 48px; height: 48px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: center; color: ' + (n <= r ? '#F79009' : '#E1E4EC') + ';' + (n === r ? ' transform: scale(1.12);' : ''),
+      pick: () => this.setState({ r: n })
+    }));
+    const tbase = 'height: 40px; padding: 0 14px; border-radius: 999px; font: 600 14px Figtree, system-ui, sans-serif; ';
+    const ton = tbase + 'border: 1.5px solid #7A3BBF; background: #F8F2FE; color: #632F9A;';
+    const toff = tbase + 'border: 1.5px solid #E1E4EC; background: #FFFFFF; color: #161A2B;';
+    const tags = ['Pontual', 'Organizado', 'Rápido', 'Educado', 'Proativo'].map((l) => {
+      const on = !!this.state.tags[l];
+      return { label: l, style: on ? ton : toff, pressed: on ? 'true' : 'false', toggle: () => this.setState({ tags: { ...this.state.tags, [l]: !on } }) };
+    });
+    const fav = this.state.fav;
+    return {
+      stars, tags,
+      ratingLabel: labels[r] || 'Toque nas estrelas',
+      rated: r > 0, unrated: r === 0,
+      favChecked: fav ? 'true' : 'false',
+      heartFill: fav ? 'currentColor' : 'none',
+      favCard: 'border-radius: 20px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; transition: background-color .2s ease; ' + (fav ? 'background: #F8F2FE; box-shadow: inset 0 0 0 1.5px #DFC6FB;' : 'background: #FFFFFF; box-shadow: inset 0 0 0 1.5px #E1E4EC;'),
+      switchStyle: 'width: 52px; height: 32px; flex-shrink: 0; border: 0; border-radius: 999px; padding: 3px; display: flex; cursor: pointer; ' + (fav ? 'background: #7A3BBF; justify-content: flex-end;' : 'background: #9AA0B4; justify-content: flex-start;'),
+      toggleFav: () => this.setState({ fav: !fav })
+    };
+  }
+}
+</script>
+
+
+</body></html>

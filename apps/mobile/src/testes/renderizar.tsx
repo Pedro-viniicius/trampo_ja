@@ -5,6 +5,12 @@ import {
   type ArmazenamentoDeToken,
   criarArmazenamentoEmMemoria,
 } from '../estado/armazenamento-token';
+import {
+  type ArmazenamentoDoModo,
+  criarArmazenamentoDoModoEmMemoria,
+  type Modo,
+  ModoProvider,
+} from '../estado/modo';
 import { SessaoProvider } from '../estado/sessao';
 import { criarFetchFalso, type FetchFalso } from './fetch-falso';
 
@@ -13,6 +19,13 @@ export const URL_BASE_DE_TESTE = 'https://api.teste';
 export interface OpcoesDosProvedores {
   /** Padrão: fake em memória, sem token (sessão anônima). */
   readonly armazenamento?: ArmazenamentoDeToken;
+  /**
+   * Modo gravado no fake do modo. Padrão: `null` (nada gravado: abre em
+   * freela). Ignorado se `armazenamentoDoModo` vier.
+   */
+  readonly modo?: Modo | null;
+  /** Padrão: fake em memória com `modo`. */
+  readonly armazenamentoDoModo?: ArmazenamentoDoModo;
   /** Padrão: `criarFetchFalso()` sem rotas (tudo responde 404). */
   readonly fetch?: FetchFalso;
   /** Padrão: `criarQueryClientDeTeste()`. */
@@ -27,6 +40,7 @@ export interface Provedores {
   /** Para `render(ui, { wrapper })` e `renderHook(fn, { wrapper })`. */
   readonly wrapper: (props: { children: ReactNode }) => ReactElement;
   readonly armazenamento: ArmazenamentoDeToken;
+  readonly armazenamentoDoModo: ArmazenamentoDoModo;
   readonly fetch: FetchFalso;
   readonly queryClient: QueryClient;
 }
@@ -44,9 +58,11 @@ export function criarQueryClientDeTeste(): QueryClient {
   });
 }
 
-/** Monta `QueryClientProvider` + `SessaoProvider` com fakes. */
+/** Monta `QueryClientProvider` + `SessaoProvider` + `ModoProvider` com fakes. */
 export function criarProvedores({
   armazenamento = criarArmazenamentoEmMemoria(),
+  modo = null,
+  armazenamentoDoModo = criarArmazenamentoDoModoEmMemoria(modo),
   fetch = criarFetchFalso(),
   queryClient = criarQueryClientDeTeste(),
   urlBase = URL_BASE_DE_TESTE,
@@ -62,17 +78,20 @@ export function criarProvedores({
           urlBase={urlBase}
           {...(obterRotaAtual !== undefined && { obterRotaAtual })}
         >
-          {children}
+          <ModoProvider armazenamento={armazenamentoDoModo}>
+            {children}
+          </ModoProvider>
         </SessaoProvider>
       </QueryClientProvider>
     );
   }
-  return { wrapper, armazenamento, fetch, queryClient };
+  return { wrapper, armazenamento, armazenamentoDoModo, fetch, queryClient };
 }
 
 /**
  * `render` do RNTL dentro dos provedores do app. Devolve o resultado do RNTL
- * mais os handles: armazenamento, fetch falso e `queryClient`.
+ * mais os handles: armazenamento, armazenamento do modo, fetch falso e
+ * `queryClient`.
  *
  * ```ts
  * const { fetch } = await renderizar(<Tela />, {

@@ -1,18 +1,24 @@
-import { Text, View } from 'react-native';
-import { BotaoMaisOpcoes, FolhaDeAcoesDoAnuncio } from '../componentes';
-import { cores, espaco, tipografia } from '../tema/tokens';
+import { BotaoMaisOpcoes, FolhaDeAcoesDoAnuncio, Selo } from '../componentes';
+import { espaco } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
   BlocoDoAutor,
+  Cartao,
   DescricaoLonga,
   EstadoDeTela,
-  LinhaDeDado,
+  LadrilhoDeDado,
+  LadrilhosDeDados,
   NaoEncontrado,
   Rolavel,
-  Titulo,
+  TituloDoCartao,
 } from './base';
+import { TopoDoDetalhe } from './DetalheDoTrampo';
 import type { PropsDoDetalheDoServico } from './tipos';
 
+/**
+ * Detalhe do serviço: mesma estrutura do detalhe do trampo (quadro 05), com os
+ * ladrilhos de preço base e local (só quando o serviço tem cidade).
+ */
 export function DetalheDoServico({
   estado,
   autor,
@@ -24,16 +30,22 @@ export function DetalheDoServico({
   onVoltar,
   onAbrirAutor,
 }: PropsDoDetalheDoServico) {
+  const t = textos.detalheServico;
   return (
     <Rolavel
-      titulo={textos.detalheServico.titulo}
+      titulo={t.titulo}
+      faixa
       onVoltar={onVoltar}
       semConexao={semConexao}
       rodape={rodape}
       sobreposicao={sobreposicao}
       direita={
         folha && onMaisOpcoes ? (
-          <BotaoMaisOpcoes titulo={folha.titulo} onPress={onMaisOpcoes} />
+          <BotaoMaisOpcoes
+            titulo={folha.titulo}
+            variante="claro"
+            onPress={onMaisOpcoes}
+          />
         ) : undefined
       }
     >
@@ -43,41 +55,39 @@ export function DetalheDoServico({
       >
         {(servico) => (
           <>
-            <Text
-              accessibilityRole="header"
-              style={{
-                color: cores.texto,
-                fontSize: tipografia.tamanho.tituloDeTela,
-                lineHeight: tipografia.lineHeight.tituloDeTela,
-                fontWeight: tipografia.peso.negrito,
-              }}
-            >
-              {servico.titulo}
-            </Text>
-            <View style={{ gap: espaco[1] }}>
-              <LinhaDeDado
-                rotulo={textos.buscar.categoria}
-                valor={servico.categoria}
+            <Cartao>
+              <TopoDoDetalhe
+                titulo={servico.titulo}
+                linha={servico.categoria}
+                autor={autor}
+                icone="tool"
               />
-              {servico.cidade ? (
-                <LinhaDeDado
-                  rotulo={textos.buscar.cidade}
-                  valor={servico.cidade}
+              <Selo variante="informacao" texto={t.titulo} icone="tool" />
+              <LadrilhosDeDados>
+                <LadrilhoDeDado
+                  icone="dollar-sign"
+                  rotulo={t.precoBase}
+                  valor={servico.precoBaseFormatado}
                 />
-              ) : null}
-              <LinhaDeDado
-                rotulo={textos.detalheServico.precoBase}
-                valor={servico.precoBaseFormatado}
+                {servico.cidade ? (
+                  <LadrilhoDeDado
+                    icone="map-pin"
+                    rotulo={textos.detalheTrampo.local}
+                    valor={servico.cidade}
+                  />
+                ) : null}
+              </LadrilhosDeDados>
+            </Cartao>
+            <Cartao gap={espaco.s}>
+              <TituloDoCartao texto={t.descricao} />
+              <DescricaoLonga
+                texto={servico.descricao}
+                rotuloMais={t.lerMais}
+                rotuloMenos={t.lerMenos}
               />
-            </View>
-            <Titulo texto={textos.detalheServico.descricao} />
-            <DescricaoLonga
-              texto={servico.descricao}
-              rotuloMais={textos.detalheServico.lerMais}
-              rotuloMenos={textos.detalheServico.lerMenos}
-            />
+            </Cartao>
             <BlocoDoAutor
-              rotulo={textos.detalheServico.ofertadoPor}
+              rotulo={t.ofertadoPor}
               autor={autor}
               onAbrir={onAbrirAutor}
             />

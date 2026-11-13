@@ -11,6 +11,8 @@ import {
 import { textos } from '../textos/pt-BR';
 import {
   Carregando,
+  Cartao,
+  ComValorAoLado,
   ErroDoBloco,
   FocarPrimeiroErro,
   Formulario,
@@ -116,14 +118,14 @@ export function FormularioDeAnuncio({
             />
             <Botao
               texto={ehTrampo ? t.publicarOutro : t.ofertarOutro}
-              variante="secundario"
+              variante="contorno"
               onPress={onPublicarOutro}
             />
           </>
         }
       >
         <EstadoVazio
-          icone="checkmark-circle-outline"
+          icone="check-circle"
           titulo={ehTrampo ? t.publicadoTrampo : t.publicadoServico}
           texto={ehTrampo ? t.publicadoTrampoTexto : t.publicadoServicoTexto}
         />
@@ -133,6 +135,13 @@ export function FormularioDeAnuncio({
 
   const rotuloDaCategoria =
     categorias.find((item) => item.id === valores.categoria)?.rotulo ?? null;
+  // Rodapé V2 (quadro 13): o valor digitado à esquerda do botão principal.
+  const rotuloDoValor = ehTrampo
+    ? textos.detalheTrampo.valor
+    : textos.detalheServico.precoBase;
+  const valorDoRodape = valores.valor.trim()
+    ? textos.formularioDeAnuncio.valorNoRodape(valores.valor.trim())
+    : null;
   const enviar = () => {
     if (!enviando && !semConexao && !camposBloqueados) onEnviar();
   };
@@ -144,20 +153,22 @@ export function FormularioDeAnuncio({
       ) : semConexao ? (
         <Paragrafo texto={a.semConexaoParaSalvar} secundario />
       ) : null}
-      <Botao
-        texto={a.salvarAlteracoes}
-        accessibilityHint={
-          camposBloqueados
-            ? motivoBloqueio
-            : semConexao
-              ? a.semConexaoParaSalvar
-              : undefined
-        }
-        textoCarregando={a.salvando}
-        carregando={enviando}
-        desabilitado={Boolean(semConexao) || camposBloqueados}
-        onPress={enviar}
-      />
+      <ComValorAoLado rotulo={rotuloDoValor} valor={valorDoRodape}>
+        <Botao
+          texto={a.salvarAlteracoes}
+          accessibilityHint={
+            camposBloqueados
+              ? motivoBloqueio
+              : semConexao
+                ? a.semConexaoParaSalvar
+                : undefined
+          }
+          textoCarregando={a.salvando}
+          carregando={enviando}
+          desabilitado={Boolean(semConexao) || camposBloqueados}
+          onPress={enviar}
+        />
+      </ComValorAoLado>
     </>
   ) : perfilIncompleto ? (
     <>
@@ -171,14 +182,16 @@ export function FormularioDeAnuncio({
   ) : (
     <>
       {semConexao ? <Paragrafo texto={t.semConexaoMotivo} secundario /> : null}
-      <Botao
-        texto={ehTrampo ? t.publicarTrampo : t.ofertarServico}
-        accessibilityHint={semConexao ? t.semConexaoMotivo : undefined}
-        textoCarregando={t.enviando}
-        carregando={enviando}
-        desabilitado={Boolean(semConexao)}
-        onPress={enviar}
-      />
+      <ComValorAoLado rotulo={rotuloDoValor} valor={valorDoRodape}>
+        <Botao
+          texto={ehTrampo ? t.publicarTrampo : t.ofertarServico}
+          accessibilityHint={semConexao ? t.semConexaoMotivo : undefined}
+          textoCarregando={t.enviando}
+          carregando={enviando}
+          desabilitado={Boolean(semConexao)}
+          onPress={enviar}
+        />
+      </ComValorAoLado>
     </>
   );
 
@@ -228,90 +241,92 @@ export function FormularioDeAnuncio({
           />
         ) : null}
         {erros.geral ? <Aviso variante="erro" texto={erros.geral} /> : null}
+        <Cartao>
+          <CampoDeTexto
+            rotulo={t.titulo}
+            valor={valores.titulo}
+            onChangeText={(texto) => onMudar('titulo', texto)}
+            erro={erros.titulo}
+            onBlur={() => onSairDoCampo('titulo')}
+            inputRef={refTitulo}
+            editable={!camposBloqueados}
+            limite={LIMITE_DO_TITULO}
+            returnKeyType="next"
+            onSubmitEditing={() => refDescricao.current?.focus()}
+          />
+          <CampoDeTexto
+            rotulo={t.descricao}
+            valor={valores.descricao}
+            onChangeText={(texto) => onMudar('descricao', texto)}
+            erro={erros.descricao}
+            onBlur={() => onSairDoCampo('descricao')}
+            inputRef={refDescricao}
+            editable={!camposBloqueados}
+            multiline
+            limite={LIMITE_DA_DESCRICAO}
+            contadorDoLimite="sempre"
+          />
+          <Seletor
+            rotulo={t.categoria}
+            valor={rotuloDaCategoria}
+            textoVazio={t.escolherCategoria}
+            opcoes={categorias.map((item) => item.rotulo)}
+            rotuloDePesquisa={t.pesquisarCategoria}
+            textoSemOpcoes={textos.buscar.semOpcoes}
+            erro={erros.categoria}
+            gatilhoRef={refCategoria}
+            desabilitado={camposBloqueados}
+            onSelecionar={(rotulo) =>
+              onMudarCategoria(
+                categorias.find((item) => item.rotulo === rotulo)?.id ?? null,
+              )
+            }
+          />
+          <CampoDeTexto
+            rotulo={ehTrampo ? t.cidade : t.cidadeOpcional}
+            ajuda={ehTrampo ? undefined : t.ajudaCidadeServico}
+            valor={valores.cidade}
+            onChangeText={(texto) => onMudar('cidade', texto)}
+            erro={erros.cidade}
+            onBlur={() => onSairDoCampo('cidade')}
+            inputRef={refCidade}
+            editable={!camposBloqueados}
+            limite={LIMITE_DA_CIDADE}
+            autoComplete="postal-address-locality"
+            textContentType="addressCity"
+            returnKeyType="next"
+            onSubmitEditing={() => refValor.current?.focus()}
+          />
+          <CampoDeTexto
+            rotulo={ehTrampo ? t.valor : t.precoBase}
+            ajuda={textos.gerais.ajudaValor}
+            tipo="decimal"
+            valor={valores.valor}
+            onChangeText={(texto) => onMudar('valor', texto)}
+            onBlur={() => onSairDoCampo('valor')}
+            erro={erros.valor}
+            inputRef={refValor}
+            editable={!camposBloqueados}
+            maxLength={LIMITE_DO_VALOR}
+          />
+          {ehTrampo ? (
+            <CampoDeTexto
+              rotulo={t.prazo}
+              ajuda={t.ajudaPrazo}
+              tipo="numero"
+              valor={valores.prazo}
+              onChangeText={(texto) => onMudar('prazo', texto)}
+              onBlur={() => onSairDoCampo('prazo')}
+              erro={erros.prazo}
+              inputRef={refPrazo}
+              editable={!camposBloqueados}
+              maxLength={LIMITE_DO_PRAZO}
+            />
+          ) : null}
+        </Cartao>
         {editando ? null : (
           <Aviso variante="info" texto={t.avisoVisibilidade} />
         )}
-        <CampoDeTexto
-          rotulo={t.titulo}
-          valor={valores.titulo}
-          onChangeText={(texto) => onMudar('titulo', texto)}
-          erro={erros.titulo}
-          onBlur={() => onSairDoCampo('titulo')}
-          inputRef={refTitulo}
-          editable={!camposBloqueados}
-          limite={LIMITE_DO_TITULO}
-          returnKeyType="next"
-          onSubmitEditing={() => refDescricao.current?.focus()}
-        />
-        <CampoDeTexto
-          rotulo={t.descricao}
-          valor={valores.descricao}
-          onChangeText={(texto) => onMudar('descricao', texto)}
-          erro={erros.descricao}
-          onBlur={() => onSairDoCampo('descricao')}
-          inputRef={refDescricao}
-          editable={!camposBloqueados}
-          multiline
-          limite={LIMITE_DA_DESCRICAO}
-          contadorDoLimite="sempre"
-        />
-        <Seletor
-          rotulo={t.categoria}
-          valor={rotuloDaCategoria}
-          textoVazio={t.escolherCategoria}
-          opcoes={categorias.map((item) => item.rotulo)}
-          rotuloDePesquisa={t.pesquisarCategoria}
-          textoSemOpcoes={textos.buscar.semOpcoes}
-          erro={erros.categoria}
-          gatilhoRef={refCategoria}
-          desabilitado={camposBloqueados}
-          onSelecionar={(rotulo) =>
-            onMudarCategoria(
-              categorias.find((item) => item.rotulo === rotulo)?.id ?? null,
-            )
-          }
-        />
-        <CampoDeTexto
-          rotulo={ehTrampo ? t.cidade : t.cidadeOpcional}
-          ajuda={ehTrampo ? undefined : t.ajudaCidadeServico}
-          valor={valores.cidade}
-          onChangeText={(texto) => onMudar('cidade', texto)}
-          erro={erros.cidade}
-          onBlur={() => onSairDoCampo('cidade')}
-          inputRef={refCidade}
-          editable={!camposBloqueados}
-          limite={LIMITE_DA_CIDADE}
-          autoComplete="postal-address-locality"
-          textContentType="addressCity"
-          returnKeyType="next"
-          onSubmitEditing={() => refValor.current?.focus()}
-        />
-        <CampoDeTexto
-          rotulo={ehTrampo ? t.valor : t.precoBase}
-          ajuda={textos.gerais.ajudaValor}
-          tipo="decimal"
-          valor={valores.valor}
-          onChangeText={(texto) => onMudar('valor', texto)}
-          onBlur={() => onSairDoCampo('valor')}
-          erro={erros.valor}
-          inputRef={refValor}
-          editable={!camposBloqueados}
-          maxLength={LIMITE_DO_VALOR}
-        />
-        {ehTrampo ? (
-          <CampoDeTexto
-            rotulo={t.prazo}
-            ajuda={t.ajudaPrazo}
-            tipo="numero"
-            valor={valores.prazo}
-            onChangeText={(texto) => onMudar('prazo', texto)}
-            onBlur={() => onSairDoCampo('prazo')}
-            erro={erros.prazo}
-            inputRef={refPrazo}
-            editable={!camposBloqueados}
-            maxLength={LIMITE_DO_PRAZO}
-          />
-        ) : null}
       </Formulario>
       {dialogoDeDescarte}
     </>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Contratante · Buscar freelancers</title>
+<script src="a384f8ed-6a3e-422b-bfb2-4ce3df4d60d9"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;cursor:pointer}
+.tj-press:active{transform:scale(.96)}
+@keyframes tj-in{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.tj-in{animation:tj-in .3s cubic-bezier(.2,.8,.2,1) both}
+.tj-field:focus-within{box-shadow:0 0 0 4px rgba(26,127,246,.18)}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F6F7FA; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <main style="padding: 56px 24px 120px; display: flex; flex-direction: column; gap: 16px;">
+    <h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 30px; line-height: 36px; letter-spacing: -0.02em;">Buscar freelancers</h1>
+    <label class="tj-field" style="height: 52px; border-radius: 999px; background: #FFFFFF; display: flex; align-items: center; gap: 10px; padding: 0 16px; color: #555B73; box-shadow: 0 1px 2px rgba(22,26,43,.06);">
+      <svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Buscar por cargo ou nome</span>
+      <input placeholder="Buscar por cargo ou nome" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+    </label>
+    <div style="display: flex; gap: 8px;">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+        <button class="tj-press" sc-camel-on-click="{{ c.pick }}" aria-pressed="{{ c.pressed }}" style="{{ c.style }}">{{ c.label }}</button>
+      </sc-for>
+    </div>
+
+    <sc-for list="{{ people }}" as="p" hint-placeholder-count="3">
+      <div class="tj-in" style="background: #FFFFFF; border-radius: 24px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(22,26,43,.06), 0 1px 3px rgba(22,26,43,.06);">
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <span style="{{ p.avatarStyle }}">{{ p.initials }}</span>
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 16px;">{{ p.name }}</b><span style="font-size: 13px; color: #555B73; display: flex; align-items: center; gap: 4px;">{{ p.role }} · <svg width="13" height="13" sc-camel-view-box="0 0 24 24" fill="#F79009" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg><b style="color: #161A2B;">{{ p.rating }}</b></span></span>
+          <button class="tj-press" sc-camel-on-click="{{ p.invite }}" aria-pressed="{{ p.invitedAttr }}" style="{{ p.btnStyle }}">{{ p.btnLabel }}</button>
+        </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span style="{{ p.availStyle }}">{{ p.avail }}</span>
+          <span style="height: 26px; padding: 0 10px; border-radius: 8px; background: #EEF5FF; color: #0B54AD; font-size: 12px; font-weight: 700; display: flex; align-items: center;">{{ p.trait }}</span>
+          <span style="height: 26px; padding: 0 10px; border-radius: 8px; background: #EEF0F5; color: #3A4057; font-size: 12px; font-weight: 700; display: flex; align-items: center;">{{ p.exp }}</span>
+        </div>
+      </div>
+    </sc-for>
+  </main>
+
+  <nav aria-label="Principal" style="position: absolute; left: 12px; right: 12px; bottom: 24px; background: #FFFFFF; border-radius: 28px; padding: 8px; box-shadow: 0 12px 32px -8px rgba(22,26,43,.22); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;">
+    <a href="C-Inicio.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M9 22V12h6v10"></path></svg>Início</a>
+    <a href="C-Demandas.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8M13 12h8M13 18h8"></path></svg>Demandas</a>
+    <a href="C-Buscar.dc.html" aria-current="page" style="height: 56px; border-radius: 20px; background: #EEF5FF; color: #0F6AD8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 700;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Buscar</a>
+    <a href="#" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600; position: relative;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>Mensagens<span style="position: absolute; top: 6px; right: 12px; min-width: 18px; height: 18px; border-radius: 999px; background: #7A3BBF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #FFFFFF;">3</span></a>
+    <a href="C-Perfil.dc.html" style="height: 56px; border-radius: 20px; color: #555B73; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; font-size: 12px; font-weight: 600;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>Perfil</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { cat: 'todos', inv: {} }; }
+  renderVals() {
+    const base = 'height: 40px; padding: 0 16px; border-radius: 999px; font: 600 14px Figtree, system-ui, sans-serif; ';
+    const on = base + 'border: 1.5px solid #0F6AD8; background: #0F6AD8; color: #FFFFFF;';
+    const off = base + 'border: 1.5px solid #E1E4EC; background: #FFFFFF; color: #161A2B;';
+    const cats = [ { id: 'todos', label: 'Todos' }, { id: 'coz', label: 'Cozinha' }, { id: 'gar', label: 'Garçom' } ];
+    const all = [
+      { id: 'am', cat: 'gar', initials: 'AS', name: 'Amanda Silva', role: 'Garçonete', rating: '5,0', avail: 'Disponível hoje', today: true, trait: 'Proativa', exp: '2 anos de experiência', bg: '#EFE2FD', fg: '#632F9A' },
+      { id: 'jp', cat: 'coz', initials: 'JP', name: 'João P.', role: 'Chapeiro', rating: '5,0', avail: 'Disponível hoje', today: true, trait: 'Rapidez', exp: '2 anos de experiência', bg: '#DDF5E6', fg: '#0B7A3D' },
+      { id: 'cr', cat: 'gar', initials: 'CR', name: 'Carla R.', role: 'Garçonete', rating: '4,9', avail: 'Finais de semana', today: false, trait: 'Atenciosa', exp: '3 anos de experiência', bg: '#D9E9FE', fg: '#0B54AD' },
+      { id: 'jo', cat: 'coz', initials: 'JO', name: 'Joana', role: 'Aux. de cozinha', rating: '5,0', avail: 'Finais de semana', today: false, trait: 'Aprende rápido', exp: 'Sem experiência', bg: '#FEF0C7', fg: '#93370D' }
+    ];
+    const list = all.filter((p) => this.state.cat === 'todos' || p.cat === this.state.cat);
+    return {
+      chips: cats.map((c) => ({ label: c.label, style: this.state.cat === c.id ? on : off, pressed: this.state.cat === c.id ? 'true' : 'false', pick: () => this.setState({ cat: c.id }) })),
+      people: list.map((p) => {
+        const inv = !!this.state.inv[p.id];
+        return {
+          ...p,
+          avatarStyle: 'width: 52px; height: 52px; flex-shrink: 0; border-radius: 18px; background: ' + p.bg + '; color: ' + p.fg + '; display: flex; align-items: center; justify-content: center; font: 800 18px \'Bricolage Grotesque\', system-ui, sans-serif;',
+          availStyle: 'height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: flex; align-items: center; ' + (p.today ? 'background: #DDF5E6; color: #0B7A3D;' : 'background: #F8F2FE; color: #7A3BBF;'),
+          btnLabel: inv ? 'Convidado ✓' : 'Convidar',
+          invitedAttr: inv ? 'true' : 'false',
+          btnStyle: 'height: 40px; padding: 0 16px; border-radius: 999px; font: 600 14px Figtree, system-ui, sans-serif; ' + (inv ? 'border: 1.5px solid #16A34A; background: #DDF5E6; color: #0B7A3D;' : 'border: 0; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); color: #FFFFFF;'),
+          invite: () => this.setState({ inv: { ...this.state.inv, [p.id]: !inv } })
+        };
+      })
+    };
+  }
+}
+</script>
+
+
+</body></html>

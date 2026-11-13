@@ -706,6 +706,10 @@ describe('Exportação normal depois da L3 (contrato v1)', () => {
             ],
           },
         ],
+        // V2b (CA93): sem avaliação nem favorito, listas vazias.
+        avaliacoesFeitas: [],
+        avaliacoesRecebidas: [],
+        favoritos: [],
       });
       expect(exportada.texto).not.toContain('Texto do Bruno.');
       expect(exportada.texto).not.toContain(bruno.email);

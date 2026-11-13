@@ -297,6 +297,9 @@ export const PARTES_VAZIAS: PartesExportadas = Object.freeze({
   servicos: [],
   candidaturas: [],
   conversas: [],
+  avaliacoesFeitas: [],
+  avaliacoesRecebidas: [],
+  favoritos: [],
 });
 
 /**

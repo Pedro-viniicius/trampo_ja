@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Cadastro</title>
+<script src="8feb055a-6665-4c31-811d-a8cc9b2f584a"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+<style>
+body{margin:0}
+a{color:#0F6AD8}a:hover{color:#0B54AD}
+.tj-press{transition:transform .12s ease, background-color .16s ease, box-shadow .16s ease, border-color .16s ease, color .16s ease;cursor:pointer}
+.tj-press:active{transform:scale(.97)}
+.tj-field{transition:border-color .16s ease, box-shadow .16s ease}
+.tj-field:focus{border-color:#1A7FF6 !important;box-shadow:0 0 0 4px rgba(26,127,246,.18)}
+@keyframes tj-in{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.tj-in{animation:tj-in .28s cubic-bezier(.2,.8,.2,1)}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #FFFFFF; font-family: Figtree, system-ui, -apple-system, sans-serif; color: #161A2B; position: relative; overflow: hidden;">
+  <div style="padding: 56px 24px 120px; display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <a href="Login.dc.html" aria-label="Voltar" class="tj-press" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: #F6F7FA; color: #161A2B; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+      <h1 style="flex: 1; margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 28px; line-height: 34px; letter-spacing: -0.02em;">Cadastre-se!</h1>
+      <img src="cea04ab8-2e64-48d4-b184-d958e501885d" alt="" style="width: 56px; height: auto; display: block;">
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span style="font-size: 15px; font-weight: 700;">Qual é o seu objetivo principal?</span>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+        <button class="tj-press" sc-camel-on-click="{{ pickHire }}" aria-pressed="{{ hireSel }}" style="{{ hireStyle }}">
+          <svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span style="font-size: 15px; font-weight: 700;">Quero contratar</span>
+        </button>
+        <button class="tj-press" sc-camel-on-click="{{ pickWork }}" aria-pressed="{{ workSel }}" style="{{ workStyle }}">
+          <svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="7" rx="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+          <span style="font-size: 15px; font-weight: 700;">Quero trampar</span>
+        </button>
+      </div>
+      <sc-if value="{{ hasRole }}" hint-placeholder-val="{{ false }}">
+        <span class="tj-in" style="font-size: 13px; color: #555B73;">{{ switchHint }}</span>
+      </sc-if>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label for="nome" style="font-size: 14px; font-weight: 600;">{{ nameLabel }}</label>
+        <input id="nome" class="tj-field" style="height: 52px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label for="mail" style="font-size: 14px; font-weight: 600;">E-mail</label>
+        <input id="mail" class="tj-field" type="email" placeholder="email@dominio.com" style="height: 52px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label for="doc" style="font-size: 14px; font-weight: 600;">{{ docLabel }}</label>
+          <input id="doc" class="tj-field" inputmode="numeric" placeholder="Só números" style="width: 100%; height: 52px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label for="zap" style="font-size: 14px; font-weight: 600;">WhatsApp</label>
+          <input id="zap" class="tj-field" inputmode="tel" placeholder="(00) 00000-0000" style="width: 100%; height: 52px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label for="senha" style="font-size: 14px; font-weight: 600;">Senha</label>
+        <input id="senha" class="tj-field" type="password" placeholder="Mínimo 8 caracteres" style="height: 52px; box-sizing: border-box; border: 1.5px solid #E1E4EC; border-radius: 16px; padding: 0 16px; font: 400 16px Figtree, system-ui, sans-serif; color: #161A2B; outline: none;">
+      </div>
+    </div>
+
+    <sc-if value="{{ isWork }}" hint-placeholder-val="{{ false }}">
+      <div class="tj-in" style="display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 15px; font-weight: 700;">Em quais áreas deseja atuar?</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <sc-for list="{{ areas }}" as="a" hint-placeholder-count="5">
+            <button class="tj-press" sc-camel-on-click="{{ a.toggle }}" aria-pressed="{{ a.pressed }}" style="{{ a.style }}">{{ a.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 24px 32px; background: #FFFFFF; box-shadow: 0 -12px 24px -16px rgba(22,26,43,.25);">
+    <sc-if value="{{ hasRole }}" hint-placeholder-val="{{ false }}">
+      <a href="{{ nextHref }}" class="tj-press" style="height: 56px; border-radius: 999px; background: linear-gradient(135deg, #0F6AD8 0%, #9550E0 100%); color: #FFFFFF; font-weight: 600; font-size: 16px; display: flex; align-items: center; justify-content: center; text-decoration: none; box-shadow: 0 12px 24px -10px rgba(122,59,191,.6);">Cadastrar-se</a>
+    </sc-if>
+    <sc-if value="{{ noRole }}" hint-placeholder-val="{{ true }}">
+      <button disabled="" style="width: 100%; height: 56px; border: 0; border-radius: 999px; background: #E1E4EC; color: #6B7189; font: 600 16px Figtree, system-ui, sans-serif;">Escolha um objetivo para continuar</button>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { role: null, areas: { garcom: true } }; }
+  renderVals() {
+    const role = this.state.role;
+    const base = 'height: 88px; border-radius: 20px; padding: 14px 16px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; font-family: Figtree, system-ui, sans-serif; text-align: left; ';
+    const on = base + 'border: 2px solid #7A3BBF; background: #F8F2FE; color: #632F9A;';
+    const off = base + 'border: 2px solid #E1E4EC; background: #FFFFFF; color: #161A2B;';
+    const chipOn = 'height: 40px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #0F6AD8; background: #0F6AD8; color: #FFFFFF; font: 600 14px Figtree, system-ui, sans-serif;';
+    const chipOff = 'height: 40px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #E1E4EC; background: #FFFFFF; color: #161A2B; font: 600 14px Figtree, system-ui, sans-serif;';
+    const defs = [
+      { id: 'garcom', label: 'Garçom/Cozinha' },
+      { id: 'atend', label: 'Atendimento' },
+      { id: 'eventos', label: 'Eventos' },
+      { id: 'estoque', label: 'Comércio e Estoque' },
+      { id: 'limpeza', label: 'Limpeza' }
+    ];
+    const areas = defs.map((d) => {
+      const sel = !!this.state.areas[d.id];
+      return { label: d.label, style: sel ? chipOn : chipOff, pressed: sel ? 'true' : 'false',
+        toggle: () => this.setState({ areas: { ...this.state.areas, [d.id]: !sel } }) };
+    });
+    return {
+      hireStyle: role === 'hire' ? on : off,
+      workStyle: role === 'work' ? on : off,
+      hireSel: role === 'hire' ? 'true' : 'false',
+      workSel: role === 'work' ? 'true' : 'false',
+      hasRole: !!role,
+      noRole: !role,
+      isWork: role === 'work',
+      switchHint: role === 'hire' ? 'Você pode alternar para trabalhador no seu perfil.' : 'Você pode alternar para contratante no seu perfil.',
+      nameLabel: role === 'hire' ? 'Nome completo ou da empresa' : 'Nome completo',
+      docLabel: role === 'hire' ? 'CPF ou CNPJ' : 'CPF',
+      nextHref: role === 'hire' ? 'C-Inicio.dc.html' : 'F-Inicio.dc.html',
+      areas,
+      pickHire: () => this.setState({ role: 'hire' }),
+      pickWork: () => this.setState({ role: 'work' })
+    };
+  }
+}
+</script>
+
+
+</body></html>

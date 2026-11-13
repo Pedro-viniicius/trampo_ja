@@ -99,6 +99,10 @@ describe('primeiro campo com erro recebe o foco e a tela rola (CA62)', () => {
   it('cadastro: e-mail inválido foca o e-mail; com e-mail certo e senha curta foca a senha', async () => {
     await abrirApp('/cadastro', { token: null });
     await screen.findByLabelText(textos.cadastro.email);
+    // CA75: o Cadastro só envia depois da escolha do objetivo.
+    await fireEvent.press(
+      screen.getByRole('radio', { name: textos.cadastro.querTrampar }),
+    );
     await fireEvent.press(botao(textos.cadastro.criarConta));
     await esperarFoco(textos.cadastro.email);
 

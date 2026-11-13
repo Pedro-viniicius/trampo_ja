@@ -17,6 +17,7 @@ import {
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import {
+  abasDeStub,
   type MapaDeRotas,
   type RotasRenderizadas,
   renderizarRotas,
@@ -84,11 +85,9 @@ function stub(rotulo: string) {
 const ROTAS: MapaDeRotas = {
   '(app)/_layout': LayoutDaAreaAutenticada,
   '(app)/(abas)/_layout': LayoutDasAbas,
+  ...abasDeStub(),
   '(app)/(abas)/index': stub('stub: início'),
-  '(app)/(abas)/buscar': stub('stub: buscar'),
-  '(app)/(abas)/publicar': stub('stub: publicar'),
   '(app)/(abas)/conversas': RotaDasConversas,
-  '(app)/(abas)/perfil': stub('stub: perfil'),
   '(app)/conversas/[id]': RotaDaConversa,
 };
 
@@ -205,15 +204,15 @@ afterEach(async () => {
 // --- Testes ---
 
 describe('aba Conversas (CA16)', () => {
-  it('fica entre Publicar e Perfil, e abrir o app não busca as conversas', async () => {
+  it('fica entre Meus trampos e Perfil (freela), e abrir o app não busca as conversas', async () => {
     const fetch = criarFake();
     await abrir('/', fetch);
     await screen.findByText('stub: início');
 
+    // CA76: as abas do freela (modo padrão), sem Publicar.
     const nomes: string[] = [
       textos.abas.inicio,
-      textos.abas.buscar,
-      textos.abas.publicar,
+      textos.abas.meusTrampos,
       textos.abas.conversas,
       textos.abas.perfil,
     ];

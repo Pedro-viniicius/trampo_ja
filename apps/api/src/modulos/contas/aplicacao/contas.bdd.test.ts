@@ -761,6 +761,19 @@ describe('contas: cadastro, entrada e sessão', () => {
           minhasMensagens: [],
         },
       ],
+      avaliacoesFeitas: [
+        {
+          trampoId: 't9',
+          nota: 5,
+          destaques: ['pontual'],
+          comentario: 'Muito atencioso',
+          criadaEm: '2026-10-19T10:00:00.000Z',
+        },
+      ],
+      avaliacoesRecebidas: [
+        { nota: 4, destaques: [], criadaEm: '2026-10-19T10:00:00.000Z' },
+      ],
+      favoritos: [{ contaId: 'u2', criadoEm: '2026-10-19T10:00:00.000Z' }],
     };
 
     let token: string;
@@ -832,6 +845,9 @@ describe('contas: cadastro, entrada e sessão', () => {
         'servicos',
         'candidaturas',
         'conversas',
+        'avaliacoesFeitas',
+        'avaliacoesRecebidas',
+        'favoritos',
       ]);
     });
 

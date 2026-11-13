@@ -300,6 +300,133 @@ describe('Conversa', () => {
   });
 });
 
+describe('Conversa (quadro 09): separador, contexto, faixa e respostas rápidas', () => {
+  /** Textos dos cabeçalhos da tela, na ordem (o nome e os separadores). */
+  function cabecalhos(): string[] {
+    return screen.getAllByRole('header').map((el) => String(el.props.children));
+  }
+
+  it('separador antes da primeira mensagem e a cada troca de dia', async () => {
+    await render(
+      <Conversa
+        {...props({
+          titulo: 'Pessoa X',
+          mensagens: ok([
+            mensagem({ chave: 'm1', diaFormatado: '19/10/2026' }),
+            mensagem({ chave: 'm2', diaFormatado: textos.conversas.diaOntem }),
+            mensagem({ chave: 'm3', diaFormatado: textos.conversas.diaOntem }),
+            mensagem({
+              chave: 'm4',
+              minha: true,
+              diaFormatado: textos.conversas.diaHoje,
+            }),
+            mensagem({ chave: 'm5', diaFormatado: textos.conversas.diaHoje }),
+          ]),
+        })}
+      />,
+    );
+    expect(cabecalhos()).toEqual([
+      'Pessoa X',
+      '19/10/2026',
+      textos.conversas.diaOntem,
+      textos.conversas.diaHoje,
+    ]);
+  });
+
+  it('sem o dia (campo ausente ou null), nenhum separador', async () => {
+    await render(
+      <Conversa
+        {...props({
+          mensagens: ok([
+            mensagem({ chave: 'm1' }),
+            mensagem({ chave: 'm2', diaFormatado: null }),
+          ]),
+        })}
+      />,
+    );
+    expect(cabecalhos()).toEqual(['Pessoa X']);
+  });
+
+  it('contexto no cabeçalho só com a prop', async () => {
+    const { rerender } = await render(
+      <Conversa {...props({ contexto: 'titulo-sentinela' })} />,
+    );
+    expect(
+      screen.getByText(textos.conversas.contexto('titulo-sentinela')),
+    ).toBeOnTheScreen();
+    await rerender(<Conversa {...props()} />);
+    expect(
+      screen.queryByText(textos.conversas.contexto('titulo-sentinela')),
+    ).toBeNull();
+  });
+
+  it('faixa: título, selo da candidatura e valor; o toque abre o trampo', async () => {
+    const onAbrir = jest.fn();
+    await render(
+      <Conversa
+        {...props({
+          faixa: {
+            titulo: 'titulo-sentinela',
+            statusDaCandidatura: 'aceita',
+            valorFormatado: 'R$ 120,00',
+            onAbrir,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('titulo-sentinela')).toBeOnTheScreen();
+    expect(screen.getByText(textos.selos.aceita)).toBeOnTheScreen();
+    expect(screen.getByText('R$ 120,00')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: textos.conversas.abrirTrampoDaFaixa(
+          'titulo-sentinela',
+          textos.selos.aceita,
+          'R$ 120,00',
+        ),
+      }),
+    );
+    expect(onAbrir).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem faixa, nenhum botão de abrir o trampo', async () => {
+    await render(<Conversa {...props()} />);
+    expect(
+      screen.queryByRole('button', { name: /^Abrir o trampo/ }),
+    ).toBeNull();
+  });
+
+  it('respostas rápidas só preenchem o campo, nunca enviam', async () => {
+    const onMudarRascunho = jest.fn();
+    const onEnviar = jest.fn();
+    await render(
+      <Conversa
+        {...props({
+          comRespostasRapidas: true,
+          rascunho: 'rascunho-sentinela',
+          podeEnviar: true,
+          onMudarRascunho,
+          onEnviar,
+        })}
+      />,
+    );
+    for (const resposta of textos.conversas.respostasRapidas) {
+      expect(screen.getByText(resposta)).toBeOnTheScreen();
+    }
+    const [primeira] = textos.conversas.respostasRapidas;
+    await fireEvent.press(screen.getByText(primeira as string));
+    expect(onMudarRascunho).toHaveBeenLastCalledWith(primeira);
+    expect(onEnviar).not.toHaveBeenCalled();
+  });
+
+  it('sem comRespostasRapidas, nenhum chip', async () => {
+    await render(<Conversa {...props()} />);
+    for (const resposta of textos.conversas.respostasRapidas) {
+      expect(screen.queryByText(resposta)).toBeNull();
+    }
+  });
+});
+
 describe('RodapeDoServico', () => {
   it('habilitado: chama onConversar', async () => {
     const onConversar = jest.fn();

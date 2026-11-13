@@ -22,6 +22,8 @@ export const TABELAS = [
   'candidaturas',
   'trampos',
   'servicos',
+  'avaliacoes',
+  'favoritos',
   'perfis',
   'tentativas_de_entrada',
   'sessoes',

@@ -12,7 +12,9 @@
  * Aplica as migrações pendentes antes. Tudo é criado pela própria API montada
  * (`montarAplicacao` + `app.inject`), nunca por SQL direto: passa pelas mesmas
  * validações e regras de domínio de uma requisição real (ex.: D9, perfil
- * completo antes de publicar, ofertar e candidatar).
+ * completo antes de publicar, ofertar e candidatar; CA87, avaliação só de
+ * trampo encerrado com candidatura aceita, uma por avaliador e trampo; CA92,
+ * favorito só com vínculo).
  *
  * Idempotente: se a primeira conta da semente já existir (409 `email_em_uso`),
  * encerra sem criar nada. Todas as contas usam a senha `SENHA_DA_SEMENTE`,
@@ -168,8 +170,11 @@ interface Contagens {
   servicos: number;
   candidaturas: number;
   aceitas: number;
+  encerrados: number;
   conversas: number;
   mensagens: number;
+  avaliacoes: number;
+  favoritos: number;
 }
 
 /** Cria tudo; devolve `null` se a semente já tinha sido aplicada. */
@@ -182,8 +187,11 @@ async function semear(aplicacao: Aplicacao): Promise<Contagens | null> {
     servicos: 0,
     candidaturas: 0,
     aceitas: 0,
+    encerrados: 0,
     conversas: 0,
     mensagens: 0,
+    avaliacoes: 0,
+    favoritos: 0,
   };
 
   // Contas.
@@ -406,6 +414,139 @@ async function semear(aplicacao: Aplicacao): Promise<Contagens | null> {
     }
   }
 
+  // Trampos já encerrados, para as avaliações (CA87): cada um tem uma
+  // candidatura aceita, e só as duas partes avaliam, uma vez cada. Em parte
+  // deles só um lado avaliou, para o app mostrar "Avaliar" ao outro.
+  const encerrados = [
+    {
+      autor: 'ana',
+      freela: 'bruno',
+      trampo: {
+        titulo: 'Troca de tomadas e interruptores',
+        descricao: 'Doze pontos numa casa de dois quartos, material incluso.',
+        categoria: 'reformas',
+        cidade: 'Lavras',
+        valorCentavos: 18_000,
+      },
+      candidatura: {
+        mensagem: 'Resolvo num dia, com o material que você indicar.',
+        valorPropostoCentavos: 18_000,
+      },
+      avaliacoes: [
+        {
+          avaliador: 'ana',
+          nota: 5,
+          destaques: ['pontual', 'organizado'],
+          comentario: 'Trabalho limpo e no horário combinado.',
+        },
+        {
+          avaliador: 'bruno',
+          nota: 5,
+          destaques: ['pagamento_em_dia', 'instrucoes_claras'],
+          comentario: 'Pagou no dia e explicou tudo direitinho.',
+        },
+      ],
+    },
+    {
+      autor: 'ana',
+      freela: 'carla',
+      trampo: {
+        titulo: 'Arte para placa de aluguel',
+        descricao: 'Placa de 60 por 40 cm com telefone e fotos do imóvel.',
+        categoria: 'design',
+        cidade: 'Lavras',
+        valorCentavos: 15_000,
+      },
+      candidatura: {
+        mensagem: 'Envio a arte pronta para a gráfica em três dias.',
+        valorPropostoCentavos: 15_000,
+      },
+      avaliacoes: [
+        {
+          avaliador: 'ana',
+          nota: 4,
+          destaques: ['educado', 'rapido'],
+        },
+      ],
+    },
+    {
+      autor: 'diego',
+      freela: 'bruno',
+      trampo: {
+        titulo: 'Montagem de estante na sala de estudos',
+        descricao: 'Estante de seis prateleiras, já comprada e na caixa.',
+        categoria: 'reformas',
+        cidade: 'Lavras',
+        valorCentavos: 12_000,
+      },
+      candidatura: {
+        mensagem: 'Monto e fixo na parede no mesmo dia.',
+        valorPropostoCentavos: 12_000,
+      },
+      avaliacoes: [
+        {
+          avaliador: 'bruno',
+          nota: 4,
+          destaques: ['respeitoso', 'pontual'],
+        },
+      ],
+    },
+  ] as const;
+  for (const { autor, freela, trampo, candidatura, avaliacoes } of encerrados) {
+    const publicado = await pedir('POST', '/trampos', {
+      token: tokens[autor],
+      corpo: trampo,
+      passo: 'POST /trampos',
+    });
+    const trampoId = texto(publicado.corpo, 'id');
+    contagens.trampos += 1;
+    const criada = await pedir('POST', `/trampos/${trampoId}/candidaturas`, {
+      token: tokens[freela],
+      corpo: candidatura,
+      passo: 'POST /trampos/:id/candidaturas',
+    });
+    contagens.candidaturas += 1;
+    await pedir(
+      'POST',
+      `/trampos/${trampoId}/candidaturas/${texto(criada.corpo, 'id')}/aceitar`,
+      {
+        token: tokens[autor],
+        passo: 'POST /trampos/:id/candidaturas/:cid/aceitar',
+      },
+    );
+    contagens.aceitas += 1;
+    await pedir('POST', `/trampos/${trampoId}/encerrar`, {
+      token: tokens[autor],
+      esperado: [204],
+      passo: 'POST /trampos/:id/encerrar',
+    });
+    contagens.encerrados += 1;
+    for (const { avaliador, ...avaliacao } of avaliacoes) {
+      await pedir('POST', '/avaliacoes', {
+        token: tokens[avaliador],
+        corpo: { trampoId, ...avaliacao },
+        esperado: [201],
+        passo: 'POST /avaliacoes',
+      });
+      contagens.avaliacoes += 1;
+    }
+  }
+
+  // Equipe favorita (CA92): só entre quem tem candidatura em comum (D4).
+  const favoritos = [
+    ['ana', 'bruno'],
+    ['ana', 'carla'],
+    ['diego', 'bruno'],
+  ] as const;
+  for (const [dono, favorito] of favoritos) {
+    await pedir('PUT', `/favoritos/${ids[favorito]}`, {
+      token: tokens[dono],
+      esperado: [204],
+      passo: 'PUT /favoritos/:contaId',
+    });
+    contagens.favoritos += 1;
+  }
+
   return contagens;
 }
 
@@ -457,13 +598,16 @@ async function principal(argumentos: readonly string[]): Promise<number> {
       `  ${contagens.contas} contas e ${contagens.perfis} perfis completos`,
     );
     console.log(
-      `  ${contagens.trampos} trampos (${contagens.aceitas} em andamento) e ${contagens.servicos} serviços`,
+      `  ${contagens.trampos} trampos (${contagens.aceitas - contagens.encerrados} em andamento e ${contagens.encerrados} encerrados) e ${contagens.servicos} serviços`,
     );
     console.log(
-      `  ${contagens.candidaturas} candidaturas (${contagens.aceitas} aceita)`,
+      `  ${contagens.candidaturas} candidaturas (${contagens.aceitas} aceitas)`,
     );
     console.log(
       `  ${contagens.conversas} conversas com ${contagens.mensagens} mensagens`,
+    );
+    console.log(
+      `  ${contagens.avaliacoes} avaliações e ${contagens.favoritos} favoritos`,
     );
     console.log('A senha das contas está no README (seção Semente).');
     return 0;

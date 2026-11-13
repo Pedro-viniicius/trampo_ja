@@ -1,11 +1,14 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import type { ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { cores, espaco, raio, tipografia, toqueMinimo } from '../tema/tokens';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import { estiloDeFoco, useFoco } from './utilitarios';
+import { estiloDeFoco, pontosDoGradiente, useFoco } from './utilitarios';
 
 export type PropsDaBolhaDeMensagem = {
-  /** Minha mensagem: à direita, fundo primário. */
+  /** Minha mensagem: à direita, gradiente de ação. */
   minha: boolean;
   texto: string;
   /** `null` enquanto não há hora confirmada. */
@@ -17,13 +20,10 @@ export type PropsDaBolhaDeMensagem = {
   onTentarDeNovo?: () => void;
 };
 
-const corDoTextoSecundario = {
-  color: cores.textoSecundario,
-  fontSize: tipografia.tamanho.legenda,
-  lineHeight: tipografia.lineHeight.legenda,
-} as const;
+const RAIO = 20;
+const RAIO_DA_PONTA = 6;
 
-/** Bolha de mensagem: o texto da mensagem é conteúdo; a hora e a situação ficam abaixo. */
+/** Bolha de mensagem: o texto e a hora ficam dentro; a situação, abaixo. */
 export function BolhaDeMensagem({
   minha,
   texto,
@@ -44,48 +44,84 @@ export function BolhaDeMensagem({
         : null;
   const rotulo = [quem, situacaoFalada, texto].filter(Boolean).join('. ');
   const tocavel = situacao === 'falhou' && onTentarDeNovo !== undefined;
+  // Na minha, tudo em branco pleno: transparência derrubaria o contraste sobre o roxo 600.
+  const corDoTexto = minha ? cores.branco : cores.texto;
+  const corDaHora = minha ? cores.branco : cores.textoSecundario;
 
-  const conteudo = (
-    <View style={{ alignItems: minha ? 'flex-end' : 'flex-start' }}>
-      <View
-        style={{
-          maxWidth: '100%',
-          paddingHorizontal: espaco[3],
-          paddingVertical: espaco[2],
-          borderRadius: raio.md,
-          backgroundColor: minha ? cores.primaria : cores.superficie,
-        }}
-      >
-        <Text
-          style={{
-            color: minha ? cores.branco : cores.texto,
-            fontSize: tipografia.tamanho.corpo,
-            lineHeight: tipografia.lineHeight.corpo,
-          }}
-        >
-          {texto}
-        </Text>
-      </View>
+  const forma = {
+    maxWidth: '100%' as const,
+    borderTopLeftRadius: RAIO,
+    borderTopRightRadius: RAIO,
+    borderBottomLeftRadius: minha ? RAIO : RAIO_DA_PONTA,
+    borderBottomRightRadius: minha ? RAIO_DA_PONTA : RAIO,
+  };
+
+  const miolo = (
+    <View
+      style={{
+        paddingHorizontal: espaco.m - 2,
+        paddingTop: espaco.s + 2,
+        paddingBottom: espaco.s,
+        gap: 2,
+      }}
+    >
+      <Text style={[estiloDeTexto('corpo'), { color: corDoTexto }]}>
+        {texto}
+      </Text>
       {situacao === 'enviada' && horaFormatada ? (
-        <Text style={{ ...corDoTextoSecundario, marginTop: espaco[1] }}>
+        <Text
+          style={[
+            estiloDeTexto('legenda'),
+            { color: corDaHora, alignSelf: 'flex-end' },
+          ]}
+        >
           {horaFormatada}
         </Text>
       ) : null}
+    </View>
+  );
+
+  let bolha: ReactNode;
+  if (minha) {
+    bolha = (
+      <LinearGradient
+        colors={[...cores.gradienteAcao]}
+        {...pontosDoGradiente}
+        style={[
+          forma,
+          situacao === 'enviando' ? { opacity: 0.6 } : null,
+          situacao === 'falhou'
+            ? { borderWidth: 2, borderColor: cores.feedback.erro.base }
+            : null,
+        ]}
+      >
+        {miolo}
+      </LinearGradient>
+    );
+  } else {
+    bolha = (
+      <View style={[forma, { backgroundColor: cores.superficie }, sombra.sm]}>
+        {miolo}
+      </View>
+    );
+  }
+
+  const conteudo = (
+    <View style={{ alignItems: minha ? 'flex-end' : 'flex-start' }}>
+      {bolha}
       {situacao === 'enviando' ? (
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: espaco[1],
-            marginTop: espaco[1],
+            gap: espaco.xs,
+            marginTop: espaco.xs,
           }}
         >
-          <Ionicons
-            name="time-outline"
-            size={14}
-            color={cores.textoSecundario}
-          />
-          <Text style={corDoTextoSecundario}>
+          <Feather name="clock" size={14} color={cores.textoSecundario} />
+          <Text
+            style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+          >
             {textos.conversas.rotuloEnviando}
           </Text>
         </View>
@@ -95,18 +131,16 @@ export function BolhaDeMensagem({
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: espaco[1],
-            marginTop: espaco[1],
+            gap: espaco.xs,
+            marginTop: espaco.xs,
           }}
         >
-          <Ionicons name="alert-circle" size={16} color={cores.erro} />
+          <Feather name="alert-circle" size={16} color={cores.erro} />
           <Text
-            style={{
-              flexShrink: 1,
-              color: cores.erro,
-              fontSize: tipografia.tamanho.legenda,
-              lineHeight: tipografia.lineHeight.legenda,
-            }}
+            style={[
+              estiloDeTexto('legenda'),
+              { flexShrink: 1, color: cores.erro },
+            ]}
           >
             {textos.conversas.naoEnviada}
           </Text>
@@ -122,7 +156,7 @@ export function BolhaDeMensagem({
         alignItems: minha ? 'flex-end' : 'flex-start',
       }}
     >
-      <View style={{ maxWidth: '85%' }}>
+      <View style={{ maxWidth: '80%' }}>
         {tocavel ? (
           <Pressable
             accessibilityRole="button"
@@ -144,6 +178,28 @@ export function BolhaDeMensagem({
           </View>
         )}
       </View>
+    </View>
+  );
+}
+
+/** Separador de dia ("Hoje", "Ontem", data) entre as bolhas. */
+export function SeparadorDeDia({ texto }: { texto: string }) {
+  return (
+    <View
+      style={{
+        alignSelf: 'center',
+        paddingHorizontal: espaco.m - 4,
+        paddingVertical: espaco.xs,
+        borderRadius: raio.pill,
+        backgroundColor: cores.tinta[100],
+      }}
+    >
+      <Text
+        accessibilityRole="header"
+        style={[estiloDeTexto('legenda'), { color: cores.tinta[700] }]}
+      >
+        {texto}
+      </Text>
     </View>
   );
 }

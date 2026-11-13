@@ -24,7 +24,8 @@ import {
 /**
  * Chaves cujo valor nunca vai para o log, em qualquer objeto. Além das
  * credenciais e dos dados de contato, os textos livres que o usuário digita
- * (perfil, trampos, serviços e mensagens) também são dado pessoal (LGPD).
+ * (perfil, trampos, serviços, mensagens e o comentário das avaliações) também
+ * são dado pessoal (LGPD, CA93).
  */
 export const CHAVES_SENSIVEIS = [
   'authorization',
@@ -39,6 +40,7 @@ export const CHAVES_SENSIVEIS = [
   'texto',
   'mensagem',
   'titulo',
+  'comentario',
 ] as const;
 
 /**
