@@ -606,7 +606,11 @@ describe('Detalhes: conteúdo e estados', () => {
     expect(
       await screen.findByText(textos.detalheTrampo.semPrazo),
     ).toBeOnTheScreen();
-    expect(screen.getByText('R$ 1.500,00')).toBeOnTheScreen();
+    // Quadro 05: o valor no ladrilho e de novo no rodapé, ao lado do botão.
+    await screen.findByRole('button', {
+      name: textos.detalheTrampo.candidatar,
+    });
+    expect(screen.getAllByText('R$ 1.500,00')).toHaveLength(2);
     expect(screen.getByText('Reformas e reparos')).toBeOnTheScreen();
   });
 
@@ -671,7 +675,11 @@ describe('Detalhes e perfil: valores e navegação de volta', () => {
       .responder('GET /perfis/c1', { corpo: AUTOR });
     await abrirApp('/trampos/t1', { fetch });
 
-    expect(await screen.findByText(texto)).toBeOnTheScreen();
+    // O mesmo texto no ladrilho Valor e no rodapé (quadro 05).
+    await screen.findByRole('button', {
+      name: textos.detalheTrampo.candidatar,
+    });
+    expect(screen.getAllByText(texto)).toHaveLength(2);
   });
 
   it.each([
