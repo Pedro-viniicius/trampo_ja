@@ -415,8 +415,55 @@ describe('Conversa (quadro 09): separador, contexto, faixa e respostas rápidas'
     }
     const [primeira] = textos.conversas.respostasRapidas;
     await fireEvent.press(screen.getByText(primeira as string));
-    expect(onMudarRascunho).toHaveBeenLastCalledWith(primeira);
+    // R7: com rascunho, a resposta vai ao fim, com um espaço; nada é apagado.
+    expect(onMudarRascunho).toHaveBeenLastCalledWith(
+      `rascunho-sentinela ${primeira}`,
+    );
     expect(onEnviar).not.toHaveBeenCalled();
+  });
+
+  it('R7: com o campo vazio, a resposta rápida o preenche', async () => {
+    const onMudarRascunho = jest.fn();
+    await render(
+      <Conversa
+        {...props({
+          comRespostasRapidas: true,
+          rascunho: '  ',
+          onMudarRascunho,
+        })}
+      />,
+    );
+    const [primeira] = textos.conversas.respostasRapidas;
+    await fireEvent.press(screen.getByText(primeira as string));
+    expect(onMudarRascunho).toHaveBeenLastCalledWith(primeira);
+  });
+
+  it('D9: com faixa de contexto, o cabeçalho não repete "Sobre:"', async () => {
+    await render(
+      <Conversa
+        {...props({
+          contexto: 'Garçom',
+          faixa: {
+            titulo: 'Garçom',
+            statusDaCandidatura: 'aceita',
+            valorFormatado: 'R$ 120,00',
+            onAbrir: jest.fn(),
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByText(textos.conversas.contexto('Garçom'))).toBeNull();
+  });
+
+  it('D10: o botão Enviar bloqueado dá o motivo como dica', async () => {
+    await render(
+      <Conversa
+        {...props({ semConexao: true, podeEnviar: false, rascunho: 'oi' })}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: textos.conversas.enviar }),
+    ).toHaveProp('accessibilityHint', textos.conversas.semConexaoNoCampo);
   });
 
   it('sem comRespostasRapidas, nenhum chip', async () => {

@@ -6,6 +6,7 @@ import {
   formatarData,
   formatarDataHora,
   formatarDiaDaMensagem,
+  formatarHoraCurta,
   formatarHoraDaMensagem,
   lerData,
   lerValorEmCentavos,
@@ -138,6 +139,27 @@ describe('formatarHoraDaMensagem', () => {
   ])('devolve %j como veio', (entrada) => {
     expect(formatarHoraDaMensagem(entrada, AGORA)).toBe(entrada);
   });
+});
+
+describe('formatarHoraCurta (hora da bolha: o dia vem do separador)', () => {
+  const iso = (...partes: [number, number, number, number, number]) =>
+    new Date(...partes).toISOString();
+
+  it.each([
+    ['hoje', iso(2026, 9, 21, 14, 32), '14:32'],
+    ['ontem', iso(2026, 9, 20, 14, 32), '14:32'],
+    ['outro ano', iso(2025, 9, 20, 9, 7), '09:07'],
+    ['meia-noite', iso(2026, 9, 21, 0, 5), '00:05'],
+  ])('%s: só a hora', (_nome, entrada, esperado) => {
+    expect(formatarHoraCurta(entrada)).toBe(esperado);
+  });
+
+  it.each([[''], ['ontem'], ['2026-10-21'], ['2026-13-40T12:00:00Z']])(
+    'devolve %j como veio',
+    (entrada) => {
+      expect(formatarHoraCurta(entrada)).toBe(entrada);
+    },
+  );
 });
 
 describe('formatarDiaDaMensagem', () => {

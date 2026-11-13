@@ -1,12 +1,14 @@
 import { Feather } from '@expo/vector-icons';
 import { ScrollView, Text, View } from 'react-native';
 import {
+  ALTURA_DA_BARRA_DE_ABAS,
   Avatar,
   Aviso,
   Botao,
   CartaoDeDestaque,
   EstadoVazio,
   folgaDaBarraDeAbas,
+  MARGEM_DA_BARRA_DE_ABAS,
   Selo,
   Toast,
 } from '../componentes';
@@ -29,6 +31,7 @@ export function InicioDoContratante({
   nome,
   perfilIncompleto,
   demandas,
+  temDemandas = false,
   onNovaDemanda,
   onVerDemandas,
   onVerCandidatos,
@@ -92,6 +95,7 @@ export function InicioDoContratante({
             </View>
             <Demandas
               demandas={demandas}
+              temDemandas={temDemandas}
               onNovaDemanda={onNovaDemanda}
               onVerCandidatos={onVerCandidatos}
             />
@@ -103,6 +107,8 @@ export function InicioDoContratante({
         mensagem={toast ?? ''}
         rotuloFechar={textos.gerais.toastFechar}
         onFechar={() => onFecharToast?.()}
+        // O toast sobe acima da barra flutuante.
+        deslocamentoInferior={ALTURA_DA_BARRA_DE_ABAS + MARGEM_DA_BARRA_DE_ABAS}
       />
     </Pagina>
   );
@@ -136,17 +142,27 @@ function Saudacao({ nome }: { nome?: string }) {
 
 function Demandas({
   demandas,
+  temDemandas,
   onNovaDemanda,
   onVerCandidatos,
 }: Pick<
   PropsDoInicioDoContratante,
   'demandas' | 'onNovaDemanda' | 'onVerCandidatos'
->) {
+> & { temDemandas: boolean }) {
+  // Dois vazios: quem já publicou (mas nada está aberto) e quem nunca publicou.
   const vazio = (
     <EstadoVazio
       icone="briefcase"
-      titulo={textos.inicioContratante.semDemandas}
-      texto={textos.inicioContratante.semDemandasTexto}
+      titulo={
+        temDemandas
+          ? textos.demandas.vazioAbertas
+          : textos.inicioContratante.semDemandas
+      }
+      texto={
+        temDemandas
+          ? textos.inicioContratante.semAbertasTexto
+          : textos.inicioContratante.semDemandasTexto
+      }
       textoAcao={textos.demandas.publicar}
       onAcao={onNovaDemanda}
     />

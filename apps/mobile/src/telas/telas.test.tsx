@@ -283,11 +283,13 @@ describe('Inicio', () => {
     await render(
       <Inicio {...base} onVerTodos={onVerTodos} onBuscar={onBuscar} />,
     );
+    // D63: só a seção de trampos tem "Ver todos"; não há seção de serviços.
     const botoes = screen.getAllByRole('button', { name: 'Ver todos' });
+    expect(botoes).toHaveLength(1);
     await fireEvent.press(em(botoes, 0));
-    await fireEvent.press(em(botoes, 1));
-    expect(onVerTodos).toHaveBeenNthCalledWith(1, 'trampo');
-    expect(onVerTodos).toHaveBeenNthCalledWith(2, 'servico');
+    expect(onVerTodos).toHaveBeenCalledTimes(1);
+    expect(onVerTodos).toHaveBeenCalledWith('trampo');
+    expect(screen.queryByText(textos.inicio.servicos)).toBeNull();
     await fireEvent.press(
       screen.getByRole('button', { name: textos.inicio.buscar }),
     );
@@ -319,14 +321,11 @@ describe('Inicio', () => {
 
   it('carregando, vazio e erro por seção', async () => {
     const onTentarDeNovo = jest.fn();
-    await render(
-      <Inicio
-        {...base}
-        recentesTrampos={carregando}
-        recentesServicos={vazio}
-      />,
-    );
+    await render(<Inicio {...base} recentesTrampos={carregando} />);
     expect(screen.getByLabelText(textos.gerais.carregando)).toBeOnTheScreen();
+    await screen.unmount();
+
+    await render(<Inicio {...base} recentesTrampos={vazio} />);
     expect(screen.getByText(textos.inicio.vazio)).toBeOnTheScreen();
     await screen.unmount();
 
@@ -335,7 +334,7 @@ describe('Inicio', () => {
       screen.getByRole('button', { name: 'Tentar de novo' }),
     );
     expect(onTentarDeNovo).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Aulas de violão')).toBeOnTheScreen();
+    expect(screen.queryByText('Aulas de violão')).toBeNull();
   });
 
   it('toast de retorno aparece e fecha pelo botão', async () => {
@@ -354,18 +353,12 @@ describe('Inicio', () => {
     expect(onFecharToast).toHaveBeenCalledTimes(1);
   });
 
-  it('atalhos da 2b só aparecem com callback', async () => {
-    await render(<Inicio {...base} />);
-    expect(
-      screen.queryByText(textos.inicio.publicarTrampo),
-    ).not.toBeOnTheScreen();
-    await screen.unmount();
-    const onPublicarTrampo = jest.fn();
-    await render(<Inicio {...base} onPublicarTrampo={onPublicarTrampo} />);
-    await fireEvent.press(
-      screen.getByRole('button', { name: textos.inicio.publicarTrampo }),
+  it('D63: sem atalhos de publicar nem serviços, mesmo com os callbacks antigos', async () => {
+    await render(
+      <Inicio {...base} onPublicarTrampo={noop} onOfertarServico={noop} />,
     );
-    expect(onPublicarTrampo).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(textos.inicio.publicarTrampo)).toBeNull();
+    expect(screen.queryByText(textos.inicio.ofertarServico)).toBeNull();
   });
 });
 

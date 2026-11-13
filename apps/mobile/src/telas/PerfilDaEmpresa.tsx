@@ -42,7 +42,7 @@ export function PerfilDaEmpresa({
           <>
             {perfilIncompleto ? (
               <Aviso
-                variante="info"
+                variante="alerta"
                 texto={textos.perfil.avisoIncompleto(perfilIncompleto.falta)}
                 textoAcao={textos.perfil.completar}
                 onAcao={onEditar}

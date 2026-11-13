@@ -28,6 +28,16 @@ function DetalheDoServico() {
   return <Text>{`Detalhe do serviço ${id}`}</Text>;
 }
 
+function CandidaturasDoTrampo() {
+  const { trampoId } = useLocalSearchParams<{ trampoId: string }>();
+  return <Text>{`Candidaturas do trampo ${trampoId}`}</Text>;
+}
+
+function EdicaoDoTrampo() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <Text>{`Edição do trampo ${id}`}</Text>;
+}
+
 const ROTAS = {
   '(app)/_layout': LayoutDaArea,
   '(app)/(abas)/index': InicioRota,
@@ -41,6 +51,8 @@ const ROTAS = {
   '(app)/perfil/editar': stub('Tela de editar perfil'),
   '(app)/trampos/[id]': DetalheDoTrampo,
   '(app)/servicos/[id]': DetalheDoServico,
+  '(app)/candidaturas/[trampoId]': CandidaturasDoTrampo,
+  '(app)/trampos/editar/[id]': EdicaoDoTrampo,
 };
 
 const CATEGORIAS = [
@@ -133,26 +145,20 @@ function chamadas(fetch: FetchFalso, caminho: string) {
 }
 
 describe('atalhos do Início (CA16)', () => {
-  it('"Publicar trampo" abre o formulário de trampo', async () => {
+  // D63: publicar parte de Demandas ("+") e ofertar, de Perfil › Meus serviços
+  // (os dois testados abaixo).
+  it('o Início do freela não tem atalhos de publicar nem de ofertar (D63)', async () => {
     await abrir('/');
+    await screen.findByRole('button', {
+      name: textos.inicio.minhasCandidaturas,
+    });
 
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.inicio.publicarTrampo }),
-    );
-
-    expect(await screen.findByText('Formulário de trampo')).toBeOnTheScreen();
-    expect(screen).toHavePathname('/trampos/novo');
-  });
-
-  it('"Ofertar serviço" abre o formulário de serviço', async () => {
-    await abrir('/');
-
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.inicio.ofertarServico }),
-    );
-
-    expect(await screen.findByText('Formulário de serviço')).toBeOnTheScreen();
-    expect(screen).toHavePathname('/servicos/novo');
+    expect(
+      screen.queryByRole('button', { name: textos.inicio.publicarTrampo }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: textos.inicio.ofertarServico }),
+    ).toBeNull();
   });
 
   it('"Minhas candidaturas" abre a aba Meus trampos (CA77)', async () => {
@@ -208,7 +214,7 @@ describe('atalhos do Perfil (CA16)', () => {
 
 // Meus trampos virou a aba Demandas (CA77, CA79): segmentada por status.
 describe('Meus trampos, agora Demandas (CA4, CA79)', () => {
-  it('lista os trampos por status, com categoria e valor, do mais recente ao mais antigo', async () => {
+  it('lista os trampos por status, com "Criada em" e prazo, do mais recente ao mais antigo', async () => {
     const fetch = criarFake();
     await abrir('/demandas', fetch);
 
@@ -217,10 +223,20 @@ describe('Meus trampos, agora Demandas (CA4, CA79)', () => {
     // Abertas: os dois abertos, do mais recente ao mais antigo.
     expect(screen.getAllByText(textos.selos.aberto)).toHaveLength(2);
     expect(screen.queryByText('Trocar o telhado')).toBeNull();
-    expect(screen.getAllByText('Reformas e reparos · Lavras')).toHaveLength(2);
-    expect(screen.getByText('R$ 250,50')).toBeOnTheScreen();
+    // O cartão de demanda não traz categoria nem cidade (D64): a data de
+    // criação e o prazo (aqui, sem prazo) no lugar.
+    expect(
+      screen.getByText(textos.demandas.criadaEm('19/10/2026')),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(textos.demandas.criadaEm('18/10/2026')),
+    ).toBeOnTheScreen();
+    expect(screen.getAllByText(textos.detalheTrampo.semPrazo)).toHaveLength(2);
+    expect(screen.queryByText('Reformas e reparos · Lavras')).toBeNull();
     const rotulos = screen
-      .getAllByRole('button', { name: /Trampo/ })
+      .getAllByRole('button', {
+        name: new RegExp(textos.demandas.criadaEm('')),
+      })
       .map((b) => b.props.accessibilityLabel as string);
     expect(rotulos[0]).toContain('Montar estante'); // 19/10
     expect(rotulos[1]).toContain('Pintar a sala'); // 18/10
@@ -232,7 +248,6 @@ describe('Meus trampos, agora Demandas (CA4, CA79)', () => {
     expect(await screen.findByText('Trocar o telhado')).toBeOnTheScreen();
     // O rótulo da aba e o selo do trampo têm o mesmo texto.
     expect(screen.getAllByText(textos.selos.emAndamento)).toHaveLength(2);
-    expect(screen.getByText('R$ 8.000,00')).toBeOnTheScreen();
     expect(screen.queryByText('Pintar a sala')).toBeNull();
 
     // Só a lista de trampos é pedida.
@@ -257,6 +272,77 @@ describe('Meus trampos, agora Demandas (CA4, CA79)', () => {
 
     await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
     expect(await screen.findByText('Detalhe do trampo t1')).toBeOnTheScreen();
+  });
+
+  describe('cartão de demanda (D64)', () => {
+    /** t1 com 2 interessados e prazo; t3 sem interessados; t2 em andamento com 1. */
+    function criarFakeComInteressados() {
+      const [t1, t2, t3] = MEUS_TRAMPOS as [
+        (typeof MEUS_TRAMPOS)[number],
+        (typeof MEUS_TRAMPOS)[number],
+        (typeof MEUS_TRAMPOS)[number],
+      ];
+      return criarFake().responder('GET /trampos/meus', {
+        corpo: [
+          { ...t1, prazo: '2026-12-31', candidaturasRecebidas: 2 },
+          { ...t2, candidaturasRecebidas: 1 },
+          { ...t3, candidaturasRecebidas: 0 },
+        ],
+      });
+    }
+
+    it('mostra o prazo do trampo e "Sem prazo definido" sem ele (D5)', async () => {
+      await abrir('/demandas', criarFakeComInteressados());
+
+      expect(await screen.findByText('31/12/2026')).toBeOnTheScreen();
+      expect(screen.getAllByText(textos.detalheTrampo.semPrazo)).toHaveLength(
+        1,
+      );
+    });
+
+    it('"Ver candidatos (n)" abre as candidaturas do trampo', async () => {
+      await abrir('/demandas', criarFakeComInteressados());
+
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: textos.demandas.verCandidatosDe('Pintar a sala'),
+        }),
+      );
+
+      await waitFor(() => expect(screen).toHavePathname('/candidaturas/t1'));
+      expect(
+        await screen.findByText('Candidaturas do trampo t1'),
+      ).toBeOnTheScreen();
+    });
+
+    it('"Editar" (sem interessados) abre a edição do trampo', async () => {
+      await abrir('/demandas', criarFakeComInteressados());
+
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: textos.demandas.editarDe('Montar estante'),
+        }),
+      );
+
+      await waitFor(() => expect(screen).toHavePathname('/trampos/editar/t3'));
+      expect(await screen.findByText('Edição do trampo t3')).toBeOnTheScreen();
+    });
+
+    it('em andamento com interessados: "Ver candidatos" também abre as candidaturas', async () => {
+      await abrir('/demandas', criarFakeComInteressados());
+      await screen.findByText('Pintar a sala');
+      await fireEvent.press(
+        screen.getByRole('tab', { name: textos.demandas.abaAndamento }),
+      );
+
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: textos.demandas.verCandidatosDe('Trocar o telhado'),
+        }),
+      );
+
+      await waitFor(() => expect(screen).toHavePathname('/candidaturas/t2'));
+    });
   });
 
   it.each([
@@ -390,9 +476,12 @@ describe('Meus serviços (CA6)', () => {
     expect(
       await screen.findByText(textos.meusAnuncios.vazioServicos),
     ).toBeOnTheScreen();
-    await fireEvent.press(
-      screen.getByRole('button', { name: textos.meusAnuncios.ofertarServico }),
-    );
+    // Dois "Ofertar serviço": o "+" do cabeçalho (D63) e o do vazio.
+    const ofertar = screen.getAllByRole('button', {
+      name: textos.meusAnuncios.ofertarServico,
+    });
+    expect(ofertar).toHaveLength(2);
+    await fireEvent.press(ofertar[1] as (typeof ofertar)[number]);
 
     expect(await screen.findByText('Formulário de serviço')).toBeOnTheScreen();
     expect(screen).toHavePathname('/servicos/novo');

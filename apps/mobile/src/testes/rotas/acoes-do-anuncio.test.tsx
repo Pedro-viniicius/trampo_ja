@@ -270,9 +270,13 @@ async function abrirAbaDeDemandas(nome: string) {
   await fireEvent.press(await screen.findByRole('tab', { name: nome }));
 }
 
+/**
+ * O cartão que abre o detalhe. O de demanda (aba Demandas, D64) começa pelo
+ * título; o de serviço, pelo tipo.
+ */
 function cartao(tipo: 'Trampo' | 'Serviço', titulo: string) {
   return screen.findByRole('button', {
-    name: new RegExp(`^${tipo}, ${titulo}`),
+    name: new RegExp(tipo === 'Trampo' ? `^${titulo},` : `^${tipo}, ${titulo}`),
   });
 }
 

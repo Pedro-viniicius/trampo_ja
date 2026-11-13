@@ -520,7 +520,8 @@ describe('mensagensParaExibir', () => {
         chave: 'm2',
         minha: false,
         texto: TEXTO_A,
-        horaFormatada: '20/10 09:05',
+        // Só a hora: o dia vem do separador (diaFormatado).
+        horaFormatada: '09:05',
         situacao: 'enviada',
         diaFormatado: ONTEM,
       },

@@ -12,6 +12,7 @@ import {
   criarArmazenamentoDoModoEmMemoria,
   type Modo,
 } from '../../estado/modo';
+import { DICAS } from '../../textos/dicas';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import { renderRouter } from '../render-router';
@@ -73,6 +74,8 @@ const rotas = {
   '(app)/(abas)/perfil': stub('perfil-stub'),
   '(app)/buscar-trampos': RotaDeBuscarTrampos,
   '(app)/perfil/editar': stub('editar-perfil-stub'),
+  '(app)/dicas/index': stub('dicas-stub'),
+  '(app)/candidaturas/[trampoId]': stub('candidaturas-stub'),
   '(app)/trampos/[id]': stub('detalhe-trampo-stub'),
   '(app)/servicos/[id]': stub('detalhe-servico-stub'),
 };
@@ -177,7 +180,7 @@ describe('Início', () => {
     expect(screen.queryByText(/Complete seu perfil/)).not.toBeOnTheScreen();
   });
 
-  it('pede 10 trampos, 10 serviços e as categorias, e mostra os itens', async () => {
+  it('pede 10 trampos e as categorias, mostra os itens e não pede serviços (D63)', async () => {
     const { fetch } = await abrir('/', (f) => {
       f.responder('GET /perfis/eu', { corpo: meuPerfil });
       f.responder(
@@ -191,18 +194,152 @@ describe('Início', () => {
     });
 
     expect(await screen.findByText('Pintar')).toBeOnTheScreen();
-    expect(await screen.findByText('Aula de violão')).toBeOnTheScreen();
     // O rótulo da categoria vem de GET /categorias.
-    expect(await screen.findByText('Aulas e reforço')).toBeOnTheScreen();
-    expect(buscas(fetch).map((r) => r.query)).toEqual(
-      expect.arrayContaining([
-        { tipo: 'trampos', limite: '10' },
-        { tipo: 'servicos', limite: '10' },
-      ]),
-    );
+    expect(await screen.findByText('Reformas · Lavras')).toBeOnTheScreen();
+    expect(buscas(fetch).map((r) => r.query)).toEqual([
+      { tipo: 'trampos', limite: '10' },
+    ]);
+    expect(screen.queryByText('Aula de violão')).toBeNull();
+    expect(screen.queryByText(textos.inicio.servicos)).toBeNull();
+    expect(
+      await screen.findAllByRole('button', { name: textos.gerais.verTodos }),
+    ).toHaveLength(1);
     expect(fetch.requisicoes.some((r) => r.caminho === '/categorias')).toBe(
       true,
     );
+  });
+
+  describe('destaque e dicas do freela (R3)', () => {
+    const minha = (id: string, status: 'pendente' | 'aceita' | 'recusada') => ({
+      id,
+      trampoId: `t-${id}`,
+      freelancerId: 'conta-eu',
+      mensagem: 'm',
+      valorPropostoCentavos: 100,
+      status,
+      criadaEm: '2026-10-20T12:00:00.000Z',
+    });
+
+    it('o destaque mostra quantas candidaturas estão em análise (só as pendentes)', async () => {
+      const { fetch } = await abrir('/', (f) => {
+        f.responder('GET /perfis/eu', { corpo: meuPerfil });
+        f.responder('GET /busca', pagina([], null));
+        f.responder('GET /candidaturas/minhas', {
+          corpo: [
+            minha('1', 'pendente'),
+            minha('2', 'aceita'),
+            minha('3', 'pendente'),
+            minha('4', 'recusada'),
+          ],
+        });
+      });
+
+      expect(
+        await screen.findByText(textos.inicioFreela.emAnalise(2)),
+      ).toBeOnTheScreen();
+      expect(
+        fetch.requisicoes.filter((r) => r.caminho === '/candidaturas/minhas'),
+      ).toHaveLength(1);
+    });
+
+    it('sem candidaturas pendentes, o destaque diz que não há nenhuma em análise', async () => {
+      await abrir('/', (f) => {
+        f.responder('GET /perfis/eu', { corpo: meuPerfil });
+        f.responder('GET /busca', pagina([], null));
+        f.responder('GET /candidaturas/minhas', {
+          corpo: [minha('2', 'aceita')],
+        });
+      });
+
+      expect(
+        await screen.findByText(textos.inicioFreela.semCandidaturas),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText(/em análise/)).toBeNull();
+    });
+
+    it('o cartão de dica abre Dicas & minicursos', async () => {
+      await abrir('/', (f) => {
+        f.responder('GET /perfis/eu', { corpo: meuPerfil });
+        f.responder('GET /busca', pagina([], null));
+        f.responder('GET /candidaturas/minhas', { corpo: [] });
+      });
+
+      await fireEvent.press(await screen.findByText(DICAS[0]?.titulo ?? ''));
+
+      await waitFor(() => expect(screen).toHavePathname('/dicas'));
+    });
+  });
+
+  describe('Início do contratante: vazio das demandas abertas (R2)', () => {
+    const demanda = (id: string, status: string) => ({
+      id,
+      autorId: 'conta-eu',
+      titulo: `Demanda ${id}`,
+      descricao: 'd',
+      categoria: 'reformas',
+      cidade: 'Lavras',
+      valorCentavos: 10000,
+      prazo: null,
+      status,
+      criadoEm: '2026-10-20T12:00:00.000Z',
+      candidaturasRecebidas: 0,
+    });
+
+    it('nunca publicou: "Você ainda não publicou demandas"', async () => {
+      await abrir(
+        '/',
+        (f) => {
+          f.responder('GET /perfis/eu', { corpo: meuPerfil });
+          f.responder('GET /trampos/meus', { corpo: [] });
+        },
+        'contratante',
+      );
+
+      expect(
+        await screen.findByText(textos.inicioContratante.semDemandas),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText(textos.demandas.vazioAbertas)).toBeNull();
+    });
+
+    it('só há demandas em andamento: "Nenhuma demanda aberta", não "ainda não publicou"', async () => {
+      await abrir(
+        '/',
+        (f) => {
+          f.responder('GET /perfis/eu', { corpo: meuPerfil });
+          f.responder('GET /trampos/meus', {
+            corpo: [demanda('a', 'em_andamento'), demanda('b', 'encerrado')],
+          });
+        },
+        'contratante',
+      );
+
+      expect(
+        await screen.findByText(textos.demandas.vazioAbertas),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(textos.inicioContratante.semAbertasTexto),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByText(textos.inicioContratante.semDemandas),
+      ).toBeNull();
+    });
+
+    it('com uma demanda aberta, lista a aberta e não mostra vazio', async () => {
+      await abrir(
+        '/',
+        (f) => {
+          f.responder('GET /perfis/eu', { corpo: meuPerfil });
+          f.responder('GET /trampos/meus', {
+            corpo: [demanda('a', 'em_andamento'), demanda('c', 'aberto')],
+          });
+        },
+        'contratante',
+      );
+
+      expect(await screen.findByText('Demanda c')).toBeOnTheScreen();
+      expect(screen.queryByText('Demanda a')).toBeNull();
+      expect(screen.queryByText(textos.demandas.vazioAbertas)).toBeNull();
+    });
   });
 
   it('recentes com erro mostram "Tentar de novo" e recarregam', async () => {
@@ -271,39 +408,6 @@ describe('Início', () => {
     await waitFor(() => expect(screen).toHavePathname('/buscar-trampos'));
     expect(await screen.findByText(textos.buscar.inicial)).toBeOnTheScreen();
     expect(buscas(fetch)).toHaveLength(antes);
-  });
-
-  it('"Ver todos" de serviços abre a aba Buscar do contratante e troca o modo (CA77)', async () => {
-    const { fetch, armazenamentoDoModo } = await abrir('/', (f) => {
-      f.responder('GET /perfis/eu', { corpo: meuPerfil });
-      f.responder('GET /busca', pagina([], null));
-      f.responder(
-        'GET /busca?tipo=servicos&limite=20',
-        pagina([servico('s9', 'Aula de inglês')], null),
-      );
-    });
-
-    const verTodos = await screen.findAllByRole('button', {
-      name: textos.gerais.verTodos,
-    });
-    await fireEvent.press(verTodos[1] as (typeof verTodos)[number]);
-
-    await waitFor(() => expect(screen).toHavePathname('/buscar'));
-    // `pedido` muda a cada toque em "Ver todos" (ver o teste de "de novo").
-    expect(screen).toHaveSearchParams({
-      tipo: 'servicos',
-      pedido: expect.stringMatching(/^\d+$/),
-    });
-    expect(await screen.findByText('Aula de inglês')).toBeOnTheScreen();
-    expect(screen.getByText(textos.buscarFreelancers.titulo)).toBeOnTheScreen();
-    expect(screen.queryByRole('tab')).toBeNull();
-    expect(buscas(fetch).at(-1)?.query).toEqual({
-      tipo: 'servicos',
-      limite: '20',
-    });
-    await waitFor(() =>
-      expect(armazenamentoDoModo.atual()).toBe('contratante'),
-    );
   });
 
   it('abrir um recente leva ao detalhe do tipo certo', async () => {

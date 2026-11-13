@@ -4,6 +4,7 @@ import { useConversas } from '../../../estado/consultas/conversas';
 import { usePerfisPublicos } from '../../../estado/consultas/perfil';
 import { conversaParaExibir } from '../../../estado/conversa';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
+import { useModo } from '../../../estado/modo';
 import { ListaDeConversas } from '../../../telas';
 
 /**
@@ -17,6 +18,7 @@ export default function RotaDasConversas() {
   const router = useRouter();
   const ativa = useIsFocused();
   const { online } = useConexao();
+  const { modo } = useModo();
   const consulta = useConversas({ ativa });
   const perfis = usePerfisPublicos(
     (consulta.conversas ?? []).map((c) => c.outroUsuarioId),
@@ -37,6 +39,7 @@ export default function RotaDasConversas() {
   return (
     <ListaDeConversas
       lista={lista}
+      modo={modo}
       semConexao={!online}
       onAbrir={(id) =>
         router.push({ pathname: '/conversas/[id]', params: { id } })

@@ -17,6 +17,7 @@ export function CartaoDoItem({
       cidade={item.cidade}
       valorFormatado={item.valorFormatado}
       dataFormatada={item.dataFormatada}
+      prazoFormatado={item.prazoFormatado}
       onPress={() => onAbrir(item)}
     />
   );

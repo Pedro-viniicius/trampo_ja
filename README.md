@@ -875,11 +875,13 @@ marcadores para a identidade do controlador até a revisão jurídica. O app emp
 cadastro, sem registro na API. Ficam fora do código: hospedar a política e a página de pedido de exclusão na web
 (exigência das lojas) e o prazo de guarda dos registros de acesso.
 
-### Remover uma avaliação a pedido do titular
+### Remover o comentário de uma avaliação a pedido do titular
 
 A avaliação é imutável pela API (D59) e só some com a exclusão da conta de um dos lados. Se quem avaliou ou quem foi
-avaliado pedir a remoção de uma avaliação específica (LGPD, art. 18), o operador a apaga à mão pelo id, com o roteiro
-abaixo. Regras:
+avaliado pedir a remoção do comentário de uma avaliação específica (LGPD, art. 18), o operador apaga **só o
+comentário** (`comentario = null`) à mão, pelo id e com o roteiro abaixo. A nota e os destaques ficam, então a média de
+ninguém muda e a avaliação continua contando como feita (D65). Remover a avaliação inteira é exceção decidida caso a
+caso pelo dono. Regras:
 
 - Nunca rode `select *` nem selecione `comentario`: o texto é dado pessoal e não deve aparecer no terminal, em
   histórico nem em anexo do pedido. As consultas abaixo mostram só se há comentário.
@@ -900,8 +902,8 @@ abaixo. Regras:
     order by criada_em desc;
    ```
 
-2. Confira e apague numa transação. A primeira consulta trava a linha e tem de devolver exatamente uma; a segunda tem
-   de devolver `apagadas = 1`. Qualquer outro resultado: `rollback`.
+2. Confira e limpe numa transação. A primeira consulta trava a linha e tem de devolver exatamente uma, com
+   `tem_comentario = t`; a segunda tem de devolver `limpas = 1`. Qualquer outro resultado: `rollback`.
 
    ```sql
    \set id 'uuid-da-avaliacao'
@@ -911,11 +913,15 @@ abaixo. Regras:
      from avaliacoes
     where id = :'id'
       for update;
-   with apagada as (delete from avaliacoes where id = :'id' returning id)
-   select count(*) as apagadas from apagada;
+   with limpa as (
+     update avaliacoes set comentario = null
+      where id = :'id' and comentario is not null
+     returning id
+   )
+   select count(*) as limpas from limpa;
    ```
 
-3. Só depois de ver `apagadas = 1`, num passo separado (não cole junto com o bloco acima):
+3. Só depois de ver `limpas = 1`, num passo separado (não cole junto com o bloco acima):
 
    ```sql
    commit;
@@ -923,8 +929,8 @@ abaixo. Regras:
 
    Se algo não bateu, rode `rollback;` no lugar.
 
-O resumo e a lista de avaliações são calculados na hora: a avaliação some deles no pedido seguinte. Depois de apagada,
-quem avaliou pode avaliar o mesmo trampo de novo, porque a regra de uma por avaliador e trampo é a própria linha.
+A lista de avaliações é lida na hora: o comentário some dela no pedido seguinte, e a avaliação continua com a nota e
+os destaques. A restrição `avaliacoes_comentario_tamanho` aceita `null`.
 
 ## Documentos de produto
 

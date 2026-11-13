@@ -71,6 +71,17 @@ function useAcoes(tipo: TipoDeAnuncio) {
       ),
     publicar: () =>
       router.push(tipo === 'trampo' ? '/trampos/novo' : '/servicos/novo'),
+    // Cartão de demanda (D64): só a aba Demandas passa estes dois.
+    verCandidatos: (item: MeuAnuncioParaExibir) =>
+      router.push({
+        pathname: '/candidaturas/[trampoId]',
+        params: { trampoId: item.id },
+      }),
+    editar: (item: MeuAnuncioParaExibir) =>
+      router.push({
+        pathname: '/trampos/editar/[id]',
+        params: { id: item.id },
+      }),
   };
 }
 
@@ -174,6 +185,8 @@ export function MeusTrampos() {
       semConexao={!acoes.online}
       onAbrirItem={acoes.abrir}
       onPublicar={acoes.publicar}
+      onVerCandidatos={acoes.verCandidatos}
+      onEditar={acoes.editar}
       folha={opcoes.folha}
       onMaisOpcoes={opcoes.onMaisOpcoes}
       toast={opcoes.toast}

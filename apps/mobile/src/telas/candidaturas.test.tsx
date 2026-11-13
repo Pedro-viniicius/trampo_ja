@@ -690,7 +690,10 @@ describe('MeusAnuncios', () => {
       />,
     );
     expect(screen.getByText(titulo)).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole('button', { name: acao }));
+    // Em Meus serviços o "+" do cabeçalho tem o mesmo nome do botão do vazio.
+    const botoes = screen.getAllByRole('button', { name: acao });
+    expect(botoes).toHaveLength(tipo === 'servico' ? 2 : 1);
+    await fireEvent.press(botoes[botoes.length - 1] as (typeof botoes)[number]);
     expect(onPublicar).toHaveBeenCalledTimes(1);
   });
 });

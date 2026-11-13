@@ -637,9 +637,7 @@ interface FibraDaArvore {
 /** Props da `FlatList` da conversa (a que tem `data` e `renderItem`). */
 function propsDaFlatList(): {
   data: readonly ItemDaLista[];
-  renderItem: (info: { item: ItemDaLista; index: number }) => {
-    props: { onTentarDeNovo: () => void };
-  };
+  renderItem: (info: { item: ItemDaLista; index: number }) => unknown;
 } {
   const raiz = (screen.root as unknown as { unstable_fiber?: FibraDaArvore })
     .unstable_fiber;
@@ -676,6 +674,31 @@ export function dadosDaLista(): readonly ItemDaLista[] {
 }
 
 /**
+ * O `onTentarDeNovo` da bolha dentro do elemento que o `renderItem` devolve.
+ * Quando a mensagem abre um dia novo, o elemento é um `View` com o separador
+ * de dia e a bolha (V2, 7b); senão, é a própria bolha.
+ */
+function acharTentarDeNovo(elemento: unknown): (() => void) | null {
+  if (typeof elemento !== 'object' || elemento === null) {
+    return null;
+  }
+  const props = (elemento as { props?: Record<string, unknown> }).props;
+  if (props === undefined) {
+    return null;
+  }
+  if (typeof props.onTentarDeNovo === 'function') {
+    return props.onTentarDeNovo as () => void;
+  }
+  for (const filho of [props.children].flat()) {
+    const achado = acharTentarDeNovo(filho);
+    if (achado !== null) {
+      return achado;
+    }
+  }
+  return null;
+}
+
+/**
  * Toca em "tentar de novo" da bolha de `chave` pelo `renderItem` da lista (a
  * `FlatList` só desenha as primeiras bolhas sem layout, e a pendente fica no fim).
  */
@@ -689,7 +712,11 @@ export async function tentarDeNovoDa(chave: string) {
     item: data[indice] as ItemDaLista,
     index: indice,
   });
+  const tentarDeNovo = acharTentarDeNovo(elemento);
+  if (tentarDeNovo === null) {
+    throw new Error('a bolha não tem "tentar de novo"');
+  }
   await act(async () => {
-    elemento.props.onTentarDeNovo();
+    tentarDeNovo();
   });
 }

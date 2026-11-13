@@ -9,8 +9,8 @@ import { rotuloDoTipoDaDica } from './Dicas';
 import type { PropsDaLeituraDeDica } from './tipos';
 
 /**
- * Leitura de uma dica (CA81; tela simples, fora do redesign): título, tipo e
- * tempo, parágrafos curtos e a lista "Para lembrar". Conteúdo local.
+ * Leitura de uma dica (CA81; tela simples, fora do redesign): título (no corpo, sem
+ * cortar no cabeçalho), tipo e tempo, parágrafos curtos e a lista "Para lembrar". Conteúdo local.
  */
 export function LeituraDeDica({ dica, onVoltar }: PropsDaLeituraDeDica) {
   if (!dica) {
@@ -21,7 +21,13 @@ export function LeituraDeDica({ dica, onVoltar }: PropsDaLeituraDeDica) {
     );
   }
   return (
-    <Rolavel titulo={dica.titulo} onVoltar={onVoltar}>
+    <Rolavel titulo={textos.dicas.titulo} onVoltar={onVoltar}>
+      <Text
+        accessibilityRole="header"
+        style={[estiloDeTexto('h2'), { color: cores.texto }]}
+      >
+        {dica.titulo}
+      </Text>
       <View
         style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.s }}
       >

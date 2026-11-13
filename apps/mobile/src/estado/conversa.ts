@@ -11,7 +11,11 @@ import type {
 import type { ConversaParaExibir, MensagemParaExibir } from '../telas/tipos';
 import { textos } from '../textos/pt-BR';
 import type { MapaPorId } from './consultas/anuncios';
-import { formatarDiaDaMensagem, formatarHoraDaMensagem } from './formatacao';
+import {
+  formatarDiaDaMensagem,
+  formatarHoraCurta,
+  formatarHoraDaMensagem,
+} from './formatacao';
 
 /**
  * Estado puro das conversas (ADR-004): validação do texto, mensagens em envio
@@ -189,8 +193,8 @@ export function reconciliar(
   return restantes;
 }
 
-function horaOuNulo(iso: string | null, agora: Date): string | null {
-  return iso === null ? null : formatarHoraDaMensagem(iso, agora);
+function horaOuNulo(iso: string | null): string | null {
+  return iso === null ? null : formatarHoraCurta(iso);
 }
 
 const ROTULOS_DO_DIA = {
@@ -212,7 +216,8 @@ function diaDaMensagem(iso: string | null, agora: Date): string | null {
 
 /**
  * Mensagens da tela da conversa: as confirmadas na ordem de envio (como vêm
- * do GET), com a chave igual ao `id`, e depois as pendentes que ainda não
+ * do GET), com a chave igual ao `id` e só a hora na bolha (`14:32`; o dia
+ * está no separador, `diaFormatado`), e depois as pendentes que ainda não
  * chegaram, na ordem de criação, com a chave local (`local-<n>`). Passa as
  * pendentes por `reconciliar` antes, para a mensagem não aparecer duas vezes
  * entre o GET e a tela guardar as pendentes reconciliadas.
@@ -229,7 +234,7 @@ export function mensagensParaExibir(
         chave: mensagem.id,
         minha: ehMinha(mensagem, outroId),
         texto: mensagem.texto,
-        horaFormatada: formatarHoraDaMensagem(mensagem.enviadaEm, agora),
+        horaFormatada: formatarHoraCurta(mensagem.enviadaEm),
         situacao: 'enviada',
         diaFormatado: diaDaMensagem(mensagem.enviadaEm, agora),
       }),
@@ -239,7 +244,7 @@ export function mensagensParaExibir(
         chave: pendente.chave,
         minha: true,
         texto: pendente.texto,
-        horaFormatada: horaOuNulo(pendente.enviadaEm, agora),
+        horaFormatada: horaOuNulo(pendente.enviadaEm),
         situacao: pendente.situacao,
         diaFormatado: diaDaMensagem(pendente.enviadaEm, agora),
       }),
@@ -305,7 +310,9 @@ const ORDEM_DO_VINCULO: Record<StatusDaCandidatura, number> = {
 /**
  * O vínculo entre mim e `outroId`, ou `null` se nenhuma candidatura em mãos
  * liga os dois. Com mais de uma, vale a de status mais adiantado (aceita,
- * pendente, recusada) e, no empate, a mais recente.
+ * pendente, recusada); no empate, a de trampo ainda não encerrado (a do
+ * trampo que está valendo, mesmo que a de um trampo encerrado seja mais
+ * recente) e, persistindo o empate, a mais recente.
  */
 export function vinculoDaConversa(
   dados: DadosDoVinculo,
@@ -350,6 +357,8 @@ export function vinculoDaConversa(
     (a, b) =>
       ORDEM_DO_VINCULO[a.vinculo.statusDaCandidatura] -
         ORDEM_DO_VINCULO[b.vinculo.statusDaCandidatura] ||
+      Number(a.vinculo.statusDoTrampo === 'encerrado') -
+        Number(b.vinculo.statusDoTrampo === 'encerrado') ||
       b.criadaEm - a.criadaEm,
   );
   return achados[0]?.vinculo ?? null;

@@ -1,6 +1,7 @@
 import { FlatList, Text, useWindowDimensions, View } from 'react-native';
 import {
   AbasSublinhadas,
+  ALTURA_DA_BARRA_DE_ABAS,
   Aviso,
   Botao,
   Cabecalho,
@@ -9,6 +10,7 @@ import {
   Chip,
   EstadoVazio,
   folgaDaBarraDeAbas,
+  MARGEM_DA_BARRA_DE_ABAS,
   Seletor,
   Toast,
 } from '../componentes';
@@ -214,6 +216,10 @@ export function Buscar({
           mensagem={toast}
           rotuloFechar={textos.gerais.toastFechar}
           onFechar={() => onFecharToast?.()}
+          // Como raiz de aba, o toast sobe acima da barra flutuante.
+          deslocamentoInferior={
+            raiz ? ALTURA_DA_BARRA_DE_ABAS + MARGEM_DA_BARRA_DE_ABAS : 0
+          }
         />
       ) : null}
     </Pagina>

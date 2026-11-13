@@ -26,6 +26,7 @@ export const textos = {
     mensagens: 'Mensagens',
   },
   gerais: {
+    publicadoEm: (data: string): string => `Publicado em ${data}`,
     toastFechar: 'Fechar aviso',
     ajudaValor: 'Digite o valor em reais, por exemplo 150,00.',
     tentarDeNovo: 'Tentar de novo',
@@ -115,7 +116,7 @@ export const textos = {
   inicio: {
     saudacao: (nome: string): string => `Olá, ${nome}`,
     saudacaoSemNome: 'Olá!',
-    buscar: 'Buscar trampos e serviços',
+    buscar: 'Buscar trampos',
     publicarTrampo: 'Publicar trampo',
     ofertarServico: 'Ofertar serviço',
     trampos: 'Trampos recentes',
@@ -148,6 +149,7 @@ export const textos = {
       `${n} ${plural(n, 'interessado', 'interessados')}`,
     semDemandas: 'Você ainda não publicou demandas',
     semDemandasTexto: 'Publique a primeira e receba candidaturas.',
+    semAbertasTexto: 'As demandas em andamento e encerradas estão em Demandas.',
     equipe: 'Minha equipe favorita',
     verPerfil: 'Ver perfil',
     recontratar: 'Recontratar',
@@ -224,7 +226,7 @@ export const textos = {
       titulo: string,
       status: string,
       valor: string,
-    ): string => `Abrir o trampo ${titulo}. ${status}. ${valor}`,
+    ): string => `Abrir ${titulo}. ${status}. ${valor}`,
     previaMinha: (texto: string): string => `Você: ${texto}`,
     vazio: 'Nenhuma conversa ainda',
     vazioTexto:
@@ -297,7 +299,7 @@ export const textos = {
     candidaturasEnviadas: (n: number): string =>
       `${n} ${plural(n, 'candidatura enviada', 'candidaturas enviadas')}`,
     confirmadas: (n: number): string =>
-      `${n} ${plural(n, 'confirmada', 'confirmadas')}`,
+      `${n} ${plural(n, 'aceita', 'aceitas')}`,
     abaAvaliacoes: (nota: string): string => `Avaliações ${nota}`,
     resumo: 'Resumo',
     dicas: 'Dicas & minicursos',
@@ -423,8 +425,8 @@ export const textos = {
     enviadaEm: (data: string): string => `Enviada em ${data}`,
     verPerfil: (nome: string | null): string =>
       `Ver perfil de ${nome ?? 'candidato'}`,
-    trampoEmAndamento: 'Este trampo está em andamento.',
-    trampoEncerrado: 'Este trampo está encerrado.',
+    trampoEmAndamento: 'Esta demanda está em andamento.',
+    trampoEncerrado: 'Esta demanda está encerrada.',
     semConexaoMotivo: 'Sem conexão. Conecte-se para aceitar.',
     aceitaToast:
       'Candidatura aceita. Que tal combinar os detalhes na conversa?',
@@ -469,6 +471,9 @@ export const textos = {
     criadaEm: (data: string): string => `Criada em ${data}`,
     verCandidatos: 'Ver candidatos',
     verCandidatosDe: (titulo: string): string => `Ver candidatos de ${titulo}`,
+    verCandidatosComN: (n: number): string => `Ver candidatos (${n})`,
+    editarDe: (titulo: string): string => `Editar ${titulo}`,
+    abrirDemanda: (titulo: string): string => `Abrir ${titulo}`,
     vazioAbertas: 'Nenhuma demanda aberta',
     vazioAndamento: 'Nenhuma demanda em andamento',
     vazioEncerradas: 'Nenhuma demanda encerrada',
@@ -477,7 +482,7 @@ export const textos = {
   },
   candidatos: {
     subtitulo: (n: number): string =>
-      `${n} ${plural(n, 'candidato', 'candidatos')} · toque para ver o perfil`,
+      `${n} ${plural(n, 'candidato', 'candidatos')}`,
     vazio: 'Ainda sem candidaturas. Quando alguém se candidatar, aparece aqui.',
   },
   buscarFreelancers: {
@@ -595,47 +600,47 @@ export const textos = {
     semConexaoParaCarregarMais: 'Sem conexão. Conecte-se para carregar mais.',
     maisCarregados: (k: number, tipo: 'trampo' | 'servico'): string =>
       tipo === 'trampo'
-        ? `${k} ${k === 1 ? 'trampo' : 'trampos'} a mais ${k === 1 ? 'carregado' : 'carregados'}.`
+        ? `${k} ${k === 1 ? 'demanda' : 'demandas'} a mais ${k === 1 ? 'carregada' : 'carregadas'}.`
         : `${k} ${k === 1 ? 'serviço' : 'serviços'} a mais ${k === 1 ? 'carregado' : 'carregados'}.`,
     fimDaLista: (n: number, tipo: 'trampo' | 'servico'): string =>
-      `Isso é tudo: ${n} ${tipo === 'trampo' ? 'trampos' : 'serviços'}.`,
+      `Isso é tudo: ${n} ${tipo === 'trampo' ? 'demandas' : 'serviços'}.`,
   },
   anuncio: {
     maisOpcoes: (titulo: string): string => `Mais opções de ${titulo}`,
     folhaTitulo: (titulo: string): string => `Opções de ${titulo}`,
     editar: 'Editar',
-    encerrarTrampo: 'Encerrar trampo',
-    excluirTrampo: 'Excluir trampo',
+    encerrarTrampo: 'Encerrar demanda',
+    excluirTrampo: 'Excluir demanda',
     excluirServico: 'Excluir serviço',
     // Motivos das ações desabilitadas.
     motivoEditarComCandidaturas:
-      'Não dá para editar um trampo que já recebeu candidaturas.',
-    motivoEditarEmAndamento: 'Não dá para editar um trampo que já começou.',
-    motivoEditarEncerrado: 'Não dá para editar um trampo encerrado.',
-    motivoExcluirNaoAberto: 'Só trampo aberto pode ser excluído.',
+      'Não dá para editar uma demanda que já recebeu candidaturas.',
+    motivoEditarEmAndamento: 'Não dá para editar uma demanda que já começou.',
+    motivoEditarEncerrado: 'Não dá para editar uma demanda encerrada.',
+    motivoExcluirNaoAberto: 'Só demanda aberta pode ser excluída.',
     motivoSemConexao: 'Sem conexão. Conecte-se para continuar.',
     // Encerrar (uma mensagem por status; encerrado não volta a abrir).
-    encerrarTitulo: 'Encerrar este trampo?',
+    encerrarTitulo: 'Encerrar esta demanda?',
     encerrarTextoAberto:
-      'Ele sai da busca e deixa de receber candidaturas. As candidaturas pendentes são recusadas e as conversas continuam. Isso não pode ser desfeito.',
+      'Ela sai da busca e deixa de receber candidaturas. As candidaturas pendentes são recusadas e as conversas continuam. Isso não pode ser desfeito.',
     encerrarTextoEmAndamento:
-      'Ele é dado como encerrado. As conversas continuam. Isso não pode ser desfeito.',
-    encerrarConfirmar: 'Encerrar trampo',
+      'Ela é dada como encerrada. As conversas continuam. Isso não pode ser desfeito.',
+    encerrarConfirmar: 'Encerrar demanda',
     encerrando: 'Encerrando…',
     // Excluir.
-    excluirTrampoTitulo: 'Excluir este trampo?',
+    excluirTrampoTitulo: 'Excluir esta demanda?',
     excluirTrampoTexto: (candidaturas: number): string =>
       candidaturas > 0
-        ? `Ele some da busca e ${plural(candidaturas, 'a candidatura recebida também', `as ${candidaturas} candidaturas recebidas também`)}. As conversas continuam. Isso não pode ser desfeito.`
-        : 'Ele some da busca. Isso não pode ser desfeito.',
+        ? `Ela some da busca e ${plural(candidaturas, 'a candidatura recebida também', `as ${candidaturas} candidaturas recebidas também`)}. As conversas continuam. Isso não pode ser desfeito.`
+        : 'Ela some da busca. Isso não pode ser desfeito.',
     excluirServicoTitulo: 'Excluir este serviço?',
     excluirServicoTexto:
       'Este serviço some da busca. Isso não pode ser desfeito.',
     excluindo: 'Excluindo…',
     cancelar: 'Cancelar',
     // Resultados.
-    trampoEncerrado: 'Trampo encerrado.',
-    trampoExcluido: 'Trampo excluído.',
+    trampoEncerrado: 'Demanda encerrada.',
+    trampoExcluido: 'Demanda excluída.',
     servicoExcluido: 'Serviço excluído.',
     jaNaoExiste: 'Este anúncio já não existe.',
     folhaAtualizada:
@@ -654,7 +659,7 @@ export const textos = {
       'Este anúncio foi alterado em outro lugar. Veja a versão atual; o que você mudou fica mantido. Salvar sem ver a versão atual não vai funcionar.',
     verVersaoAtual: 'Ver versão atual',
     dispensarConflito: 'Fechar aviso',
-    naoEditavel: 'Este trampo não pode mais ser editado.',
+    naoEditavel: 'Esta demanda não pode mais ser editada.',
     erroAoCarregar: 'Não foi possível carregar o anúncio.',
     descartarTitulo: 'Descartar alterações?',
     descartarTexto: 'O que você mudou nesta tela será perdido.',

@@ -145,7 +145,8 @@ export function Conversa({
       <CabecalhoDaConversa
         titulo={titulo}
         neutro={nomeDoOutro === null}
-        contexto={contexto}
+        // Com a faixa de contexto, o cabeçalho não repete o "Sobre:".
+        contexto={faixa ? null : contexto}
         onVoltar={onVoltar}
       />
       {faixa ? <FaixaDeContexto {...faixa} /> : null}

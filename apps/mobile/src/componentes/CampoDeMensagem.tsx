@@ -32,7 +32,10 @@ export type PropsDoCampoDeMensagem = {
   motivoDoEnvio?: string;
   /** Limite em pontos de código (corta ao digitar ou colar). */
   limite?: number;
-  /** Chips acima do campo; tocar preenche o campo (nunca envia sozinho). */
+  /**
+   * Chips acima do campo; tocar preenche o campo vazio ou acrescenta ao fim do
+   * rascunho, com um espaço (nunca apaga o que a pessoa escreveu nem envia).
+   */
   respostasRapidas?: readonly string[];
   inputRef?: Ref<ComponentRef<typeof TextInput>>;
 };
@@ -78,7 +81,10 @@ export function CampoDeMensagem({
             <Chip
               key={resposta}
               texto={resposta}
-              onPress={() => mudar(resposta)}
+              onPress={() =>
+                // Nunca apaga o rascunho: com texto, a resposta vai ao fim.
+                mudar(vazio ? resposta : `${valor.trimEnd()} ${resposta}`)
+              }
             />
           ))}
         </ScrollView>
@@ -127,7 +133,7 @@ export function CampoDeMensagem({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={rotuloEnviar}
-          accessibilityHint={envioDesabilitado ? motivoDoEnvio : undefined}
+          accessibilityHint={bloqueado ? motivoDoEnvio : undefined}
           accessibilityState={{ disabled: bloqueado }}
           disabled={bloqueado}
           onPress={onEnviar}

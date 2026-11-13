@@ -1,12 +1,14 @@
 import { Feather } from '@expo/vector-icons';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import {
+  ALTURA_DA_BARRA_DE_ABAS,
   Aviso,
   Botao,
   CartaoDeConteudo,
   CartaoDeDestaque,
   EstadoVazio,
   folgaDaBarraDeAbas,
+  MARGEM_DA_BARRA_DE_ABAS,
   Toast,
 } from '../componentes';
 import {
@@ -28,25 +30,20 @@ import type {
   TipoDeAnuncio,
 } from './tipos';
 
-/** Largura do cartão no carrossel de serviços: o próximo aparece cortado em 320 pt. */
-const LARGURA_DO_CARTAO = 280;
-
 /**
- * Início do freela (quadro 04): saudação e título de aba, busca, destaque de
- * Meus trampos, trampos recentes em lista, serviços em carrossel e, no fim,
- * Dicas & minicursos. Ganhos, extrato e "raio de 3 km" ficam de fora (spec).
+ * Início do freela (quadro 04; D63): saudação e título de aba, busca, destaque
+ * de Meus trampos, trampos recentes em lista e, no fim, Dicas & minicursos.
+ * Sem atalhos de publicar e sem serviços (o freela busca trampos). Ganhos,
+ * extrato e "raio de 3 km" ficam de fora (spec).
  */
 export function Inicio({
   nome,
   perfilIncompleto,
   recentesTrampos,
-  recentesServicos,
   onBuscar,
   onVerTodos,
   onAbrirItem,
   onCompletarPerfil,
-  onPublicarTrampo,
-  onOfertarServico,
   onMinhasCandidaturas,
   candidaturasEmAnalise,
   onDicas,
@@ -106,46 +103,12 @@ export function Inicio({
               }}
             />
           ) : null}
-          {onPublicarTrampo || onOfertarServico ? (
-            <View
-              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.s }}
-            >
-              {onPublicarTrampo ? (
-                <View style={{ flexGrow: 1, flexBasis: 140 }}>
-                  <Botao
-                    texto={textos.inicio.publicarTrampo}
-                    variante="tonal"
-                    icone="plus"
-                    onPress={onPublicarTrampo}
-                  />
-                </View>
-              ) : null}
-              {onOfertarServico ? (
-                <View style={{ flexGrow: 1, flexBasis: 140 }}>
-                  <Botao
-                    texto={textos.inicio.ofertarServico}
-                    variante="contorno"
-                    icone="tool"
-                    onPress={onOfertarServico}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
           <Secao
             tipo="trampo"
             titulo={textos.inicio.trampos}
             estado={recentesTrampos}
             onVerTodos={onVerTodos}
             onAbrirItem={onAbrirItem}
-          />
-          <Secao
-            tipo="servico"
-            titulo={textos.inicio.servicos}
-            estado={recentesServicos}
-            onVerTodos={onVerTodos}
-            onAbrirItem={onAbrirItem}
-            carrossel
           />
           {onDicas && dica ? (
             <View style={{ gap: espaco.m }}>
@@ -166,6 +129,8 @@ export function Inicio({
         mensagem={toast ?? ''}
         rotuloFechar={textos.gerais.toastFechar}
         onFechar={() => onFecharToast?.()}
+        // O toast sobe acima da barra flutuante.
+        deslocamentoInferior={ALTURA_DA_BARRA_DE_ABAS + MARGEM_DA_BARRA_DE_ABAS}
       />
     </Pagina>
   );
@@ -228,14 +193,12 @@ function Secao({
   estado,
   onVerTodos,
   onAbrirItem,
-  carrossel = false,
 }: {
   tipo: TipoDeAnuncio;
   titulo: string;
   estado: Estado<readonly ItemParaExibir[]>;
   onVerTodos: (tipo: TipoDeAnuncio) => void;
   onAbrirItem: (item: ItemParaExibir) => void;
-  carrossel?: boolean;
 }) {
   return (
     <View style={{ gap: espaco.m - 4 }}>
@@ -259,11 +222,7 @@ function Secao({
           onPress={() => onVerTodos(tipo)}
         />
       </View>
-      <ConteudoDaSecao
-        estado={estado}
-        onAbrirItem={onAbrirItem}
-        carrossel={carrossel}
-      />
+      <ConteudoDaSecao estado={estado} onAbrirItem={onAbrirItem} />
     </View>
   );
 }
@@ -271,15 +230,13 @@ function Secao({
 function ConteudoDaSecao({
   estado,
   onAbrirItem,
-  carrossel,
 }: {
   estado: Estado<readonly ItemParaExibir[]>;
   onAbrirItem: (item: ItemParaExibir) => void;
-  carrossel: boolean;
 }) {
   switch (estado.situacao) {
     case 'carregando':
-      return <Carregando cartoes={carrossel ? 1 : 3} />;
+      return <Carregando cartoes={3} />;
     case 'erro':
       return (
         <ErroDoBloco
@@ -296,40 +253,16 @@ function ConteudoDaSecao({
         />
       );
     case 'ok':
-      if (!carrossel) {
-        return (
-          <View style={{ gap: espaco.m }}>
-            {estado.dados.map((item) => (
-              <CartaoDoItem
-                key={`${item.tipo}-${item.id}`}
-                item={item}
-                onAbrir={onAbrirItem}
-              />
-            ))}
-          </View>
-        );
-      }
       return (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          // A sombra do cartão não é cortada pela rolagem.
-          style={{ marginHorizontal: -espaco.l }}
-          contentContainerStyle={{
-            gap: espaco.m - 4,
-            paddingHorizontal: espaco.l,
-            paddingVertical: espaco.xs,
-          }}
-        >
+        <View style={{ gap: espaco.m }}>
           {estado.dados.map((item) => (
-            <View
+            <CartaoDoItem
               key={`${item.tipo}-${item.id}`}
-              style={{ width: LARGURA_DO_CARTAO }}
-            >
-              <CartaoDoItem item={item} onAbrir={onAbrirItem} />
-            </View>
+              item={item}
+              onAbrir={onAbrirItem}
+            />
           ))}
-        </ScrollView>
+        </View>
       );
   }
 }

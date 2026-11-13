@@ -328,16 +328,8 @@ describe('Início: excluir pelo detalhe aberto dele (CA63)', () => {
     expect(screen.queryByText(a.trampoExcluido)).toBeNull();
   });
 
-  it('serviço: volta ao Início, que mostra "Serviço excluído."', async () => {
-    await abrir('/');
-    await fireEvent.press(await screen.findByText('Aulas de violão'));
-    await waitFor(() => expect(screen).toHavePathname('/servicos/s1'));
-
-    await excluirPeloDetalhe('Aulas de violão', a.excluirServico);
-
-    expect(await screen.findByText(a.servicoExcluido)).toBeOnTheScreen();
-    expect(screen).toHavePathname('/');
-  });
+  // O Início do freela não lista serviços (D63): o aviso de "Serviço
+  // excluído." volta pela Busca (acima) e por Meus serviços (acoes-do-anuncio).
 
   it('excluído em outro aparelho (404): o Início mostra "já não existe"', async () => {
     await abrir('/', criarServidor({ jaRemovidoNoServidor: true }));

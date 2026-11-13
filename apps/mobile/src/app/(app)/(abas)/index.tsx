@@ -4,6 +4,7 @@ import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useMeusTrampos } from '../../../estado/consultas/anuncios';
 import { useCategorias, useRecentes } from '../../../estado/consultas/busca';
+import { useMinhasCandidaturas } from '../../../estado/consultas/candidaturas';
 import { useMeuPerfil } from '../../../estado/consultas/perfil';
 import { mensagemDoErro } from '../../../estado/erros';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
@@ -17,15 +18,7 @@ import type {
   DemandaParaExibir,
   Estado,
   ItemParaExibir,
-  TipoDeAnuncio,
 } from '../../../telas/tipos';
-
-/**
- * Cada "Ver todos" leva um número novo na URL (`pedido`): a Buscar reaplica
- * o tipo mesmo quando ele é igual ao do toque anterior (a pessoa pode ter
- * trocado a aba à mão no meio).
- */
-let pedidosDeVerTodos = 0;
 
 interface ConsultaDeRecentes {
   readonly itens: readonly ItemDaBusca[];
@@ -75,13 +68,17 @@ export default function InicioRota() {
   );
 }
 
-/** Início do freela: saudação, aviso de perfil incompleto e os anúncios recentes. */
+/**
+ * Início do freela (D63): saudação, aviso de perfil incompleto, o destaque de
+ * Meus trampos (com as candidaturas em análise), os trampos recentes e a
+ * dica. Sem serviços e sem atalhos de publicar.
+ */
 function InicioDoFreela() {
   const router = useRouter();
   const { online } = useConexao();
   const meuPerfil = useMeuPerfil();
   const trampos = useRecentes('trampos');
-  const servicos = useRecentes('servicos');
+  const { candidaturas } = useMinhasCandidaturas();
   const { categorias } = useCategorias();
   // CA63: o aviso que uma tela de cima deixou ao voltar (excluído, já não
   // existe, alterações salvas) aparece aqui quando a aba está em foco.
@@ -96,17 +93,9 @@ function InicioDoFreela() {
 
   // CA84: o freela busca trampos em `/buscar-trampos` (pilha, com voltar),
   // que já abre listando todos. Serviços só se buscam na aba Buscar do
-  // contratante: o link dela troca o modo (CA77).
-  function verTodos(tipo: TipoDeAnuncio) {
-    if (tipo === 'trampo') {
-      router.push({ pathname: '/buscar-trampos', params: { tipo: 'trampos' } });
-      return;
-    }
-    pedidosDeVerTodos += 1;
-    router.navigate({
-      pathname: '/buscar',
-      params: { tipo: 'servicos', pedido: String(pedidosDeVerTodos) },
-    });
+  // contratante (D63).
+  function verTodos() {
+    router.push({ pathname: '/buscar-trampos', params: { tipo: 'trampos' } });
   }
 
   return (
@@ -116,7 +105,6 @@ function InicioDoFreela() {
         meuPerfil.semPerfil ? { falta: CAMPOS_DO_PERFIL_NOVO } : null
       }
       recentesTrampos={estadoDosRecentes(trampos, categorias, online)}
-      recentesServicos={estadoDosRecentes(servicos, categorias, online)}
       semConexao={!online}
       toast={aviso.texto}
       onFecharToast={aviso.limpar}
@@ -126,9 +114,14 @@ function InicioDoFreela() {
       onCompletarPerfil={() =>
         router.push({ pathname: '/perfil/editar', params: { completar: '1' } })
       }
-      onPublicarTrampo={() => router.push('/trampos/novo')}
-      onOfertarServico={() => router.push('/servicos/novo')}
       onMinhasCandidaturas={() => router.navigate('/meus-trampos')}
+      // A mesma chave de cache do Perfil e de Meus trampos (R3).
+      candidaturasEmAnalise={
+        candidaturas === null
+          ? null
+          : candidaturas.filter((c) => c.status === 'pendente').length
+      }
+      onDicas={() => router.push('/dicas')}
     />
   );
 }
@@ -173,6 +166,9 @@ function InicioDoContratanteRota() {
         meuPerfil.semPerfil ? { falta: CAMPOS_DO_PERFIL_NOVO } : null
       }
       demandas={demandas}
+      // Qualquer trampo carregado, de qualquer status (R2): com só trampos em
+      // andamento, o vazio diz "Nenhuma demanda aberta", não "ainda não publicou".
+      temDemandas={(consulta.trampos?.length ?? 0) > 0}
       semConexao={!online}
       toast={aviso.texto}
       onFecharToast={aviso.limpar}

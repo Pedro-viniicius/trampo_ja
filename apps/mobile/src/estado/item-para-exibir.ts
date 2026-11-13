@@ -2,6 +2,7 @@ import type { Categoria, ItemDaBusca, Servico, Trampo } from '../api/tipos';
 import type { ItemParaExibir, MeuAnuncioParaExibir } from '../telas/tipos';
 import {
   formatarCentavos,
+  formatarData,
   formatarDataHora,
   rotuloDaCategoria,
 } from './formatacao';
@@ -10,6 +11,7 @@ import {
  * Item de `GET /busca` pronto para o cartão das listas (Início e Buscar):
  * rótulo da categoria (ou o id, se a lista de categorias ainda não chegou),
  * valor do trampo ou preço base do serviço em reais e data de publicação.
+ * Sem `prazoFormatado`: `GET /busca` não traz o prazo do trampo.
  */
 export function paraItemParaExibir(
   item: ItemDaBusca,
@@ -30,8 +32,8 @@ export function paraItemParaExibir(
 
 /**
  * Trampo ou serviço de `GET /trampos/meus` ou `GET /servicos/meus` pronto
- * para Meus anúncios: igual ao cartão das listas, mais o status. O serviço
- * pode não ter cidade (`null`).
+ * para Meus anúncios: igual ao cartão das listas, mais o status e, no
+ * trampo, o prazo. O serviço pode não ter cidade (`null`).
  */
 export function meuAnuncioParaExibir(
   anuncio: Trampo | Servico,
@@ -50,6 +52,9 @@ export function meuAnuncioParaExibir(
       ...base,
       tipo: 'trampo',
       valorFormatado: formatarCentavos(anuncio.valorCentavos),
+      // Mesmo formato do detalhe; `null` = o cartão diz "Sem prazo definido".
+      prazoFormatado:
+        anuncio.prazo === null ? null : formatarData(anuncio.prazo),
     };
   }
   return {

@@ -1560,11 +1560,19 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       armazenamento: criarArmazenamentoEmMemoria(TOKEN_DA_AUTORA),
     });
 
-    // A1. Autora: atalho "Publicar trampo" do Início (não há mais aba
-    // Publicar, D56).
+    // A1. Autora: o Início do freela não tem atalhos de publicar (D63, nem
+    // aba Publicar, D56). Pelo modo contratante, o "+" de Demandas abre o
+    // formulário.
     expect(await screen.findByText(`Olá, ${NOME}`)).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: textos.inicio.publicarTrampo }),
+    ).toBeNull();
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
+    await trocarDeModo(textos.modo.trocarParaContratante);
+    await fireEvent.press(ultimoBotao(textos.abas.demandas));
+    await waitFor(() => expect(getPathname()).toBe('/demandas'));
     await fireEvent.press(
-      await screen.findByRole('button', { name: textos.inicio.publicarTrampo }),
+      await screen.findByRole('button', { name: textos.demandas.nova }),
     );
     await waitFor(() => expect(getPathname()).toBe('/trampos/novo'));
 
@@ -1620,12 +1628,24 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
     );
     estado.meusTramposFalham = false;
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
-    await waitFor(() => expect(getPathname()).toBe('/'));
+    await waitFor(() => expect(getPathname()).toBe('/demandas'));
 
-    // A4. Ofertar serviço pelo atalho do Início: queda de rede no envio,
-    // depois 201.
+    // A4. Ofertar serviço parte de Perfil › Meus serviços (D63), no modo
+    // freela: queda de rede no envio, depois 201.
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
+    await trocarDeModo(textos.modo.trocarParaFreela);
+    expect(
+      screen.queryByRole('button', { name: textos.inicio.ofertarServico }),
+    ).toBeNull();
+    await fireEvent.press(ultimoBotao(textos.abas.perfil));
     await fireEvent.press(
-      await screen.findByRole('button', { name: textos.inicio.ofertarServico }),
+      await screen.findByRole('button', { name: textos.perfil.meusServicos }),
+    );
+    await waitFor(() => expect(getPathname()).toBe('/meus-anuncios'));
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: textos.meusAnuncios.ofertarServico,
+      }),
     );
     await waitFor(() => expect(getPathname()).toBe('/servicos/novo'));
     await screen.findByDisplayValue(CIDADE);
@@ -1650,16 +1670,11 @@ describe('varredura do console nos fluxos do app (CA15)', () => {
       precoBaseCentavos: CENTAVOS_DO_SERVICO,
     });
     await fireEvent.press(ultimoBotao(textos.gerais.voltar));
-    await waitFor(() => expect(getPathname()).toBe('/'));
-
-    // A5. Perfil -> Meus serviços; depois o modo contratante -> Demandas
-    // (Meus trampos virou a aba Demandas, CA79) e de volta ao freela.
-    await fireEvent.press(ultimoBotao(textos.abas.perfil));
-    await waitFor(() => expect(getPathname()).toBe('/perfil'));
-    await fireEvent.press(
-      await screen.findByRole('button', { name: textos.perfil.meusServicos }),
-    );
     await waitFor(() => expect(getPathname()).toBe('/meus-anuncios'));
+
+    // A5. De volta em Meus serviços, com o serviço novo; depois o modo
+    // contratante -> Demandas (Meus trampos virou a aba Demandas, CA79) e de
+    // volta ao freela.
     expect(
       (await screen.findAllByText(TITULO_DO_SERVICO)).length,
     ).toBeGreaterThan(0);

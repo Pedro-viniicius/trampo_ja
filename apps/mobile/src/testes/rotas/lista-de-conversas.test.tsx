@@ -14,6 +14,7 @@ import {
   FRESCOR_DA_LISTA_MS,
   INTERVALO_DA_LISTA_MS,
 } from '../../estado/consultas/conversas';
+import type { Modo } from '../../estado/modo';
 import { textos } from '../../textos/pt-BR';
 import { criarFetchFalso, type FetchFalso } from '../fetch-falso';
 import {
@@ -105,11 +106,13 @@ function criarFake(): FetchFalso {
 async function abrir(
   url = '/conversas',
   fetch = criarFake(),
+  modo: Modo | null = null,
 ): Promise<RotasRenderizadas> {
   return renderizarRotas(ROTAS, {
     initialUrl: url,
     fetch,
     armazenamento: criarArmazenamentoEmMemoria(TOKEN_DE_TESTE),
+    modo,
   });
 }
 
@@ -234,6 +237,32 @@ describe('aba Conversas (CA16)', () => {
     expect(buscasDaLista(fetch)[0]?.cabecalhos.authorization).toBe(
       `Bearer ${TOKEN_DE_TESTE}`,
     );
+  });
+});
+
+describe('subtítulo da aba pelo modo (R3)', () => {
+  it.each([
+    ['freela', textos.conversas.subtituloFreela],
+    ['contratante', textos.conversas.subtituloContratante],
+  ] as const)('modo %s: "%s"', async (modo, subtitulo) => {
+    await abrir('/conversas', criarFake(), modo);
+
+    expect(await screen.findByText(subtitulo)).toBeOnTheScreen();
+    expect(
+      screen.queryByText(
+        modo === 'freela'
+          ? textos.conversas.subtituloContratante
+          : textos.conversas.subtituloFreela,
+      ),
+    ).toBeNull();
+  });
+
+  it('sem modo gravado abre em freela e o subtítulo é o do freela', async () => {
+    await abrir('/conversas');
+
+    expect(
+      await screen.findByText(textos.conversas.subtituloFreela),
+    ).toBeOnTheScreen();
   });
 });
 

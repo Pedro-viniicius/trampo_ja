@@ -433,12 +433,6 @@ describe('Buscar: resultados e paginação (CA7)', () => {
 });
 
 describe('Início → "Ver todos" → Buscar (CA7, CA84)', () => {
-  const verTodos = async (indice: number) => {
-    const botoes = await screen.findAllByRole('button', {
-      name: textos.gerais.verTodos,
-    });
-    await fireEvent.press(botoes[indice] as (typeof botoes)[number]);
-  };
   const campoDeServicos = () =>
     screen.getByLabelText(textos.buscarFreelancers.campo);
 
@@ -455,11 +449,19 @@ describe('Início → "Ver todos" → Buscar (CA7, CA84)', () => {
       );
   }
 
-  it('"Ver todos" de serviços com a Buscar já montada (outro `pedido`) zera os filtros e lista tudo de novo', async () => {
+  it('um link para a Buscar de serviços com outro `pedido` zera os filtros e lista tudo de novo', async () => {
+    // O Início do freela não tem mais "Ver todos" de serviços (D63): o link
+    // chega por navegação direta, como o `pedido` sempre chegou.
     const fetch = fakeDoInicio();
     const { getPathname } = await abrirApp('/', { fetch });
+    await screen.findByText('Pintar');
 
-    await verTodos(1);
+    await act(async () => {
+      router.navigate({
+        pathname: '/buscar',
+        params: { tipo: 'servicos', pedido: 'pedido-1-do-teste' },
+      });
+    });
     await waitFor(() => expect(getPathname()).toBe('/buscar'));
     expect(await screen.findByText('Violão')).toBeOnTheScreen();
 
@@ -474,7 +476,7 @@ describe('Início → "Ver todos" → Buscar (CA7, CA84)', () => {
     );
     await waitFor(() => expect(getPathname()).toBe('/'));
 
-    // O link de "Ver todos" de serviços chega de novo, com outro `pedido`.
+    // O link chega de novo, com outro `pedido`.
     await act(async () => {
       router.navigate({
         pathname: '/buscar',
@@ -530,12 +532,13 @@ describe('Início (CA7)', () => {
     await abrirApp('/', { fetch });
 
     expect(await screen.findByText('Pintar a sala')).toBeOnTheScreen();
-    expect(screen.getByText('Aula de violão')).toBeOnTheScreen();
+    // Sem a lista de categorias, o cartão mostra o id da categoria.
+    expect(screen.getByText('reformas · Lavras')).toBeOnTheScreen();
     expect(screen.getByText('Olá, Maria Souza')).toBeOnTheScreen();
     expect(screen.queryByText(/erro da API/)).toBeNull();
   });
 
-  it('um recente falha e o outro segue: erro só na seção que falhou', async () => {
+  it('os recentes falham: erro na seção, um só "Tentar de novo" e nenhum pedido de serviços (D63)', async () => {
     const fetch = fakeComCategorias();
     fetch.responder('GET /perfis/eu', { corpo: PERFIL_COMPLETO });
     fetch.responder('GET /busca?tipo=trampos', {
@@ -548,13 +551,14 @@ describe('Início (CA7)', () => {
     );
     await abrirApp('/', { fetch });
 
-    expect(await screen.findByText('Aula de violão')).toBeOnTheScreen();
     expect(
       await screen.findByText(textos.erros.erro_servidor),
     ).toBeOnTheScreen();
     expect(
       screen.getAllByRole('button', { name: textos.gerais.tentarDeNovo }),
     ).toHaveLength(1);
+    expect(screen.queryByText('Aula de violão')).toBeNull();
+    expect(buscas(fetch).some((r) => r.query.tipo === 'servicos')).toBe(false);
   });
 
   it('GET /perfis/eu com erro 500 não mostra o aviso "Complete seu perfil" (só o 404 mostra)', async () => {

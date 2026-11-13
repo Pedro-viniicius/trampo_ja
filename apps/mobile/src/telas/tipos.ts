@@ -75,6 +75,13 @@ export interface ItemParaExibir {
   valorFormatado: string;
   dataFormatada: string;
   /**
+   * V2: prazo do trampo já formatado (ex.: "30/11/2026"). Só trampo.
+   * `string` = o prazo; `null` = o trampo não tem prazo ("Sem prazo
+   * definido"); `undefined` = desconhecido (a busca não devolve o prazo): o
+   * cartão não mostra a linha de prazo.
+   */
+  prazoFormatado?: string | null;
+  /**
    * V2: nome de quem publicou, quando o contêiner o tiver (`null` = perfil
    * indisponível). Na busca de serviços com `tipo` fixo, o item vira
    * `CartaoDeFreelancer`; sem o campo, fica o cartão de anúncio.
@@ -144,14 +151,16 @@ export interface PropsDoInicio {
   nome?: string;
   perfilIncompleto: PerfilIncompleto | null;
   recentesTrampos: Estado<readonly ItemParaExibir[]>;
-  recentesServicos: Estado<readonly ItemParaExibir[]>;
+  /** Sem uso desde a D63 (o Início do freela não mostra serviços). */
+  recentesServicos?: Estado<readonly ItemParaExibir[]>;
   semConexao?: boolean;
   onBuscar: () => void;
   onVerTodos: (tipo: TipoDeAnuncio) => void;
   onAbrirItem: (item: ItemParaExibir) => void;
   onCompletarPerfil: () => void;
-  /** Atalhos da 2b: o botão só aparece se o callback for passado. */
+  /** Sem uso desde a D63: o Início do freela não tem atalhos de publicar. */
   onPublicarTrampo?: () => void;
+  /** Sem uso desde a D63. */
   onOfertarServico?: () => void;
   onMinhasCandidaturas?: () => void;
   /**
@@ -569,6 +578,16 @@ export interface PropsDosMeusAnuncios {
   semConexao?: boolean;
   onAbrirItem: (item: MeuAnuncioParaExibir) => void;
   onPublicar: () => void;
+  /**
+   * D64 (quadro 14): botão "Ver candidatos ({n})" do cartão de demanda
+   * (aba Demandas, com `segmentada`). Sem o callback, o botão não aparece.
+   */
+  onVerCandidatos?: (item: MeuAnuncioParaExibir) => void;
+  /**
+   * D64: botão "Editar" do cartão de demanda sem interessados (`interessados`
+   * igual a 0). Sem o callback, o botão não aparece.
+   */
+  onEditar?: (item: MeuAnuncioParaExibir) => void;
   /** Sem ela, não há voltar (aba Demandas, com `segmentada`). */
   onVoltar?: () => void;
   /** L2: folha "Mais opções" do item aberto, toast de resultado. */
@@ -789,6 +808,12 @@ export interface PropsDoInicioDoContratante {
   perfilIncompleto?: PerfilIncompleto | null;
   /** Trampos `aberto` de `/trampos/meus`; a tela mostra até 3. */
   demandas: Estado<readonly DemandaParaExibir[]>;
+  /**
+   * Se a conta tem alguma demanda (de qualquer status). `true` com a lista
+   * vazia = "Nenhuma demanda aberta"; `false` ou ausente = "Você ainda não
+   * publicou demandas".
+   */
+  temDemandas?: boolean;
   semConexao?: boolean;
   onNovaDemanda: () => void;
   onVerDemandas: () => void;

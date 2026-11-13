@@ -12,7 +12,15 @@ export type PropsDoCartaoDeAnuncio = {
   cidade: string | null;
   /** Ex.: "R$ 1.234,56". */
   valorFormatado: string;
+  /** Data de publicação; aparece com o ícone de relógio, nunca no lugar do prazo. */
   dataFormatada: string;
+  /**
+   * Prazo do trampo (ex.: "30/11/2026"). `string` = mostra o prazo; `null` =
+   * o trampo não tem prazo ("Sem prazo definido"); `undefined` = a lista não
+   * sabe (a busca não devolve o prazo): sem a linha do calendário e sem o
+   * prazo no rótulo falado. Serviço não tem prazo e não mostra a linha.
+   */
+  prazoFormatado?: string | null;
   /** Nome de quem publicou, quando a lista trouxer. */
   autor?: string | null;
   onPress: () => void;
@@ -29,6 +37,7 @@ export function CartaoDeAnuncio({
   cidade,
   valorFormatado,
   dataFormatada,
+  prazoFormatado,
   autor,
   onPress,
 }: PropsDoCartaoDeAnuncio) {
@@ -38,14 +47,19 @@ export function CartaoDeAnuncio({
   const nomeDoTipo = ehTrampo
     ? textos.gerais.tipoTrampo
     : textos.gerais.tipoServico;
+  const textoDoPrazo =
+    ehTrampo && prazoFormatado !== undefined
+      ? (prazoFormatado ?? textos.detalheTrampo.semPrazo)
+      : null;
   const rotulo = [
     nomeDoTipo,
     titulo,
     categoria,
     cidade,
     autor,
+    textoDoPrazo,
     valorFormatado,
-    dataFormatada,
+    textos.gerais.publicadoEm(dataFormatada),
   ]
     .filter(Boolean)
     .join(', ');
@@ -115,6 +129,20 @@ export function CartaoDeAnuncio({
         </Text>
       ) : null}
       <View
+        style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.xs }}
+      >
+        <Feather name="clock" size={14} color={cores.textoSecundario} />
+        <Text
+          numberOfLines={1}
+          style={[
+            estiloDeTexto('legenda'),
+            { flexShrink: 1, color: cores.textoSecundario },
+          ]}
+        >
+          {dataFormatada}
+        </Text>
+      </View>
+      <View
         style={{
           height: 1,
           backgroundColor: cores.divisor,
@@ -136,16 +164,24 @@ export function CartaoDeAnuncio({
             gap: espaco.xs,
           }}
         >
-          <Feather name="calendar" size={14} color={cores.textoSecundario} />
-          <Text
-            numberOfLines={1}
-            style={[
-              estiloDeTexto('legenda'),
-              { flexShrink: 1, color: cores.textoSecundario },
-            ]}
-          >
-            {dataFormatada}
-          </Text>
+          {textoDoPrazo !== null ? (
+            <>
+              <Feather
+                name="calendar"
+                size={14}
+                color={cores.textoSecundario}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  estiloDeTexto('legenda'),
+                  { flexShrink: 1, color: cores.textoSecundario },
+                ]}
+              >
+                {textoDoPrazo}
+              </Text>
+            </>
+          ) : null}
         </View>
         <Text style={[estiloDeTexto('h3'), { color: cores.texto }]}>
           {valorFormatado}

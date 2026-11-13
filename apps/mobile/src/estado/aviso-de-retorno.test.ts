@@ -82,7 +82,7 @@ describe('useAvisoDeRetorno', () => {
   });
 
   it.each([
-    ['trampo_excluido', textos.anuncio.trampoExcluido, 'Trampo excluído.'],
+    ['trampo_excluido', textos.anuncio.trampoExcluido, 'Demanda excluída.'],
     ['servico_excluido', textos.anuncio.servicoExcluido, 'Serviço excluído.'],
     [
       'ja_nao_existe',

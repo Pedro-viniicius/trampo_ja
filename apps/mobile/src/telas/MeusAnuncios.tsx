@@ -1,8 +1,10 @@
+import { Feather } from '@expo/vector-icons';
 import { type Ref, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   findNodeHandle,
   Platform,
+  Pressable,
   Text,
   View,
 } from 'react-native';
@@ -21,7 +23,9 @@ import {
   Selo,
   Toast,
 } from '../componentes';
-import { espaco } from '../tema/tokens';
+import { estiloDeFoco, useFoco } from '../componentes/utilitarios';
+import { texto as estiloDeTexto } from '../tema/texto';
+import { cores, espaco, raio, sombra, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { EstadoDeTela, Rolavel } from './base';
 import type {
@@ -49,6 +53,8 @@ export function MeusAnuncios({
   semConexao,
   onAbrirItem,
   onPublicar,
+  onVerCandidatos,
+  onEditar,
   onVoltar,
   folha,
   onMaisOpcoes,
@@ -156,6 +162,13 @@ export function MeusAnuncios({
             rotulo={textos.demandas.nova}
             onPress={onPublicar}
           />
+        ) : !ehTrampo ? (
+          <BotaoDeIcone
+            icone="plus"
+            variante="gradiente"
+            rotulo={textos.meusAnuncios.ofertarServico}
+            onPress={onPublicar}
+          />
         ) : undefined
       }
       semConexao={semConexao}
@@ -199,8 +212,11 @@ export function MeusAnuncios({
                   key={item.id}
                   refDoFoco={item.id === idDoNovo ? primeiroNovo : undefined}
                   item={item}
+                  comoDemanda={comAbas}
                   onAbrir={onAbrirItem}
                   onMaisOpcoes={onMaisOpcoes}
+                  onVerCandidatos={onVerCandidatos}
+                  onEditar={onEditar}
                 />
               ))}
             </View>
@@ -247,15 +263,37 @@ export function MeusAnuncios({
 function Anuncio({
   item,
   refDoFoco,
+  comoDemanda,
   onAbrir,
   onMaisOpcoes,
+  onVerCandidatos,
+  onEditar,
 }: {
   refDoFoco?: Ref<View>;
   item: MeuAnuncioParaExibir;
+  /** Aba Demandas: cartão do quadro 14 em vez do cartão de anúncio. */
+  comoDemanda: boolean;
   onAbrir: (item: MeuAnuncioParaExibir) => void;
   onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
+  onVerCandidatos?: (item: MeuAnuncioParaExibir) => void;
+  onEditar?: (item: MeuAnuncioParaExibir) => void;
 }) {
   const { variante, texto } = selo[item.status];
+  if (comoDemanda) {
+    return (
+      <View ref={refDoFoco} accessible={false}>
+        <CartaoDeDemanda
+          item={item}
+          rotuloDoStatus={texto}
+          varianteDoStatus={variante}
+          onAbrir={onAbrir}
+          onMaisOpcoes={onMaisOpcoes}
+          onVerCandidatos={onVerCandidatos}
+          onEditar={onEditar}
+        />
+      </View>
+    );
+  }
   return (
     <View ref={refDoFoco} accessible={false} style={{ gap: espaco.s }}>
       <View
@@ -298,6 +336,144 @@ function Anuncio({
         dataFormatada={item.dataFormatada}
         onPress={() => onAbrir(item)}
       />
+    </View>
+  );
+}
+
+/**
+ * Cartão de demanda (quadro 14; D64): título, status, interessados, "Criada
+ * em", prazo e o botão principal. Com interessados, "Ver candidatos ({n})";
+ * sem nenhum, "Editar". Fora de Abertas o botão é de apoio (tonal). A área
+ * de informações abre o detalhe; "Mais opções" fica ao lado.
+ */
+function CartaoDeDemanda({
+  item,
+  rotuloDoStatus,
+  varianteDoStatus,
+  onAbrir,
+  onMaisOpcoes,
+  onVerCandidatos,
+  onEditar,
+}: {
+  item: MeuAnuncioParaExibir;
+  rotuloDoStatus: string;
+  varianteDoStatus: (typeof selo)[keyof typeof selo]['variante'];
+  onAbrir: (item: MeuAnuncioParaExibir) => void;
+  onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
+  onVerCandidatos?: (item: MeuAnuncioParaExibir) => void;
+  onEditar?: (item: MeuAnuncioParaExibir) => void;
+}) {
+  const { focado, aoFocar, aoDesfocar } = useFoco();
+  const interessados = item.interessados ?? 0;
+  const prazo = item.prazoFormatado ?? textos.detalheTrampo.semPrazo;
+  const criada = textos.demandas.criadaEm(item.dataFormatada);
+  const principal = item.status === 'aberto';
+  const botao =
+    interessados > 0 && onVerCandidatos ? (
+      <Botao
+        texto={textos.demandas.verCandidatosComN(interessados)}
+        rotuloDeAcessibilidade={textos.demandas.verCandidatosDe(item.titulo)}
+        variante={principal ? 'primario' : 'tonal'}
+        onPress={() => onVerCandidatos(item)}
+      />
+    ) : interessados === 0 && principal && onEditar ? (
+      <Botao
+        texto={textos.anuncio.editar}
+        rotuloDeAcessibilidade={textos.demandas.editarDe(item.titulo)}
+        variante="tonal"
+        onPress={() => onEditar(item)}
+      />
+    ) : null;
+  return (
+    <View
+      style={[
+        {
+          gap: espaco.m - 4,
+          padding: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: cores.superficie,
+        },
+        sombra.sm,
+      ]}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: espaco.s,
+        }}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={[
+            item.titulo,
+            rotuloDoStatus,
+            item.tipo === 'trampo' && item.interessados !== undefined
+              ? textos.inicioContratante.interessados(item.interessados)
+              : null,
+            criada,
+            prazo,
+          ]
+            .filter(Boolean)
+            .join(', ')}
+          accessibilityHint={textos.demandas.abrirDemanda(item.titulo)}
+          onPress={() => onAbrir(item)}
+          onFocus={aoFocar}
+          onBlur={aoDesfocar}
+          style={[
+            { flex: 1, gap: espaco.s, minHeight: toqueMinimo },
+            focado && estiloDeFoco,
+          ]}
+        >
+          <Text
+            numberOfLines={2}
+            style={[estiloDeTexto('h3'), { color: cores.texto }]}
+          >
+            {item.titulo}
+          </Text>
+          <View
+            style={{ flexDirection: 'row', flexWrap: 'wrap', gap: espaco.s }}
+          >
+            <Selo variante={varianteDoStatus} texto={rotuloDoStatus} />
+            {item.interessados !== undefined ? (
+              <Selo
+                variante="roxo"
+                icone="users"
+                texto={textos.inicioContratante.interessados(item.interessados)}
+              />
+            ) : null}
+          </View>
+          <Text
+            style={[estiloDeTexto('legenda'), { color: cores.textoSecundario }]}
+          >
+            {criada}
+          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: espaco.xs,
+            }}
+          >
+            <Feather name="calendar" size={14} color={cores.textoSecundario} />
+            <Text
+              style={[
+                estiloDeTexto('legenda'),
+                { flexShrink: 1, color: cores.textoSecundario },
+              ]}
+            >
+              {prazo}
+            </Text>
+          </View>
+        </Pressable>
+        {onMaisOpcoes ? (
+          <BotaoMaisOpcoes
+            titulo={item.titulo}
+            onPress={() => onMaisOpcoes(item)}
+          />
+        ) : null}
+      </View>
+      {botao}
     </View>
   );
 }

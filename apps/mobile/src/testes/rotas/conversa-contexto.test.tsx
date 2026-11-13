@@ -161,14 +161,30 @@ function contexto() {
   return screen.queryByText(textos.conversas.contexto(TITULO));
 }
 
-function faixa(status: StatusDaCandidatura) {
-  return screen.queryByRole('button', {
+function opcoesDaFaixa(status: StatusDaCandidatura) {
+  return {
     name: textos.conversas.abrirTrampoDaFaixa(
       TITULO,
       textos.selos[status],
       'R$ 120,00',
     ),
-  });
+  };
+}
+
+function faixa(status: StatusDaCandidatura) {
+  return screen.queryByRole('button', opcoesDaFaixa(status));
+}
+
+/**
+ * Com a faixa de contexto, o título do trampo aparece nela e o cabeçalho não
+ * repete a linha "Sobre: {título}": a faixa chega e o "Sobre:" não.
+ */
+async function esperarFaixaSemSobre(status: StatusDaCandidatura) {
+  expect(
+    await screen.findByRole('button', opcoesDaFaixa(status)),
+  ).toBeOnTheScreen();
+  expect(screen.getByText(TITULO)).toBeOnTheScreen();
+  expect(contexto()).toBeNull();
 }
 
 function chips() {
@@ -213,10 +229,7 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
       queryClient.setQueryData(chaves.trampo('t1'), trampo(OUTRO));
     });
 
-    expect(
-      await screen.findByText(textos.conversas.contexto(TITULO)),
-    ).toBeOnTheScreen();
-    expect(faixa('aceita')).toBeOnTheScreen();
+    await esperarFaixaSemSobre('aceita');
     expect(chips()).toHaveLength(textos.conversas.respostasRapidas.length);
 
     const [primeira] = textos.conversas.respostasRapidas;
@@ -232,9 +245,7 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
     ).toHaveLength(0);
     expect(pedidosDeVinculo(fetch)).toHaveLength(0);
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: /^Abrir o trampo/ }),
-    );
+    await fireEvent.press(screen.getByRole('button', opcoesDaFaixa('aceita')));
     await waitFor(() => expect(screen).toHavePathname('/trampos/t1'));
   });
 
@@ -247,10 +258,7 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
       queryClient.setQueryData(chaves.trampo('t1'), trampo(OUTRO));
     });
 
-    expect(
-      await screen.findByText(textos.conversas.contexto(TITULO)),
-    ).toBeOnTheScreen();
-    expect(faixa('pendente')).toBeOnTheScreen();
+    await esperarFaixaSemSobre('pendente');
     expect(chips()).toHaveLength(0);
     expect(pedidosDeVinculo(fetch)).toHaveLength(0);
   });
@@ -265,9 +273,7 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
       );
     });
 
-    expect(
-      await screen.findByText(textos.conversas.contexto(TITULO)),
-    ).toBeOnTheScreen();
+    await esperarFaixaSemSobre('aceita');
     expect(chips()).toHaveLength(0);
   });
 
@@ -280,10 +286,7 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
       queryClient.setQueryData(chaves.trampo('t1'), trampo(EU));
     });
 
-    expect(
-      await screen.findByText(textos.conversas.contexto(TITULO)),
-    ).toBeOnTheScreen();
-    expect(faixa('aceita')).toBeOnTheScreen();
+    await esperarFaixaSemSobre('aceita');
     expect(chips()).toHaveLength(0);
     expect(pedidosDeVinculo(fetch)).toHaveLength(0);
   });
@@ -304,8 +307,9 @@ describe('conversa: contexto do trampo (quadro 09)', () => {
     const { fetch } = await abrirCarregada();
 
     expect(contexto()).toBeNull();
+    // O rótulo da faixa começa por "Abrir {título}": nenhum botão assim.
     expect(
-      screen.queryByRole('button', { name: /^Abrir o trampo/ }),
+      screen.queryByRole('button', { name: new RegExp(`^Abrir ${TITULO}`) }),
     ).toBeNull();
     expect(chips()).toHaveLength(0);
     expect(pedidosDeVinculo(fetch)).toHaveLength(0);
@@ -333,5 +337,32 @@ describe('conversa: separador de dia (fuso do aparelho)', () => {
       textos.conversas.diaOntem,
       textos.conversas.diaHoje,
     ]);
+  });
+
+  it('a bolha de um dia anterior mostra só a hora (o dia está no separador), no texto e no rótulo falado', async () => {
+    jest.useFakeTimers({ now: new Date(2026, 9, 21, 15, 0) });
+    await abrirCarregada([
+      mensagem(1, OUTRO, new Date(2026, 9, 19, 10, 5)),
+      mensagem(2, EU, new Date(2026, 9, 20, 9, 7)),
+      mensagem(3, OUTRO, new Date(2026, 9, 21, 14, 2)),
+    ]);
+
+    // Só a hora, sem "19/10" nem "20/10" junto dela.
+    expect(await screen.findByText('10:05')).toBeOnTheScreen();
+    expect(screen.getByText('09:07')).toBeOnTheScreen();
+    expect(screen.getByText('14:02')).toBeOnTheScreen();
+    expect(screen.queryByText(/\d\d\/\d\d \d\d:\d\d/)).toBeNull();
+    // O rótulo falado leva o nome e a hora; o dia o leitor de tela ouve no
+    // separador (cabeçalho) logo antes.
+    expect(
+      screen.getByLabelText(
+        `${textos.conversas.deNome(NOME_DO_OUTRO, '10:05')}. TEXTO-SENTINELA-1`,
+      ),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText(
+        `${textos.conversas.minha('09:07')}. TEXTO-SENTINELA-2`,
+      ),
+    ).toBeOnTheScreen();
   });
 });

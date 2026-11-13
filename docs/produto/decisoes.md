@@ -128,3 +128,14 @@ Decididos pelo dono em 2026-11-13, na revisão da trilha da API da V2b:
 
 61. **Favorito que já existe:** `PUT /favoritos/:contaId` responde 204 quando o favorito já está gravado, mesmo que o vínculo tenha sumido (por exemplo, o trampo que ligava as duas contas foi excluído). O vínculo só é exigido para gravar um favorito novo. A idempotência do CA92 vence.
 62. **Favoritos na exportação:** saem como `[{contaId, criadoEm}]`, no mesmo formato do `GET /favoritos`, e não só os ids. A data é dado da própria conta.
+
+Decididos pelo dono em 2026-11-13, na revisão do app da V2a:
+
+63. **Início do freela como no quadro 04:** saem os atalhos "Publicar trampo" e "Ofertar serviço" e a seção de serviços, cujo "Ver todos" trocava o modo para contratante sem aviso. Publicar fica no "+" do contratante; ofertar serviço, em Perfil › Meus serviços.
+64. **Cartão de demanda (quadro 14) na V2a:** a aba Demandas ganha o cartão próprio, com "Ver candidatos" (ou "Editar" sem candidatos) e "Criada em". A pilha de avatares fica para quando houver dado na API.
+65. **Remoção a pedido do titular:** o roteiro apaga só o comentário (`comentario = null`) e mantém a nota e os destaques; a média de ninguém muda. Remover a avaliação inteira continua possível, como exceção decidida caso a caso.
+66. **Gradiente da V2:** 135°, de `azul.600` a `roxo.600` (tons da escala nova que passam no contraste com texto branco). Substitui o gradiente de 90° de 2026-10-20 nos componentes do app; `#1A7FF6` e `#AF6FF1` continuam as cores-base da marca.
+
+Decidido pelo lead com o designer, dentro da spec:
+
+- **Contexto no chat:** "Sobre: {título}" (`conversas.contexto`), e não "Candidato a {título}", que no chat do freela rotularia o contratante como candidato e não é neutro.

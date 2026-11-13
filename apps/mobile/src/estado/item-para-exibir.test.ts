@@ -99,7 +99,7 @@ const MEU_SERVICO: Servico = {
 };
 
 describe('meuAnuncioParaExibir', () => {
-  it('trampo: rótulo, valor, data e status', () => {
+  it('trampo: rótulo, valor, data, prazo e status', () => {
     expect(meuAnuncioParaExibir(MEU_TRAMPO, CATEGORIAS)).toEqual({
       tipo: 'trampo',
       id: 't9',
@@ -108,8 +108,16 @@ describe('meuAnuncioParaExibir', () => {
       cidade: 'Lavras',
       valorFormatado: 'R$ 120,50',
       dataFormatada: '20/10/2026',
+      prazoFormatado: '31/12/2026',
       status: 'aberto',
     });
+  });
+
+  it('trampo sem prazo: prazoFormatado null (o cartão diz "Sem prazo definido")', () => {
+    expect(
+      meuAnuncioParaExibir({ ...MEU_TRAMPO, prazo: null }, CATEGORIAS)
+        .prazoFormatado,
+    ).toBeNull();
   });
 
   it('trampo em andamento mantém o status', () => {

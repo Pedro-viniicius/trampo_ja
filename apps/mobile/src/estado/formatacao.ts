@@ -97,6 +97,23 @@ export function formatarHoraDaMensagem(iso: string, agora: Date): string {
   return mesmoDia ? hora : `${dia}/${mes} ${hora}`;
 }
 
+/**
+ * Só a hora (`14:32`) de um instante ISO 8601 com hora, no fuso do aparelho.
+ * É a hora da bolha do chat: o dia vem do separador, então a bolha de um dia
+ * anterior não repete a data. Entrada inválida volta como veio.
+ */
+export function formatarHoraCurta(iso: string): string {
+  const instante = INSTANTE_ISO.test(iso)
+    ? new Date(iso)
+    : new Date(Number.NaN);
+  if (Number.isNaN(instante.getTime())) {
+    return iso;
+  }
+  return `${doisDigitos(instante.getHours())}:${doisDigitos(
+    instante.getMinutes(),
+  )}`;
+}
+
 /** Meia-noite (no fuso do aparelho) do dia `deslocamento` dias depois de `data`. */
 function inicioDoDia(data: Date, deslocamento = 0): number {
   return new Date(
