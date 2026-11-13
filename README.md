@@ -213,9 +213,9 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 |---|---|---|
 | `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão); a entrada e o cadastro levam aos documentos legais, e o cadastro mostra o aceite por texto (D27) e o aviso de perfil público |
 | `/politica-de-privacidade`, `/termos-de-uso` | `politica-de-privacidade.tsx`, `termos-de-uso.tsx` (raiz) | documentos legais, com e sem sessão |
-| `/` | `(app)/(abas)/index.tsx` | aba Início, nos dois modos. Freela: saudação, recentes, "Buscar" e "Ver todos" (levam a `/buscar-trampos`) e atalhos. Contratante: destaque "+" para publicar e até 3 demandas abertas com os interessados (CA82) |
+| `/` | `(app)/(abas)/index.tsx` | aba Início, nos dois modos. Freela (D63, como no quadro 04): saudação, "Buscar", destaque de Meus trampos com as candidaturas em análise, trampos recentes com "Ver todos" (os dois levam a `/buscar-trampos`) e o card de Dicas & minicursos (o primeiro conteúdo); sem atalhos de publicar e sem serviços. Contratante: destaque "+" para publicar e até 3 demandas abertas com os interessados (CA82) |
 | `/meus-trampos` | `(app)/(abas)/meus-trampos.tsx` | aba Meus trampos (freela, CA78): as candidaturas nos segmentos Em análise, Confirmados e Encerrados, com Mensagem e Retirar |
-| `/demandas` | `(app)/(abas)/demandas.tsx` | aba Demandas (contratante, CA79): os trampos publicados nos segmentos Abertas, Em andamento e Encerradas, com "+" e "Mais opções" |
+| `/demandas` | `(app)/(abas)/demandas.tsx` | aba Demandas (contratante, CA79): os trampos publicados nos segmentos Abertas, Em andamento e Encerradas, com "+", "Mais opções" e, em cada cartão, "Ver candidatos (n)" ou "Editar" (D64) |
 | `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar (contratante, CA84): busca de serviços ("Buscar freelancers") |
 | `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas (freela) ou Mensagens (contratante): nome do outro, prévia de uma linha e hora, última atividade primeiro |
 | `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil. Freela: cartão de modo, números de candidaturas enviadas e confirmadas, Editar perfil, Meus serviços, Dicas & minicursos, Conta e privacidade e Sair. Contratante (Perfil da empresa): nome, cidade, sobre, cartão de modo, Editar, Conta e privacidade e Sair (CA83) |
@@ -237,7 +237,7 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/candidaturas` | `(app)/candidaturas/index.tsx` | caminho antigo: redireciona para a aba `/meus-trampos` (CA77) |
 | `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
 | `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
-| `/meus-anuncios?tipo=servico` | `(app)/meus-anuncios.tsx` | Meus serviços, com "Mais opções" em cada anúncio. Qualquer outro `tipo` (ausente, `trampo` ou inválido) redireciona para a aba `/demandas` (CA77, CA79), que carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
+| `/meus-anuncios?tipo=servico` | `(app)/meus-anuncios.tsx` | Meus serviços, com "+" para ofertar outro e "Mais opções" em cada anúncio. Qualquer outro `tipo` (ausente, `trampo` ou inválido) redireciona para a aba `/demandas` (CA77, CA79), que carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
 
 As abas dependem do modo (D54, ADR-010), numa `Tabs` só: o freela vê Início, Meus trampos, Conversas e Perfil; o
 contratante vê Início, Demandas, Buscar, Mensagens e Perfil. As rotas do outro modo continuam declaradas e saem da
@@ -259,7 +259,7 @@ Anúncios e candidaturas (L2, D30, D33 a D37):
   `conflito_de_versao` mostra o aviso com "Ver versão atual", que recarrega o anúncio e mantém os campos que a
   pessoa já mexeu (D37); o `trampo_nao_editavel` mostra o aviso e desabilita os campos. Sair com alteração não
   salva pergunta "Descartar alterações?", também no voltar do sistema (botão do Android e gesto do iOS).
-- **Aviso de retorno.** "Alterações salvas.", "Trampo excluído.", "Serviço excluído." e "Este anúncio já não
+- **Aviso de retorno.** "Alterações salvas.", "Demanda excluída.", "Serviço excluído." e "Este anúncio já não
   existe." são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto, em
   memória, por 10 s e só na mesma sessão. Meus anúncios, os dois detalhes, o Início e a Busca mostram o aviso (L4,
   CA63); se a volta cai numa tela que não o mostra, ele se perde.

@@ -51,6 +51,8 @@ export default function RotaDosMeusAnuncios() {
 /** Contêiner comum: cada tipo só chama o próprio hook (uma requisição só). */
 function useAcoes(tipo: TipoDeAnuncio) {
   const router = useRouter();
+  // Toque duplo em "Ver candidatos" ou "Editar" não empilha duas telas.
+  const navegarUmaVez = useNavegarUmaVez();
   const { online } = useConexao();
   const { categorias } = useCategorias();
   return {
@@ -73,12 +75,12 @@ function useAcoes(tipo: TipoDeAnuncio) {
       router.push(tipo === 'trampo' ? '/trampos/novo' : '/servicos/novo'),
     // Cartão de demanda (D64): só a aba Demandas passa estes dois.
     verCandidatos: (item: MeuAnuncioParaExibir) =>
-      router.push({
+      navegarUmaVez({
         pathname: '/candidaturas/[trampoId]',
         params: { trampoId: item.id },
       }),
     editar: (item: MeuAnuncioParaExibir) =>
-      router.push({
+      navegarUmaVez({
         pathname: '/trampos/editar/[id]',
         params: { id: item.id },
       }),
