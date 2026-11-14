@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Tabs } from 'expo-router';
 import { renderRouter } from 'expo-router/testing-library';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import {
@@ -82,13 +82,15 @@ describe('CA76: barra de abas flutuante dos dois modos', () => {
     ['freela', FREELA],
     ['contratante', CONTRATANTE],
   ] as const)(
-    '%s: cada aba tem nome acessível e rótulo de uma linha',
+    '%s: cada aba tem nome acessível e rótulo de uma linha (reticências só como último recurso)',
     async (_modo, itens) => {
       await renderRouter(abas(itens), { initialUrl: '/' });
       for (const [, titulo] of itens) {
         expect(screen.getByLabelText(titulo)).toBeOnTheScreen();
         const rotulo = screen.getByText(titulo);
         expect(rotulo.props.numberOfLines).toBe(1);
+        expect(rotulo.props.adjustsFontSizeToFit).toBeUndefined();
+        expect(rotulo.props.allowFontScaling).not.toBe(false);
       }
       expect(screen.queryByLabelText(textos.abas.publicar)).toBeNull();
     },
@@ -101,6 +103,50 @@ describe('CA76: barra de abas flutuante dos dois modos', () => {
       ALTURA_DA_BARRA_DE_ABAS - 2 * item.marginVertical,
     ).toBeGreaterThanOrEqual(toqueMinimo);
     expect(opcoesDaBarraDeAbas.tabBarStyle.height).toBe(72);
+    expect(item.minWidth).toBeGreaterThanOrEqual(toqueMinimo);
+  });
+
+  // F4: a aba parte da largura do rótulo e divide a sobra. Regra do Yoga
+  // (`Node::processFlexBasis`, `Node.cpp` do RN 0.86.3): `flexBasis` 'auto'
+  // ou indefinido conta como base não definida, e então `flex > 0` impõe
+  // base 0 (todas as abas iguais, o rótulo longo corta). O bottom-tabs monta
+  // o item com `[{ flex: 1 }, tabBarItemStyle]`, então o estilo renderizado
+  // precisa de `flex` indefinido ou <= 0 para a base ficar auto.
+  it.each([
+    ['freela', FREELA],
+    ['contratante', CONTRATANTE],
+  ] as const)(
+    'F4, %s: o item renderizado tem base auto (flex não força base 0)',
+    async (_modo, itens) => {
+      await renderRouter(abas(itens), { initialUrl: '/' });
+      for (const [, titulo] of itens) {
+        const botao = screen.getByLabelText(titulo);
+        const item = botao.parent;
+        const estilo = StyleSheet.flatten(item?.props.style) ?? {};
+        expect(estilo.overflow).toBe('hidden');
+        expect(estilo.flex === undefined || estilo.flex <= 0).toBe(true);
+        expect(estilo.flexBasis ?? 'auto').toBe('auto');
+        expect(estilo).toMatchObject({ flexGrow: 1, flexShrink: 1 });
+        expect(estilo.width).toBeUndefined();
+        expect(estilo.maxWidth).toBeUndefined();
+        // R1: com `flex: 0` o botão não estica; o item tem a altura dele
+        // (centralizado na barra), então a pílula cobre o item inteiro.
+        expect(estilo.alignSelf).toBe('center');
+        expect(estilo.minHeight).toBeGreaterThanOrEqual(toqueMinimo);
+        expect(estilo.minWidth).toBeGreaterThanOrEqual(toqueMinimo);
+      }
+    },
+  );
+
+  it('F4: rótulo em sobretítulo (12, o mínimo para aba), com a fonte do sistema', async () => {
+    const opcoes = opcoesDaAba('meus-trampos', textos.abas.meusTrampos);
+    await render(
+      <View>{opcoes.tabBarLabel({ color: '#0F6AD8', focused: true })}</View>,
+    );
+    const rotulo = screen.getByText(textos.abas.meusTrampos);
+    expect(rotulo).toHaveStyle({ fontSize: 12 });
+    expect(rotulo.props.numberOfLines).toBe(1);
+    expect(rotulo.props.allowFontScaling).not.toBe(false);
   });
 
   it('a barra sobe a margem segura e o conteúdo tem folga para ela', () => {

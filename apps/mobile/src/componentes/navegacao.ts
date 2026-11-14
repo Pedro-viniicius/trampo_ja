@@ -78,7 +78,31 @@ export function opcoesDaBarraDeAbasCom(margens: { bottom: number }) {
       ...sombra.lg,
     },
     // A pílula: o item recorta o fundo ativo com raio 24.
+    // Largura pelo rótulo (F4, decisão 74): cada aba parte da largura natural
+    // do seu conteúdo e a sobra da barra é dividida igualmente (abas curtas,
+    // como "Início" e "Perfil", cedem espaço às longas). Assim "Meus trampos"
+    // e "Mensagens" cabem inteiros em 360 com fonte 1,0 e em 411 com fonte
+    // 1,3; reticências só quando nem assim cabe.
+    //
+    // Por que `flex: 0`: o bottom-tabs monta o item com
+    // `[{ flex: 1 }, tabBarItemStyle]`. No Yoga (`Node::processFlexBasis`,
+    // `Node.cpp` do RN 0.86.3), `flexBasis: 'auto'` conta como base não
+    // definida, e aí `flex > 0` impõe base 0: todas as abas ficavam iguais.
+    // Com `flex: 0`, a base fica auto; `flexGrow`/`flexShrink` explícitos
+    // valem por cima do `flex` (`resolveFlexGrow`/`resolveFlexShrink`).
+    //
+    // Efeito colateral: o item repassa o `flex` (0) ao botão interno, que
+    // deixa de esticar na vertical e fica com a altura do conteúdo (ícone +
+    // rótulo + 10: 52 com fonte 1,0). Por isso o item não estica na barra
+    // (`alignSelf: 'center'`): tem a altura do botão, a pílula ocupa o item
+    // inteiro, fica centralizada nos 72 e nunca tem menos de 48.
     tabBarItemStyle: {
+      flex: 0,
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 'auto',
+      alignSelf: 'center',
+      minWidth: toqueMinimo,
       minHeight: toqueMinimo,
       marginVertical: espaco.s,
       marginHorizontal: 2,
@@ -104,8 +128,10 @@ const corOuPadrao = (cor: ColorValue): string =>
 
 /**
  * `options` de uma `Tabs.Screen`: título já traduzido, nome falado e ícone
- * Feather 24. O rótulo fica em uma linha (corta com reticências em fonte
- * grande; o nome falado continua inteiro) e em negrito na aba ativa.
+ * Feather 24. O rótulo fica em uma linha; a aba ganha a largura do rótulo
+ * (`tabBarItemStyle`, F4), então só corta com reticências quando nem assim
+ * cabe (o nome falado continua inteiro). Fica em negrito na aba ativa e
+ * respeita a fonte do sistema.
  */
 export function opcoesDaAba(rota: RotaDeAba, titulo: string) {
   return {
@@ -115,6 +141,9 @@ export function opcoesDaAba(rota: RotaDeAba, titulo: string) {
       createElement(
         Text,
         {
+          // Último recurso (R2): dentro dos CAs a aba tem a largura natural do
+          // rótulo e não corta; com fonte maior que isso, reticências em vez
+          // de uma segunda linha cortada pela barra de altura fixa.
           numberOfLines: 1,
           ellipsizeMode: 'tail',
           style: [
@@ -124,6 +153,7 @@ export function opcoesDaAba(rota: RotaDeAba, titulo: string) {
               textTransform: 'none',
               letterSpacing: 0,
               marginTop: 2,
+              textAlign: 'center',
             },
           ],
         },
