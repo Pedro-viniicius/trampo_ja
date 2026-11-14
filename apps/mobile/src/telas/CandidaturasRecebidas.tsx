@@ -151,6 +151,7 @@ export function CandidaturasRecebidas({
                   <CartaoDeCandidatura
                     key={item.id}
                     nome={item.nome}
+                    nota={item.nota}
                     valorFormatado={item.valorPropostoFormatado}
                     mensagem={item.mensagem}
                     dataFormatada={item.dataFormatada}

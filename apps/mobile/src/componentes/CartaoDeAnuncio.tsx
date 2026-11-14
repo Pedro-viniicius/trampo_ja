@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { texto as estiloDeTexto } from '../tema/texto';
 import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
+import { Estrelas, formatarNota } from './Estrelas';
 import { estiloDeFoco, useFoco, useReduzirMovimento } from './utilitarios';
 
 export type PropsDoCartaoDeAnuncio = {
@@ -23,6 +24,8 @@ export type PropsDoCartaoDeAnuncio = {
   prazoFormatado?: string | null;
   /** Nome de quem publicou, quando a lista trouxer. */
   autor?: string | null;
+  /** V2b (CA97): nota de quem publicou, ao lado do `autor`; sem os dois, não aparece. */
+  nota?: { media: number; total: number } | null;
   onPress: () => void;
 };
 
@@ -39,6 +42,7 @@ export function CartaoDeAnuncio({
   dataFormatada,
   prazoFormatado,
   autor,
+  nota,
   onPress,
 }: PropsDoCartaoDeAnuncio) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
@@ -57,6 +61,9 @@ export function CartaoDeAnuncio({
     categoria,
     cidade,
     autor,
+    autor && nota && nota.total > 0
+      ? `${textos.gerais.nota(formatarNota(nota.media))}, ${textos.avaliacoes.recebidas(nota.total)}`
+      : null,
     textoDoPrazo,
     valorFormatado,
     textos.gerais.publicadoEm(dataFormatada),
@@ -127,6 +134,14 @@ export function CartaoDeAnuncio({
         >
           {autor}
         </Text>
+      ) : null}
+      {autor && nota && nota.total > 0 ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Estrelas media={nota.media} total={nota.total} />
+        </View>
       ) : null}
       <View
         style={{ flexDirection: 'row', alignItems: 'center', gap: espaco.xs }}

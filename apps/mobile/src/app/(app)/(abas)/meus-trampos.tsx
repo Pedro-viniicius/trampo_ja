@@ -1,10 +1,13 @@
-import { useRouter } from 'expo-router';
+import { useIsFocused, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../api/erros';
 import type { MinhaCandidatura } from '../../../api/tipos';
+import { notaDada } from '../../../estado/avaliacoes-para-exibir';
+import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
 import { useConversarPorConta } from '../../../estado/consultas/abrir-conversa';
 import { useTramposPorIds } from '../../../estado/consultas/anuncios';
+import { useAvaliacoesFeitas } from '../../../estado/consultas/avaliacoes';
 import {
   useMinhasCandidaturas,
   useRetirarCandidatura,
@@ -17,6 +20,7 @@ import {
   formatarData,
   formatarDataHora,
 } from '../../../estado/formatacao';
+import { useNavegarUmaVez } from '../../../estado/navegar-uma-vez';
 import {
   type MinhaCandidaturaParaExibir,
   MinhasCandidaturas,
@@ -37,10 +41,15 @@ function maisRecentesPrimeiro(
  * `/candidaturas/minhas` nos segmentos Em análise, Confirmados e Encerrados.
  * O status, o prazo e o autor de cada trampo vêm de `GET /trampos/:id` e o
  * nome do autor de `GET /perfis/:id`, os dois com cache. Enquanto o trampo
- * não chega, a candidatura aceita fica em Confirmados.
+ * não chega, a candidatura aceita fica em Confirmados. "Avaliar" (CA96) só
+ * vale para a candidatura aceita de trampo encerrado, e só depois que
+ * `GET /avaliacoes/feitas` (um pedido para a lista) cobriu os trampos: antes
+ * disso a tela não sabe se a conta já avaliou.
  */
 export default function RotaDeMeusTrampos() {
   const router = useRouter();
+  // Toque duplo em "Avaliar" não empilha duas telas.
+  const navegarUmaVez = useNavegarUmaVez();
   const { online } = useConexao();
   const consulta = useMinhasCandidaturas();
   const retirar = useRetirarCandidatura();
@@ -78,6 +87,18 @@ export default function RotaDeMeusTrampos() {
     }),
   );
 
+  // CA96: só as aceitas de trampo encerrado podem ser avaliadas.
+  const avaliaveis = ordenadas
+    .filter(
+      (c) =>
+        c.status === 'aceita' &&
+        trampos.get(c.trampoId)?.status === 'encerrado',
+    )
+    .map((c) => c.trampoId);
+  const avaliacoes = useAvaliacoesFeitas(avaliaveis);
+  // O aviso que Avaliar deixou ao voltar ("Avaliação enviada.").
+  const avisoDeRetorno = useAvisoDeRetorno(useIsFocused());
+
   const lista = estadoDeConsulta(
     {
       dados: consulta.candidaturas === null ? null : ordenadas,
@@ -104,6 +125,11 @@ export default function RotaDeMeusTrampos() {
             trampo === null || trampo.prazo === null
               ? null
               : formatarData(trampo.prazo),
+          notaDada: notaDada(
+            avaliaveis.includes(c.trampoId),
+            avaliacoes.feitas.get(c.trampoId),
+            avaliacoes.completa,
+          ),
         };
       }),
   );
@@ -174,14 +200,23 @@ export default function RotaDeMeusTrampos() {
       retirando={retirando}
       aviso={aviso}
       onFecharAviso={() => setAviso(undefined)}
-      toast={toast}
+      toast={toast ?? avisoDeRetorno.texto}
       onRetirar={aoRetirar}
-      onFecharToast={() => setToast(null)}
+      onFecharToast={() => {
+        setToast(null);
+        avisoDeRetorno.limpar();
+      }}
       onAbrirTrampo={(trampoId) =>
         router.push({ pathname: '/trampos/[id]', params: { id: trampoId } })
       }
       onBuscarTrampos={() => router.push('/buscar-trampos')}
       onMensagem={aoMandarMensagem}
+      onAvaliar={(item) =>
+        navegarUmaVez({
+          pathname: '/avaliar/[trampoId]',
+          params: { trampoId: item.trampoId, papel: 'contratante' },
+        })
+      }
     />
   );
 }

@@ -159,6 +159,11 @@ const CONFLITOS: ReadonlyMap<string, ChaveDeErro> = new Map<
   ['conflito_de_versao', 'conflito_de_versao'],
   ['trampo_nao_editavel', 'trampo_nao_editavel'],
   ['conversa_consigo_mesmo', 'conversa_consigo_mesmo'],
+  // V2b: avaliações e equipe favorita.
+  ['avaliacao_ja_feita', 'avaliacao_ja_feita'],
+  ['trampo_nao_encerrado', 'trampo_nao_encerrado'],
+  ['favorito_invalido', 'favorito_invalido'],
+  ['limite_de_favoritos', 'limite_de_favoritos'],
   // Exportação acima do limite (CA48, D41): o texto orienta pedir por e-mail.
   ['exportacao_grande', 'exportacao_grande'],
 ]);
@@ -194,7 +199,9 @@ const PROIBIDOS: ReadonlyMap<string, ChaveDeErro> = new Map<
  * - 409 com código conhecido (`email_em_uso`, `perfil_incompleto`,
  *   `autor_nao_pode_candidatar`, `candidatura_duplicada`, `trampo_nao_aberto`,
  *   `candidatura_nao_pendente`, `conflito_de_versao`,
- *   `trampo_nao_editavel`, `conversa_consigo_mesmo`, `exportacao_grande`)
+ *   `trampo_nao_editavel`, `conversa_consigo_mesmo`, `exportacao_grande`,
+ *   `avaliacao_ja_feita`, `trampo_nao_encerrado`, `favorito_invalido`,
+ *   `limite_de_favoritos`)
  *   -> a chave de mesmo nome em `geral`; outro 409 -> `erro_servidor`.
  * - 403 `sem_vinculo` (abrir conversa sem candidatura nem contratação) ->
  *   `sem_vinculo`; 403 `senha_incorreta` (excluir a conta, exportar os

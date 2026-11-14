@@ -52,6 +52,7 @@ export function MinhasCandidaturas({
   segmentada = false,
   segmentoInicial = 'analise',
   onMensagem,
+  onAvaliar,
 }: PropsDasMinhasCandidaturas) {
   const [pendente, setPendente] = useState<MinhaCandidaturaParaExibir | null>(
     null,
@@ -159,6 +160,15 @@ export function MinhasCandidaturas({
                     status={item.status}
                     onPress={() => onAbrirTrampo(item.trampoId)}
                     onMensagem={onMensagem ? () => onMensagem(item) : undefined}
+                    notaDada={
+                      // CA96: só em Encerrados, na candidatura aceita.
+                      segmento === 'encerrados' &&
+                      item.status === 'aceita' &&
+                      item.statusDoTrampo === 'encerrado'
+                        ? item.notaDada
+                        : undefined
+                    }
+                    onAvaliar={onAvaliar ? () => onAvaliar(item) : undefined}
                     onRetirar={
                       item.podeRetirar && onRetirar
                         ? () => {

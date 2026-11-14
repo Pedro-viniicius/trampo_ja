@@ -1,9 +1,12 @@
 import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
+import { notaDoResumo } from '../../../estado/avaliacoes-para-exibir';
 import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
+import { useResumosDeAvaliacoes } from '../../../estado/consultas/avaliacoes';
 import { useBusca, useCategorias } from '../../../estado/consultas/busca';
 import type { FiltrosDeConsulta } from '../../../estado/consultas/chaves';
+import { usePerfisPublicos } from '../../../estado/consultas/perfil';
 import { mensagemDoErro } from '../../../estado/erros';
 import { paraItemParaExibir } from '../../../estado/item-para-exibir';
 import { Buscar } from '../../../telas/Buscar';
@@ -94,6 +97,13 @@ export function BuscaDeUmTipo({
   }
 
   const busca = useBusca(enviados ?? {}, { habilitado: enviados !== null });
+  // CA97: a nota de quem publicou cada item da lista, num pedido só (o autor
+  // do serviço é avaliado como freela; o do trampo, como contratante). O
+  // cartão só mostra a nota ao lado do nome do autor, que vem de
+  // `GET /perfis/:id` (com cache; perfil 404 vira `null`).
+  const autorIds = busca.itens.map((item) => item.autorId);
+  const { resumos } = useResumosDeAvaliacoes(autorIds);
+  const autores = usePerfisPublicos(autorIds);
 
   function enviar(novo: Formulario) {
     setFormulario(novo);
@@ -154,7 +164,17 @@ export function BuscaDeUmTipo({
     if (busca.itens.length > 0) {
       return {
         situacao: 'ok',
-        dados: busca.itens.map((item) => paraItemParaExibir(item, categorias)),
+        dados: busca.itens.map((item) => ({
+          ...paraItemParaExibir(item, categorias),
+          // Sem resposta ainda: sem o campo (o cartão de anúncio, sem autor).
+          ...(autores.has(item.autorId) && {
+            autor: autores.get(item.autorId)?.nome ?? null,
+          }),
+          nota: notaDoResumo(
+            resumos.get(item.autorId),
+            item.tipo === 'servico' ? 'freela' : 'contratante',
+          ),
+        })),
       };
     }
     if (busca.erro) {

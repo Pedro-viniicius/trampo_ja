@@ -17,13 +17,20 @@ export type ChaveDeAvisoDeRetorno =
   | 'alteracoes_salvas'
   | 'trampo_excluido'
   | 'servico_excluido'
-  | 'ja_nao_existe';
+  | 'ja_nao_existe'
+  | 'avaliacao_enviada'
+  | 'avaliacao_enviada_sem_favorito';
 
 const TEXTO_DO_AVISO: Readonly<Record<ChaveDeAvisoDeRetorno, string>> = {
   alteracoes_salvas: textos.anuncio.alteracoesSalvas,
   trampo_excluido: textos.anuncio.trampoExcluido,
   servico_excluido: textos.anuncio.servicoExcluido,
   ja_nao_existe: textos.anuncio.jaNaoExiste,
+  // V2b (CA96, CA98): a avaliação foi enviada; ou foi, mas a equipe favorita
+  // não recebeu a pessoa. Nesse caso o aviso diz que a avaliação foi (o cartão
+  // "Avaliado com N ★" a confirma), para ninguém tentar reenviar.
+  avaliacao_enviada: textos.avaliar.enviada,
+  avaliacao_enviada_sem_favorito: textos.avaliar.enviadaSemFavorito,
 };
 
 interface AvisoPendente {

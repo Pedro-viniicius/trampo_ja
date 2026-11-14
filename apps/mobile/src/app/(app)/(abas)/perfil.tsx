@@ -1,6 +1,9 @@
 import { useRouter } from 'expo-router';
 import { AccessibilityInfo } from 'react-native';
+import { notaDoResumo } from '../../../estado/avaliacoes-para-exibir';
 import { useConexao } from '../../../estado/conexao';
+import { useMeusTrampos } from '../../../estado/consultas/anuncios';
+import { useResumosDeAvaliacoes } from '../../../estado/consultas/avaliacoes';
 import { useMinhasCandidaturas } from '../../../estado/consultas/candidaturas';
 import { useSair } from '../../../estado/consultas/conta';
 import { useMeuPerfil } from '../../../estado/consultas/perfil';
@@ -95,12 +98,17 @@ export default function RotaDoMeuPerfil() {
 /**
  * Perfil do freela: cartão de modo, os números de `/candidaturas/minhas` (a
  * mesma chave de cache de Meus trampos), Editar perfil, Meus serviços, Dicas
- * & minicursos (CA81), Conta e privacidade e Sair.
+ * & minicursos (CA81), Conta e privacidade e Sair. A nota (CA97) é a da própria
+ * conta como freela: o app não conhece o id dela (ADR-003), então vem do
+ * `freelancerId` das candidaturas (quem foi avaliado como freela se candidatou).
  */
 function PerfilDoFreela() {
   const router = useRouter();
   const perfil = useMeuPerfilParaExibir('contratante');
   const { candidaturas } = useMinhasCandidaturas();
+  const meuId = candidaturas?.[0]?.freelancerId ?? '';
+  const { resumos } = useResumosDeAvaliacoes([meuId]);
+  const nota = notaDoResumo(resumos.get(meuId), 'freela');
   const contagens: ContagensDoPerfil | null =
     candidaturas === null
       ? null
@@ -114,6 +122,13 @@ function PerfilDoFreela() {
       proprio
       {...perfil}
       contagens={contagens}
+      nota={nota}
+      onVerAvaliacoes={() =>
+        router.push({
+          pathname: '/avaliacoes/[contaId]',
+          params: { contaId: meuId, papel: 'freela' },
+        })
+      }
       onMeusServicos={() =>
         router.push({
           pathname: '/meus-anuncios',
@@ -125,8 +140,33 @@ function PerfilDoFreela() {
   );
 }
 
-/** Perfil da empresa (contratante): nome, cidade, sobre e as ações de conta. */
+/**
+ * Perfil da empresa (contratante): nome, cidade, sobre, a nota e as ações de
+ * conta. O id da conta vem do `autorId` dos trampos dela (`/trampos/meus`, a
+ * mesma chave de cache de Demandas e do Início); quem nunca publicou não foi
+ * avaliado como contratante.
+ */
 function PerfilDoContratante() {
+  const router = useRouter();
   const perfil = useMeuPerfilParaExibir('freela');
-  return <PerfilDaEmpresa {...perfil} />;
+  const { trampos } = useMeusTrampos();
+  const meuId = trampos?.[0]?.autorId ?? '';
+  const { resumos } = useResumosDeAvaliacoes([meuId]);
+  const nota = notaDoResumo(resumos.get(meuId), 'contratante');
+  return (
+    <PerfilDaEmpresa
+      {...perfil}
+      nota={nota}
+      // Sem trampos não há id (nem avaliação): a linha não aparece.
+      onVerAvaliacoes={
+        meuId === ''
+          ? undefined
+          : () =>
+              router.push({
+                pathname: '/avaliacoes/[contaId]',
+                params: { contaId: meuId, papel: 'contratante' },
+              })
+      }
+    />
+  );
 }

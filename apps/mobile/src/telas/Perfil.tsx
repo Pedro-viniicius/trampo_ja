@@ -8,7 +8,9 @@ import {
   Botao,
   CartaoDeModo,
   DialogoDeConfirmacao,
+  Estrelas,
   GrupoDeConfiguracao,
+  Interruptor,
   LinhaDeConfiguracao,
 } from '../componentes';
 import { pontosDoGradiente } from '../componentes/utilitarios';
@@ -22,7 +24,11 @@ import {
   Paragrafo,
   Rolavel,
 } from './base';
-import type { ContagensDoPerfil, PropsDoPerfil } from './tipos';
+import type {
+  ContagensDoPerfil,
+  FavoritoDoPerfil,
+  PropsDoPerfil,
+} from './tipos';
 
 export function Perfil({
   proprio,
@@ -39,6 +45,9 @@ export function Perfil({
   onTrocarModo,
   onDicas,
   contagens,
+  nota,
+  onVerAvaliacoes,
+  favorito,
 }: PropsDoPerfil) {
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
 
@@ -97,7 +106,21 @@ export function Perfil({
                   {perfil.cidade}
                 </Text>
               </View>
+              {nota && nota.total > 0 ? (
+                <Estrelas media={nota.media} total={nota.total} />
+              ) : null}
+              {nota && nota.total > 0 && onVerAvaliacoes ? (
+                <Botao
+                  texto={textos.avaliacoes.recebidasTitulo}
+                  variante="texto"
+                  larguraCheia={false}
+                  onPress={onVerAvaliacoes}
+                />
+              ) : null}
             </View>
+            {!proprio && favorito ? (
+              <Favoritar nome={perfil.nome} favorito={favorito} />
+            ) : null}
             {proprio && onTrocarModo ? (
               <CartaoDeModo modoAtual="freela" onTrocar={onTrocarModo} />
             ) : null}
@@ -227,6 +250,41 @@ export function Perfil({
         onCancelar={() => setConfirmandoSaida(false)}
       />
     </Rolavel>
+  );
+}
+
+/** CA98: marca e desmarca a pessoa na equipe favorita (só no perfil de outra pessoa). */
+function Favoritar({
+  nome,
+  favorito,
+}: {
+  nome: string;
+  favorito: FavoritoDoPerfil;
+}) {
+  return (
+    <View
+      style={[
+        {
+          gap: espaco.xs,
+          paddingVertical: espaco.xs,
+          paddingHorizontal: espaco.m,
+          borderRadius: raio.card,
+          backgroundColor: favorito.ativo ? cores.roxo[50] : cores.superficie,
+        },
+        sombra.sm,
+      ]}
+    >
+      <Interruptor
+        rotulo={textos.favoritos.favoritar(nome)}
+        descricao={favorito.ativo ? textos.favoritos.favoritado : undefined}
+        valor={favorito.ativo}
+        desabilitado={favorito.salvando}
+        onMudar={(valor) => {
+          if (!favorito.salvando) favorito.onAlternar(valor);
+        }}
+      />
+      {favorito.erro ? <Aviso variante="erro" texto={favorito.erro} /> : null}
+    </View>
   );
 }
 

@@ -555,9 +555,14 @@ export const textos = {
     enviando: 'Enviando…',
     escolhaNota: 'Escolha uma nota',
     enviada: 'Avaliação enviada.',
+    enviadaSemFavorito:
+      'Avaliação enviada, mas não foi possível favoritar. Você pode favoritar no perfil.',
     jaAvaliado: 'Você já avaliou este trampo',
+    semProfissional: 'Esta demanda foi encerrada sem profissional contratado.',
     avaliar: 'Avaliar',
     avaliarProfissional: 'Avaliar profissional',
+    /** Rótulo falado dos botões "Avaliar" dos cartões. */
+    avaliarDe: (titulo: string): string => `Avaliar ${titulo}`,
     avaliadoCom: (n: number): string => `Avaliado com ${n} ★`,
     avaliadoComFalado: (n: number): string =>
       `Avaliado com ${n} ${plural(n, 'estrela', 'estrelas')}`,
@@ -572,12 +577,15 @@ export const textos = {
     semAvaliacoes: 'Ainda sem avaliações',
     semAvaliacoesTexto: 'As avaliações aparecem aqui depois dos trampos.',
     recebidasTitulo: 'Avaliações recebidas',
+    destaquesRotulo: 'Destaques',
+    comentarioDe: (autor: string): string => `Comentário de ${autor}`,
   },
   favoritos: {
     favoritar: (nome: string): string => `Favoritar ${nome}`,
-    desfavoritar: (nome: string): string => `Tirar ${nome} da equipe favorita`,
     favoritado: 'Na sua equipe favorita.',
     erro: 'Não foi possível atualizar a equipe favorita. Tente de novo.',
+    /** 404 do `PUT /favoritos`: sem vínculo com a pessoa. */
+    semVinculo: 'Só dá para favoritar quem já trabalhou ou conversou com você.',
   },
   minhasCandidaturas: {
     titulo: 'Minhas candidaturas',
@@ -835,9 +843,6 @@ export const textos = {
     favorito_invalido: 'Não dá para favoritar você mesmo.',
     limite_de_favoritos:
       'Sua equipe favorita chegou a 200 pessoas. Tire alguém para adicionar outra.',
-    nota_obrigatoria: 'Escolha uma nota de 1 a 5 estrelas.',
-    comentario_tamanho:
-      'O comentário pode ter até 500 caracteres. Encurte um pouco.',
   },
 } as const;
 

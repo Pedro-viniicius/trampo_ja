@@ -4,6 +4,10 @@ export {
   type ItemDeAba,
   type PropsDasAbas,
 } from './Abas';
+export {
+  AcaoDeAvaliar,
+  type PropsDaAcaoDeAvaliar,
+} from './AcaoDeAvaliar';
 export { Avatar, iniciais, type PropsDoAvatar } from './Avatar';
 export { Aviso, type PropsDoAviso, type VarianteDoAviso } from './Aviso';
 export {

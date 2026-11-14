@@ -1,9 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../api/erros';
+import { notaDoResumo } from '../../../estado/avaliacoes-para-exibir';
 import { useConexao } from '../../../estado/conexao';
 import { useConversarPorConta } from '../../../estado/consultas/abrir-conversa';
 import { useTrampo } from '../../../estado/consultas/anuncios';
+import { useResumosDeAvaliacoes } from '../../../estado/consultas/avaliacoes';
 import {
   useAceitarCandidatura,
   useCandidaturasRecebidas,
@@ -49,6 +51,10 @@ export default function RotaDasCandidaturasRecebidas() {
   const consultaDoTrampo = useTrampo(idDoTrampo);
   const consultaDaLista = useCandidaturasRecebidas(idDoTrampo);
   const perfis = usePerfisPublicos(
+    (consultaDaLista.candidaturas ?? []).map((c) => c.freelancerId),
+  );
+  // CA97: a nota de cada candidato (como freela), num pedido só.
+  const { resumos } = useResumosDeAvaliacoes(
     (consultaDaLista.candidaturas ?? []).map((c) => c.freelancerId),
   );
   const aceitar = useAceitarCandidatura(idDoTrampo);
@@ -109,6 +115,10 @@ export default function RotaDasCandidaturasRecebidas() {
                 dataFormatada: formatarDataHora(candidatura.criadaEm),
                 status: candidatura.status,
                 podeAceitar: aberto && candidatura.status === 'pendente',
+                nota: notaDoResumo(
+                  resumos.get(candidatura.freelancerId),
+                  'freela',
+                ),
               }),
             ),
         );
@@ -183,6 +193,7 @@ export default function RotaDasCandidaturasRecebidas() {
       onConversar={conversa.conversar}
       onAceitar={aoAceitar}
       onAbrirPerfil={(contaId) =>
+        // Sem `papel`: o perfil público assume freela, e a rota só leva o id.
         router.push({ pathname: '/perfis/[contaId]', params: { contaId } })
       }
       onFecharToast={() => setToast(null)}

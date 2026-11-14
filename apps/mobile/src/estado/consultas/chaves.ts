@@ -1,4 +1,4 @@
-import type { FiltrosDaBusca } from '../../api/tipos';
+import type { FiltrosDaBusca, PapelDoAvaliado } from '../../api/tipos';
 
 /** Filtros que identificam uma busca: sem a paginação, que é do cursor. */
 export type FiltrosDeConsulta = Omit<FiltrosDaBusca, 'antesDe' | 'limite'>;
@@ -53,4 +53,26 @@ export const chaves = {
    * `useMensagens` (o único que escreve nesta chave).
    */
   mensagens: (conversaId: string) => ['mensagens', conversaId] as const,
+  /** `GET /avaliacoes` de uma conta num papel, paginada por cursor. */
+  avaliacoesRecebidas: (contaId: string, papel: PapelDoAvaliado) =>
+    ['avaliacoesRecebidas', contaId, papel] as const,
+  /** Prefixo de toda `avaliacoesRecebidas(...)`, de qualquer conta. */
+  todasAsAvaliacoesRecebidas: () => ['avaliacoesRecebidas'] as const,
+  /**
+   * `GET /avaliacoes/resumos` da lista inteira de contas, na ordem pedida
+   * (até 50 por requisição, em lotes dentro da mesma consulta). A chave é uma
+   * só para a lista: quando ela cresce, a chave muda e todos os lotes são
+   * refeitos.
+   */
+  resumosDeAvaliacoes: (contaIds: readonly string[]) =>
+    ['resumosDeAvaliacoes', contaIds] as const,
+  /** Prefixo de todo `resumosDeAvaliacoes(...)`. */
+  todosOsResumosDeAvaliacoes: () => ['resumosDeAvaliacoes'] as const,
+  /** `GET /avaliacoes/feitas` da lista inteira de trampos (lotes de até 50 na mesma chave). */
+  avaliacoesFeitas: (trampoIds: readonly string[]) =>
+    ['avaliacoesFeitas', trampoIds] as const,
+  /** Prefixo de toda `avaliacoesFeitas(...)`. */
+  todasAsAvaliacoesFeitas: () => ['avaliacoesFeitas'] as const,
+  /** `GET /favoritos`: a equipe favorita da conta da sessão. */
+  favoritos: () => ['favoritos'] as const,
 };

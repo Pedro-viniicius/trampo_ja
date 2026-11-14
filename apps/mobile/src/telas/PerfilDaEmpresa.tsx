@@ -6,6 +6,7 @@ import {
   Aviso,
   CartaoDeModo,
   DialogoDeConfirmacao,
+  Estrelas,
   GrupoDeConfiguracao,
   LinhaDeConfiguracao,
 } from '../componentes';
@@ -28,6 +29,8 @@ export function PerfilDaEmpresa({
   onEditar,
   onContaEPrivacidade,
   onSair,
+  nota,
+  onVerAvaliacoes,
 }: PropsDoPerfilDaEmpresa) {
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
   return (
@@ -96,6 +99,9 @@ export function PerfilDaEmpresa({
                       {perfil.cidade}
                     </Text>
                   </View>
+                  {nota && nota.total > 0 ? (
+                    <Estrelas media={nota.media} total={nota.total} />
+                  ) : null}
                 </View>
               </View>
               <View style={{ gap: espaco.xs }}>
@@ -113,6 +119,19 @@ export function PerfilDaEmpresa({
             </View>
             <CartaoDeModo modoAtual="contratante" onTrocar={onTrocarModo} />
             <GrupoDeConfiguracao>
+              {onVerAvaliacoes ? (
+                <LinhaDeConfiguracao
+                  titulo={textos.avaliacoes.recebidasTitulo}
+                  descricao={
+                    nota && nota.total > 0
+                      ? textos.avaliacoes.recebidas(nota.total)
+                      : textos.avaliacoes.semAvaliacoes
+                  }
+                  icone="star"
+                  tom="alerta"
+                  onPress={onVerAvaliacoes}
+                />
+              ) : null}
               <LinhaDeConfiguracao
                 titulo={textos.perfil.editar}
                 descricao={textos.perfil.infoEmpresaTexto}

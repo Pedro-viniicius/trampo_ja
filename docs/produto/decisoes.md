@@ -139,3 +139,12 @@ Decididos pelo dono em 2026-11-13, na revisão do app da V2a:
 Decidido pelo lead com o designer, dentro da spec:
 
 - **Contexto no chat:** "Sobre: {título}" (`conversas.contexto`), e não "Candidato a {título}", que no chat do freela rotularia o contratante como candidato e não é neutro.
+
+Decididos pelo lead e pelo dono em 2026-11-13, na rodada 1 da revisão do app da V2b:
+
+67. **Id da própria conta no app (desvio do ADR-003):** a API não devolve o id da conta da sessão, então a nota própria usa o `freelancerId` de `/candidaturas/minhas` (Perfil do freela) e o `autorId` de `/trampos/meus` (Perfil da empresa). Sem item na lista, não há id, pedido de resumo nem linha "Avaliações recebidas".
+68. **"Recontratar"** (equipe favorita no Início do contratante) abre a conversa com a pessoa. Se a API recusar por falta de vínculo, o aviso diz o motivo e não navega.
+69. **Aviso `avaliacao_enviada_sem_favorito`:** se a avaliação foi enviada e só o favorito falhou, a tela de origem diz "Avaliação enviada, mas não foi possível favoritar. Você pode favoritar no perfil.", para ninguém reenviar a avaliação.
+70. **Trampo encerrado sem candidatura aceita (R1):** a lista ainda oferece "Avaliar" (o app não sabe, sem campo novo na API, se alguma candidatura foi aceita). A tela Avaliar mostra "Esta demanda foi encerrada sem profissional contratado." com Voltar, em vez de "não encontrado". Esconder o botão exigiria um campo novo na API e fica fora.
+71. **Favoritar só no modo contratante (R4):** o interruptor "Favoritar" do perfil público só aparece no modo contratante e no perfil de outra pessoa (o autor que abre o próprio perfil pelo serviço não o vê; enquanto a lista dos meus serviços não chega, ou se ela falha, o perfil aberto pelo serviço também abre sem o interruptor, R12). O 404 do `PUT /favoritos` (sem vínculo) diz "Só dá para favoritar quem já trabalhou ou conversou com você.". Na tela Avaliar, quem já está na equipe começa com o interruptor ligado e não manda outro `PUT`; desligá-lo ali não tira a pessoa da equipe (isso é no perfil).
+72. **Equipe no Início (R2):** o Início do contratante mostra as 20 pessoas favoritadas mais recentemente. Limita os pedidos de perfil (um por pessoa) e de resumos; a API segue com o teto de 200 favoritos. Uma tela com a equipe inteira fica para depois, se o dono quiser.

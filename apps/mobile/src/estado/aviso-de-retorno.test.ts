@@ -89,6 +89,12 @@ describe('useAvisoDeRetorno', () => {
       textos.anuncio.jaNaoExiste,
       'Este anúncio já não existe.',
     ],
+    ['avaliacao_enviada', textos.avaliar.enviada, 'Avaliação enviada.'],
+    [
+      'avaliacao_enviada_sem_favorito',
+      textos.avaliar.enviadaSemFavorito,
+      'Avaliação enviada, mas não foi possível favoritar. Você pode favoritar no perfil.',
+    ],
   ] as const)(
     'a chave %s entrega o texto da exclusão',
     async (chave, texto, esperado) => {

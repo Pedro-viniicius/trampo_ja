@@ -49,7 +49,7 @@ export function rotuloDoTipoDaDica(tipo: DicaParaExibir['tipo']): string {
 export function Dicas({ conteudos = DICAS, onAbrir, onVoltar }: PropsDasDicas) {
   const [categoria, setCategoria] = useState<CategoriaDaDica | null>(null);
   const rolagem = useRef<ComponentRef<typeof ScrollView>>(null);
-  const categorias = useRef<View>(null);
+  const categorias = useRef<ComponentRef<typeof Text>>(null);
   const [posicaoDasCategorias, setPosicaoDasCategorias] = useState(0);
   const filtrados = categoria
     ? conteudos.filter((dica) => dica.categoria === categoria)

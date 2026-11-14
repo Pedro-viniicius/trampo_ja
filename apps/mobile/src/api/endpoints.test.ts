@@ -1,4 +1,15 @@
 import { criarFetchFalso, type FetchFalso } from '../testes/fetch-falso';
+import {
+  DESTAQUES_POR_PAPEL,
+  desfavoritar,
+  enviarAvaliacao,
+  favoritar,
+  listarAvaliacoesFeitas,
+  listarAvaliacoesRecebidas,
+  listarFavoritos,
+  listarResumosDeAvaliacoes,
+  MAXIMO_DE_IDS_POR_PEDIDO,
+} from './avaliacoes';
 import { buscar, listarCategorias } from './busca';
 import { type ClienteHttp, criarCliente } from './cliente';
 import { cadastrar, entrar, sair } from './contas';
@@ -450,6 +461,265 @@ describe('detalhes de trampo e serviço', () => {
 
     await expect(obterServico(cliente, 's?1')).resolves.toEqual(servico);
     expect(falso.ultima().url).toBe(`${URL_BASE}/servicos/s%3F1`);
+  });
+});
+
+describe('avaliações e favoritos (CA87 a CA92)', () => {
+  const COMENTARIO = 'SENTINELA-COMENTARIO-DO-JOAO';
+
+  it('enviarAvaliacao faz POST /avaliacoes só com os campos do contrato e devolve o id', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('POST /avaliacoes', { status: 201, corpo: { id: 'av-1' } });
+
+    const criada = await enviarAvaliacao(cliente, {
+      trampoId: 't1',
+      nota: 5,
+      destaques: ['pontual', 'educado'],
+      comentario: COMENTARIO,
+      extra: 'não vai',
+    } as never);
+
+    expect(criada).toEqual({ id: 'av-1' });
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('POST');
+    expect(requisicao.url).toBe(`${URL_BASE}/avaliacoes`);
+    expect(requisicao.corpo).toEqual({
+      trampoId: 't1',
+      nota: 5,
+      destaques: ['pontual', 'educado'],
+      comentario: COMENTARIO,
+    });
+    expect(requisicao.cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('enviarAvaliacao sem destaques e sem comentário manda só trampoId e nota', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('POST /avaliacoes', { status: 201, corpo: { id: 'av-2' } });
+
+    await enviarAvaliacao(cliente, { trampoId: 't1', nota: 3 });
+
+    expect(falso.ultima().corpo).toEqual({ trampoId: 't1', nota: 3 });
+  });
+
+  it.each([
+    [400, 'dados_invalidos'],
+    [404, 'nao_encontrado'],
+    [409, 'trampo_nao_encerrado'],
+    [409, 'avaliacao_ja_feita'],
+  ])(
+    'enviarAvaliacao com %i %s sobe ErroDaApi sem o comentário',
+    async (status, codigo) => {
+      const { cliente, falso } = montar();
+      falso.responder('POST /avaliacoes', {
+        status,
+        corpo: {
+          erro: codigo,
+          campos: [{ campo: 'nota', motivo: 'invalido' }],
+          comentario: COMENTARIO,
+        },
+      });
+
+      const erro = await capturar(
+        enviarAvaliacao(cliente, {
+          trampoId: 't1',
+          nota: 4,
+          comentario: COMENTARIO,
+        }),
+      );
+
+      expect(erro).toMatchObject({ status, codigo });
+      expect(JSON.stringify(erro)).not.toContain(COMENTARIO);
+      expect(erro.message).not.toContain(COMENTARIO);
+    },
+  );
+
+  it('listarAvaliacoesRecebidas faz GET /avaliacoes com conta, papel, cursor e limite', async () => {
+    const { cliente, falso } = montar();
+    const pagina = {
+      itens: [
+        {
+          nota: 5,
+          destaques: ['pontual'],
+          comentario: null,
+          avaliadorId: 'c2',
+          criadaEm: '2026-11-01T10:00:00.000Z',
+        },
+      ],
+      proximoCursor: 'cur-2',
+    };
+    falso.responder('GET /avaliacoes', { corpo: pagina });
+
+    await expect(
+      listarAvaliacoesRecebidas(cliente, {
+        contaId: 'c1',
+        papel: 'freela',
+        antesDe: 'cur-1',
+        limite: 20,
+      }),
+    ).resolves.toEqual(pagina);
+
+    expect(falso.ultima().query).toEqual({
+      contaId: 'c1',
+      papel: 'freela',
+      antesDe: 'cur-1',
+      limite: '20',
+    });
+  });
+
+  it('listarAvaliacoesRecebidas na primeira página não manda antesDe', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('GET /avaliacoes', {
+      corpo: { itens: [], proximoCursor: null },
+    });
+
+    await listarAvaliacoesRecebidas(cliente, {
+      contaId: 'c1',
+      papel: 'contratante',
+    });
+
+    expect(falso.ultima().query).toEqual({
+      contaId: 'c1',
+      papel: 'contratante',
+    });
+  });
+
+  it('listarResumosDeAvaliacoes faz um GET com os ids separados por vírgula', async () => {
+    const { cliente, falso } = montar();
+    const papel = { media: 4.5, total: 2, destaques: ['pontual'] };
+    const vazio = { media: null, total: 0, destaques: [] };
+    const resumos = [
+      { contaId: 'c1', comoFreela: papel, comoContratante: vazio },
+      { contaId: 'c2', comoFreela: vazio, comoContratante: vazio },
+    ];
+    falso.responder('GET /avaliacoes/resumos', { corpo: resumos });
+
+    await expect(
+      listarResumosDeAvaliacoes(cliente, ['c1', 'c2']),
+    ).resolves.toEqual(resumos);
+
+    expect(falso.requisicoes).toHaveLength(1);
+    expect(falso.ultima().query).toEqual({ contas: 'c1,c2' });
+    expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('listarResumosDeAvaliacoes e listarAvaliacoesFeitas sem ids não fazem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(listarResumosDeAvaliacoes(cliente, [])).resolves.toEqual([]);
+    await expect(listarAvaliacoesFeitas(cliente, [])).resolves.toEqual([]);
+
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+
+  it('listarAvaliacoesFeitas faz GET com os trampos separados por vírgula', async () => {
+    const { cliente, falso } = montar();
+    const feitas = [
+      { trampoId: 't1', nota: 4, criadaEm: '2026-11-02T10:00:00.000Z' },
+    ];
+    falso.responder('GET /avaliacoes/feitas', { corpo: feitas });
+
+    await expect(
+      listarAvaliacoesFeitas(cliente, ['t1', 't2']),
+    ).resolves.toEqual(feitas);
+
+    expect(falso.ultima().query).toEqual({ trampos: 't1,t2' });
+  });
+
+  it('um pedido com mais de 50 ids leva a recusa da API (400 tamanho)', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('GET /avaliacoes/resumos', {
+      status: 400,
+      corpo: {
+        erro: 'dados_invalidos',
+        campos: [{ campo: 'contas', motivo: 'tamanho' }],
+      },
+    });
+    const ids = Array.from(
+      { length: MAXIMO_DE_IDS_POR_PEDIDO + 1 },
+      (_, i) => `c${i}`,
+    );
+
+    const erro = await capturar(listarResumosDeAvaliacoes(cliente, ids));
+
+    expect(erro).toMatchObject({
+      status: 400,
+      campos: [{ campo: 'contas', motivo: 'tamanho' }],
+    });
+  });
+
+  it('listarFavoritos faz GET /favoritos', async () => {
+    const { cliente, falso } = montar();
+    const favoritos = [{ contaId: 'c9', criadoEm: '2026-11-03T10:00:00.000Z' }];
+    falso.responder('GET /favoritos', { corpo: favoritos });
+
+    await expect(listarFavoritos(cliente)).resolves.toEqual(favoritos);
+    expect(falso.ultima().cabecalhos.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('favoritar faz PUT sem corpo, com o id codificado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /favoritos/c%2F9', { status: 204 });
+
+    await expect(favoritar(cliente, 'c/9')).resolves.toBeUndefined();
+
+    const requisicao = falso.ultima();
+    expect(requisicao.metodo).toBe('PUT');
+    expect(requisicao.url).toBe(`${URL_BASE}/favoritos/c%2F9`);
+    expect(requisicao.corpo).toBeUndefined();
+  });
+
+  it('desfavoritar faz DELETE com o id codificado', async () => {
+    const { cliente, falso } = montar();
+    falso.responder('DELETE /favoritos/c9', { status: 204 });
+
+    await expect(desfavoritar(cliente, 'c9')).resolves.toBeUndefined();
+
+    expect(falso.ultima().metodo).toBe('DELETE');
+    expect(falso.ultima().url).toBe(`${URL_BASE}/favoritos/c9`);
+  });
+
+  it.each([
+    [404, 'nao_encontrado'],
+    [409, 'favorito_invalido'],
+    [409, 'limite_de_favoritos'],
+  ])('favoritar com %i %s sobe ErroDaApi', async (status, codigo) => {
+    const { cliente, falso } = montar();
+    falso.responder('PUT /favoritos/c9', { status, corpo: { erro: codigo } });
+
+    await expect(capturar(favoritar(cliente, 'c9'))).resolves.toMatchObject({
+      status,
+      codigo,
+    });
+  });
+
+  it('favoritar e desfavoritar com id impossível de pôr na URL viram 404 sem requisição', async () => {
+    const { cliente, falso } = montar();
+
+    await expect(capturar(favoritar(cliente, '..'))).resolves.toMatchObject({
+      status: 404,
+      codigo: 'nao_encontrado',
+    });
+    await expect(capturar(desfavoritar(cliente, ''))).resolves.toMatchObject({
+      status: 404,
+    });
+    expect(falso.requisicoes).toHaveLength(0);
+  });
+
+  it('DESTAQUES_POR_PAPEL traz as listas fechadas da API', () => {
+    expect(DESTAQUES_POR_PAPEL.freela).toEqual([
+      'pontual',
+      'organizado',
+      'rapido',
+      'educado',
+      'proativo',
+    ]);
+    expect(DESTAQUES_POR_PAPEL.contratante).toEqual([
+      'pagamento_em_dia',
+      'ambiente_organizado',
+      'instrucoes_claras',
+      'respeitoso',
+      'pontual',
+    ]);
   });
 });
 

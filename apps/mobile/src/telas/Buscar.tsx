@@ -171,6 +171,7 @@ export function Buscar({
               categoria={item.categoria}
               cidade={item.cidade}
               precoFormatado={item.valorFormatado}
+              nota={item.nota}
               onPress={() => onAbrirItem(item)}
             />
           ) : (

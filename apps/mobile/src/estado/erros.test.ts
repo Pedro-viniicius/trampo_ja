@@ -233,6 +233,32 @@ describe('chaveDoErro: 400 com campos', () => {
   });
 });
 
+describe('chaveDoErro: 409 da V2b (avaliações e equipe favorita)', () => {
+  it.each([
+    ['avaliacao_ja_feita'],
+    ['trampo_nao_encerrado'],
+    ['favorito_invalido'],
+    ['limite_de_favoritos'],
+  ] as const)(
+    '409 %s vira geral com a mesma chave e o texto de textos.erros',
+    (codigo) => {
+      expect(chaveDoErro(new ErroDaApi(409, codigo), 'nenhum')).toEqual({
+        geral: codigo,
+        campos: {},
+      });
+      expect(mensagemDoErro(new ErroDaApi(409, codigo))).toBe(
+        textos.erros[codigo],
+      );
+    },
+  );
+
+  it('os mesmos códigos fora do 409 continuam erro_servidor', () => {
+    expect(
+      chaveDoErro(new ErroDaApi(400, 'avaliacao_ja_feita'), 'nenhum'),
+    ).toEqual({ geral: 'erro_servidor', campos: {} });
+  });
+});
+
 describe('chaveDoErro: 409 da 2b', () => {
   const formularios: readonly Formulario[] = [
     'trampo',

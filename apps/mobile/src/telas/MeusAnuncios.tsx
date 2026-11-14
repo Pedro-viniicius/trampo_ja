@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {
   AbasSublinhadas,
+  AcaoDeAvaliar,
   ALTURA_DA_BARRA_DE_ABAS,
   Aviso,
   Botao,
@@ -63,6 +64,7 @@ export function MeusAnuncios({
   carregarMais,
   segmentada = false,
   abaInicial = 'aberto',
+  onAvaliar,
 }: PropsDosMeusAnuncios) {
   const ehTrampo = tipo === 'trampo';
   // CA79: as abas só existem em Demandas (trampos) e filtram o que já carregou.
@@ -217,6 +219,7 @@ export function MeusAnuncios({
                   onMaisOpcoes={onMaisOpcoes}
                   onVerCandidatos={onVerCandidatos}
                   onEditar={onEditar}
+                  onAvaliar={onAvaliar}
                 />
               ))}
             </View>
@@ -268,6 +271,7 @@ function Anuncio({
   onMaisOpcoes,
   onVerCandidatos,
   onEditar,
+  onAvaliar,
 }: {
   refDoFoco?: Ref<View>;
   item: MeuAnuncioParaExibir;
@@ -277,6 +281,7 @@ function Anuncio({
   onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
   onVerCandidatos?: (item: MeuAnuncioParaExibir) => void;
   onEditar?: (item: MeuAnuncioParaExibir) => void;
+  onAvaliar?: (item: MeuAnuncioParaExibir) => void;
 }) {
   const { variante, texto } = selo[item.status];
   if (comoDemanda) {
@@ -290,6 +295,7 @@ function Anuncio({
           onMaisOpcoes={onMaisOpcoes}
           onVerCandidatos={onVerCandidatos}
           onEditar={onEditar}
+          onAvaliar={onAvaliar}
         />
       </View>
     );
@@ -354,6 +360,7 @@ function CartaoDeDemanda({
   onMaisOpcoes,
   onVerCandidatos,
   onEditar,
+  onAvaliar,
 }: {
   item: MeuAnuncioParaExibir;
   rotuloDoStatus: string;
@@ -362,6 +369,7 @@ function CartaoDeDemanda({
   onMaisOpcoes?: (item: MeuAnuncioParaExibir) => void;
   onVerCandidatos?: (item: MeuAnuncioParaExibir) => void;
   onEditar?: (item: MeuAnuncioParaExibir) => void;
+  onAvaliar?: (item: MeuAnuncioParaExibir) => void;
 }) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
   const interessados = item.interessados ?? 0;
@@ -474,6 +482,14 @@ function CartaoDeDemanda({
         ) : null}
       </View>
       {botao}
+      {item.status === 'encerrado' ? (
+        <AcaoDeAvaliar
+          notaDada={item.notaDada}
+          titulo={item.titulo}
+          texto={textos.avaliar.avaliarProfissional}
+          onAvaliar={onAvaliar ? () => onAvaliar(item) : undefined}
+        />
+      ) : null}
     </View>
   );
 }

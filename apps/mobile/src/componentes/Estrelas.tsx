@@ -7,6 +7,38 @@ import { estiloDeFoco, useFoco } from './utilitarios';
 
 const NOTAS = [1, 2, 3, 4, 5] as const;
 
+/**
+ * Estrela do desenho: marcada = cheia (★, `alerta.texto`), não marcada = só
+ * contorno (Feather, `tinta[500]`). Forma e cor mudam juntas e as duas passam
+ * de 3:1 sobre branco (1.4.1 e 1.4.11).
+ */
+function DesenhoDeEstrela({
+  marcada,
+  tamanho,
+}: {
+  marcada: boolean;
+  tamanho: number;
+}) {
+  return marcada ? (
+    <Text
+      accessible={false}
+      importantForAccessibility="no"
+      style={{
+        width: tamanho,
+        height: tamanho,
+        fontSize: tamanho,
+        lineHeight: tamanho,
+        textAlign: 'center',
+        color: cores.feedback.alerta.texto,
+      }}
+    >
+      {'\u2605'}
+    </Text>
+  ) : (
+    <Feather name="star" size={tamanho} color={cores.tinta[500]} />
+  );
+}
+
 /** "4,9" (vírgula decimal, uma casa). */
 export function formatarNota(media: number): string {
   return media.toLocaleString('pt-BR', {
@@ -24,9 +56,8 @@ export type PropsDasEstrelas = {
 };
 
 /**
- * Nota em exibição: estrelas decorativas (2,35:1, por isso nunca sozinhas) e o
- * número em texto. Falado como "Nota 4,9 de 5".
- * Feather só tem a estrela de contorno: a cheia é a mesma forma em laranja.
+ * Nota em exibição: estrelas decorativas (cheia x contorno) e o número em
+ * texto. Falado como "Nota 4,9 de 5".
  */
 export function Estrelas({ media, total, tamanho = 16 }: PropsDasEstrelas) {
   const nota = formatarNota(media);
@@ -43,12 +74,7 @@ export function Estrelas({ media, total, tamanho = 16 }: PropsDasEstrelas) {
     >
       <View style={{ flexDirection: 'row', gap: 2 }}>
         {NOTAS.map((n) => (
-          <Feather
-            key={n}
-            name="star"
-            size={tamanho}
-            color={n <= cheias ? cores.feedback.alerta.base : cores.tinta[300]}
-          />
+          <DesenhoDeEstrela key={n} marcada={n <= cheias} tamanho={tamanho} />
         ))}
       </View>
       <Text
@@ -104,11 +130,7 @@ function Estrela({
         focado && estiloDeFoco,
       ]}
     >
-      <Feather
-        name="star"
-        size={36}
-        color={marcada ? cores.feedback.alerta.base : cores.tinta[300]}
-      />
+      <DesenhoDeEstrela marcada={marcada} tamanho={36} />
     </Pressable>
   );
 }

@@ -10,12 +10,14 @@ import {
   type AnuncioDaFolha,
   useAcoesDoAnuncio,
 } from '../../estado/acoes-do-anuncio';
+import { notaDada } from '../../estado/avaliacoes-para-exibir';
 import { useAvisoDeRetorno } from '../../estado/aviso-de-retorno';
 import { useConexao } from '../../estado/conexao';
 import {
   useMeusServicos,
   useMeusTrampos,
 } from '../../estado/consultas/anuncios';
+import { useAvaliacoesFeitas } from '../../estado/consultas/avaliacoes';
 import { useCategorias } from '../../estado/consultas/busca';
 import { chaves } from '../../estado/consultas/chaves';
 import { mensagemDoErro } from '../../estado/erros';
@@ -84,6 +86,12 @@ function useAcoes(tipo: TipoDeAnuncio) {
         pathname: '/trampos/editar/[id]',
         params: { id: item.id },
       }),
+    // "Avaliar profissional" (CA96): só a aba Demandas passa este.
+    avaliar: (item: MeuAnuncioParaExibir) =>
+      navegarUmaVez({
+        pathname: '/avaliar/[trampoId]',
+        params: { trampoId: item.id, papel: 'freela' },
+      }),
   };
 }
 
@@ -144,7 +152,10 @@ function paraExibir(
 /**
  * Aba Demandas do contratante (CA79): os trampos de `/trampos/meus` nas
  * abas Abertas, Em andamento e Encerradas, que filtram as páginas já
- * carregadas pelo `status`. O "+" abre `/trampos/novo`.
+ * carregadas pelo `status`. O "+" abre `/trampos/novo`. Em Encerradas, o
+ * "Avaliar profissional" (CA96) só vale para o trampo que recebeu candidatura
+ * e só depois que `GET /avaliacoes/feitas` (um pedido para a lista) cobriu os
+ * encerrados: antes disso a tela não sabe se a conta já avaliou.
  */
 export function MeusTrampos() {
   const acoes = useAcoes('trampo');
@@ -163,6 +174,16 @@ export function MeusTrampos() {
           }),
         };
   }, chaves.meusTrampos());
+  // CA96: encerrado sem candidatura nenhuma não tem a quem avaliar.
+  const avaliaveis = new Set(
+    (consulta.trampos ?? [])
+      .filter(
+        (trampo) =>
+          trampo.status === 'encerrado' && trampo.candidaturasRecebidas !== 0,
+      )
+      .map((trampo) => trampo.id),
+  );
+  const avaliacoes = useAvaliacoesFeitas([...avaliaveis]);
   const lista = estadoDeConsulta(
     {
       dados: consulta.trampos,
@@ -176,6 +197,11 @@ export function MeusTrampos() {
           ...(trampo.candidaturasRecebidas !== undefined && {
             interessados: trampo.candidaturasRecebidas,
           }),
+          notaDada: notaDada(
+            avaliaveis.has(trampo.id),
+            avaliacoes.feitas.get(trampo.id),
+            avaliacoes.completa,
+          ),
         }),
       ),
   );
@@ -189,6 +215,7 @@ export function MeusTrampos() {
       onPublicar={acoes.publicar}
       onVerCandidatos={acoes.verCandidatos}
       onEditar={acoes.editar}
+      onAvaliar={acoes.avaliar}
       folha={opcoes.folha}
       onMaisOpcoes={opcoes.onMaisOpcoes}
       toast={opcoes.toast}

@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { texto as estiloDeTexto } from '../tema/texto';
 import { cores, espaco, raio, sombra } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
+import { AcaoDeAvaliar } from './AcaoDeAvaliar';
 import { Avatar } from './Avatar';
 import { Botao } from './Botao';
 import {
@@ -38,6 +39,10 @@ export type PropsDoCartaoDeMinhaCandidatura = {
   retirarDesabilitado?: boolean;
   /** Por que "Retirar" está desabilitado (ex.: sem conexão), em texto. */
   motivoDoRetirar?: string | null;
+  /** V2b (CA96): ver `AcaoDeAvaliar`. `undefined` = nada aparece. */
+  notaDada?: number | null;
+  /** V2b: "Avaliar"; sem ele, só o selo "Avaliado com N ★" pode aparecer. */
+  onAvaliar?: () => void;
 };
 
 /** Cartão de Meus trampos (quadro 07): status, valor, trampo e ações da candidatura. */
@@ -54,6 +59,8 @@ export function CartaoDeMinhaCandidatura({
   retirando = false,
   retirarDesabilitado = false,
   motivoDoRetirar = null,
+  notaDada,
+  onAvaliar,
 }: PropsDoCartaoDeMinhaCandidatura) {
   const { focado, aoFocar, aoDesfocar } = useFoco();
   const exibido = titulo ?? textos.minhasCandidaturas.trampoIndisponivel;
@@ -146,6 +153,13 @@ export function CartaoDeMinhaCandidatura({
           {corpo}
         </View>
       )}
+      {notaDada !== undefined ? (
+        <AcaoDeAvaliar
+          notaDada={notaDada}
+          titulo={titulo}
+          onAvaliar={onAvaliar}
+        />
+      ) : null}
       {(status === 'aceita' && onMensagem) ||
       (status === 'pendente' && onRetirar) ? (
         <View style={{ gap: espaco.s }}>

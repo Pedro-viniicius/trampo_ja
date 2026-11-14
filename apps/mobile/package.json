@@ -6,7 +6,7 @@
   "scripts": {
     "start": "expo start",
     "test": "jest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "EXPO_NO_TELEMETRY=1 expo customize tsconfig.json && tsc --noEmit",
     "lint": "biome check .",
     "build": "expo export --platform android --clear --output-dir dist",
     "build:producao": "TRAMPOJA_BUILD=producao expo export --platform android --clear --output-dir dist"

@@ -36,6 +36,7 @@ export function DetalheDoTrampo({
   semConexao,
   onMaisOpcoes,
   folha,
+  notaDoAutor,
   onVoltar,
   onAbrirAutor,
 }: PropsDoDetalheDoTrampo) {
@@ -110,6 +111,7 @@ export function DetalheDoTrampo({
             <BlocoDoAutor
               rotulo={t.publicadoPor}
               autor={autor}
+              nota={notaDoAutor}
               onAbrir={onAbrirAutor}
             />
           </>

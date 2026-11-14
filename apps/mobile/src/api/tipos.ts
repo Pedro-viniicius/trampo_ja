@@ -271,3 +271,99 @@ export interface ConfirmacaoComSenha {
 export type DadosExportados = { readonly formato: string } & Readonly<
   Record<string, unknown>
 >;
+
+/** Papel de quem recebe a avaliação no trampo. */
+export type PapelDoAvaliado = 'freela' | 'contratante';
+
+/** Destaques de quem avalia um freela (lista fechada da API). */
+export type DestaqueDeFreela =
+  | 'pontual'
+  | 'organizado'
+  | 'rapido'
+  | 'educado'
+  | 'proativo';
+
+/** Destaques de quem avalia um contratante (lista fechada da API). */
+export type DestaqueDeContratante =
+  | 'pagamento_em_dia'
+  | 'ambiente_organizado'
+  | 'instrucoes_claras'
+  | 'respeitoso'
+  | 'pontual';
+
+export type DestaqueDeAvaliacao = DestaqueDeFreela | DestaqueDeContratante;
+
+/**
+ * Corpo de `POST /avaliacoes`. `destaques` e `comentario` são opcionais; o
+ * comentário é dado pessoal (nunca vai para erro, log ou URL).
+ */
+export interface EntradaDeAvaliacao {
+  readonly trampoId: string;
+  /** De 1 a 5. */
+  readonly nota: number;
+  readonly destaques?: readonly DestaqueDeAvaliacao[];
+  readonly comentario?: string;
+}
+
+/** Resposta de `POST /avaliacoes` (201). */
+export interface AvaliacaoCriada {
+  readonly id: string;
+}
+
+/**
+ * Item de `GET /avaliacoes`. `destaques` são códigos (o app os traduz em
+ * `textos`): um código que o app não conhece não pode quebrar a lista.
+ */
+export interface AvaliacaoRecebida {
+  readonly nota: number;
+  readonly destaques: readonly string[];
+  readonly comentario: string | null;
+  readonly avaliadorId: string;
+  /** ISO 8601. */
+  readonly criadaEm: string;
+}
+
+/** Filtros de `GET /avaliacoes`: `contaId` e `papel` são obrigatórios. */
+export interface FiltrosDeAvaliacoes {
+  readonly contaId: string;
+  readonly papel: PapelDoAvaliado;
+  readonly antesDe?: string;
+  /** De 1 a 50; a API assume 20. */
+  readonly limite?: number;
+}
+
+/** Resposta de `GET /avaliacoes`. `proximoCursor` é `null` na última página. */
+export interface PaginaDeAvaliacoes {
+  readonly itens: readonly AvaliacaoRecebida[];
+  readonly proximoCursor: string | null;
+}
+
+/** Nota de um papel: `media` é `null` sem avaliação (uma casa decimal). */
+export interface ResumoDoPapel {
+  readonly media: number | null;
+  readonly total: number;
+  /** Até 3 códigos, os mais frequentes. */
+  readonly destaques: readonly string[];
+}
+
+/** Item de `GET /avaliacoes/resumos`: um por conta pedida. */
+export interface ResumoDeAvaliacoes {
+  readonly contaId: string;
+  readonly comoFreela: ResumoDoPapel;
+  readonly comoContratante: ResumoDoPapel;
+}
+
+/** Item de `GET /avaliacoes/feitas`: a avaliação que a conta fez no trampo. */
+export interface AvaliacaoFeita {
+  readonly trampoId: string;
+  readonly nota: number;
+  /** ISO 8601. */
+  readonly criadaEm: string;
+}
+
+/** Item de `GET /favoritos`, dos mais recentes para os mais antigos. */
+export interface Favorito {
+  readonly contaId: string;
+  /** ISO 8601. */
+  readonly criadoEm: string;
+}

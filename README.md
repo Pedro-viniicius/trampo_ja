@@ -174,7 +174,7 @@ Cuidados:
 ### Verificação
 
 ```bash
-pnpm --filter mobile typecheck   # tsc --noEmit
+pnpm --filter mobile typecheck   # gera os tipos das rotas (expo customize tsconfig.json) e roda tsc --noEmit
 pnpm --filter mobile lint        # Biome (inclui noConsole como erro)
 pnpm --filter mobile test        # jest-expo + Testing Library
 pnpm --filter mobile build       # expo export para Android em apps/mobile/dist (apague depois)
@@ -213,12 +213,12 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 |---|---|---|
 | `/entrada`, `/entrar`, `/cadastro` | `(publico)/` | entrada, login e cadastro (sem sessão); a entrada e o cadastro levam aos documentos legais, e o cadastro mostra o aceite por texto (D27) e o aviso de perfil público |
 | `/politica-de-privacidade`, `/termos-de-uso` | `politica-de-privacidade.tsx`, `termos-de-uso.tsx` (raiz) | documentos legais, com e sem sessão |
-| `/` | `(app)/(abas)/index.tsx` | aba Início, nos dois modos. Freela (D63, como no quadro 04): saudação, "Buscar", destaque de Meus trampos com as candidaturas em análise, trampos recentes com "Ver todos" (os dois levam a `/buscar-trampos`) e o card de Dicas & minicursos (o primeiro conteúdo); sem atalhos de publicar e sem serviços. Contratante: destaque "+" para publicar e até 3 demandas abertas com os interessados (CA82) |
-| `/meus-trampos` | `(app)/(abas)/meus-trampos.tsx` | aba Meus trampos (freela, CA78): as candidaturas nos segmentos Em análise, Confirmados e Encerrados, com Mensagem e Retirar |
-| `/demandas` | `(app)/(abas)/demandas.tsx` | aba Demandas (contratante, CA79): os trampos publicados nos segmentos Abertas, Em andamento e Encerradas, com "+", "Mais opções" e, em cada cartão, "Ver candidatos (n)" ou "Editar" (D64) |
-| `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar (contratante, CA84): busca de serviços ("Buscar freelancers") |
+| `/` | `(app)/(abas)/index.tsx` | aba Início, nos dois modos. Freela (D63, como no quadro 04): saudação, "Buscar", destaque de Meus trampos com as candidaturas em análise, trampos recentes com "Ver todos" (os dois levam a `/buscar-trampos`) e o card de Dicas & minicursos (o primeiro conteúdo); sem atalhos de publicar e sem serviços. Contratante: destaque "+" para publicar, até 3 demandas abertas com os interessados (CA82) e, só com favoritos, "Minha equipe favorita" (as 20 mais recentes) com "Ver perfil" e "Recontratar" (CA98) |
+| `/meus-trampos` | `(app)/(abas)/meus-trampos.tsx` | aba Meus trampos (freela, CA78): as candidaturas nos segmentos Em análise, Confirmados e Encerrados, com Mensagem e Retirar; em Encerrados, "Avaliar" ou "Avaliado com N ★" (CA96) |
+| `/demandas` | `(app)/(abas)/demandas.tsx` | aba Demandas (contratante, CA79): os trampos publicados nos segmentos Abertas, Em andamento e Encerradas, com "+", "Mais opções" e, em cada cartão, "Ver candidatos (n)" ou "Editar" (D64); em Encerradas, "Avaliar profissional" ou "Avaliado com N ★" (CA96) |
+| `/buscar` | `(app)/(abas)/buscar.tsx` | aba Buscar (contratante, CA84): busca de serviços ("Buscar freelancers"), com o nome do autor e a nota dele em cada cartão (CA97) |
 | `/conversas` | `(app)/(abas)/conversas.tsx` | aba Conversas (freela) ou Mensagens (contratante): nome do outro, prévia de uma linha e hora, última atividade primeiro |
-| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil. Freela: cartão de modo, números de candidaturas enviadas e confirmadas, Editar perfil, Meus serviços, Dicas & minicursos, Conta e privacidade e Sair. Contratante (Perfil da empresa): nome, cidade, sobre, cartão de modo, Editar, Conta e privacidade e Sair (CA83) |
+| `/perfil` | `(app)/(abas)/perfil.tsx` | aba Perfil. Freela: cartão de modo, números de candidaturas enviadas e confirmadas, Editar perfil, Meus serviços, Dicas & minicursos, Conta e privacidade e Sair. Contratante (Perfil da empresa): nome, cidade, sobre, cartão de modo, Editar, Conta e privacidade e Sair (CA83). Nos dois, a nota da própria conta e a linha "Avaliações recebidas" (CA97), que levam a `/avaliacoes/:contaId`; sem avaliações ou, na empresa, sem trampos publicados (o id da conta vem de `/trampos/meus`), a linha não aparece |
 | `/buscar-trampos` | `(app)/buscar-trampos.tsx` | busca de trampos do freela (CA84), tela de pilha com voltar |
 | `/candidatura-enviada?trampoId=` | `(app)/candidatura-enviada.tsx` | Candidatura enviada (CA80), em tela cheia depois do 201: título, autor, prazo e valor do cache, os passos, "Ver em Meus trampos" e "Buscar mais trampos"; voltar leva ao detalhe |
 | `/dicas`, `/dicas/:id` | `(app)/dicas/index.tsx`, `(app)/dicas/[id].tsx` | Dicas & minicursos (CA81): lista com filtro por categoria e leitura; conteúdo local em `src/textos/dicas.ts`, sem rede |
@@ -227,15 +227,17 @@ O `designer` não toca `api/` nem `estado/`; o `dev` não põe texto de interfac
 | `/perfil/conta` | `(app)/perfil/conta.tsx` | Conta e privacidade: exportar os dados, excluir a conta, política, termos e Sair |
 | `/perfil/exportar` | `(app)/perfil/exportar.tsx` | Exportar meus dados: senha e "Gerar e compartilhar" |
 | `/perfil/excluir` | `(app)/perfil/excluir.tsx` | Excluir minha conta: o que acontece, senha e diálogo de confirmação |
-| `/perfis/:contaId` | `(app)/perfis/[contaId].tsx` | perfil público |
+| `/perfis/:contaId?papel=` | `(app)/perfis/[contaId].tsx` | perfil público, com a nota (média e total) do papel (`freela`, o padrão, ou `contratante`; CA97) e "Avaliações recebidas"; no perfil de freela de outra pessoa, e só no modo contratante, o interruptor "Favoritar" (CA98), que muda na hora e volta atrás se a API recusar (o 404 sem vínculo diz "Só dá para favoritar quem já trabalhou ou conversou com você."); `?propria=1` (o autor abrindo o próprio perfil pelo serviço) não oferece o interruptor |
+| `/avaliar/:trampoId?papel=` | `(app)/avaliar/[trampoId].tsx` | Avaliar (CA96): o autor do trampo encerrado avalia o freela da candidatura aceita (com "Favoritar"), e quem não é o autor avalia o contratante; `?papel=` só dá o título enquanto o trampo carrega. Volta com o aviso "Avaliação enviada.". Autor de trampo encerrado sem candidatura aceita vê "Esta demanda foi encerrada sem profissional contratado."; quem já está na equipe começa com "Favoritar" ligado e não manda outro pedido |
+| `/avaliacoes/:contaId?papel=` | `(app)/avaliacoes/[contaId].tsx` | avaliações recebidas pela conta no papel, 20 por página, com a média e o total (CA90, CA97) |
 | `/trampos/novo` | `(app)/trampos/novo.tsx` | formulário Publicar trampo (a confirmação é estado da tela) |
 | `/servicos/novo` | `(app)/servicos/novo.tsx` | formulário Ofertar serviço |
-| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura com Conversar e Retirar candidatura (se pendente) ou Ver candidaturas (n); para o autor, "Mais opções" no cabeçalho |
+| `/trampos/:id` | `(app)/trampos/[id].tsx` | detalhe do trampo; o rodapé mostra Candidatar-se (folha), o selo da candidatura com Conversar e Retirar candidatura (se pendente) ou Ver candidaturas (n); para o autor, "Mais opções" no cabeçalho; o cartão do autor traz a nota dele como contratante (CA97) |
 | `/servicos/:id` | `(app)/servicos/[id].tsx` | detalhe do serviço, com Conversar para quem não é o autor e "Mais opções" para o autor |
 | `/trampos/editar/:id` | `(app)/trampos/editar/[id].tsx` | Editar trampo: o formulário de publicar, preenchido, com "Salvar alterações" |
 | `/servicos/editar/:id` | `(app)/servicos/editar/[id].tsx` | Editar serviço, como o de trampo |
 | `/candidaturas` | `(app)/candidaturas/index.tsx` | caminho antigo: redireciona para a aba `/meus-trampos` (CA77) |
-| `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404) |
+| `/candidaturas/:trampoId` | `(app)/candidaturas/[trampoId].tsx` | Candidaturas recebidas de um trampo, com o aceite e Conversar em cada candidatura (só quem publicou vê; para os demais a API responde 404); cada candidato traz a nota dele como freela, num pedido só de resumos para a lista (CA97) |
 | `/conversas/:id` | `(app)/conversas/[id].tsx` | a conversa: mensagens, campo e Enviar |
 | `/meus-anuncios?tipo=servico` | `(app)/meus-anuncios.tsx` | Meus serviços, com "+" para ofertar outro e "Mais opções" em cada anúncio. Qualquer outro `tipo` (ausente, `trampo` ou inválido) redireciona para a aba `/demandas` (CA77, CA79), que carrega 20 por vez (pede 21 para saber se há mais), com "Carregar mais" no fim da lista só quando há mais |
 
@@ -259,10 +261,11 @@ Anúncios e candidaturas (L2, D30, D33 a D37):
   `conflito_de_versao` mostra o aviso com "Ver versão atual", que recarrega o anúncio e mantém os campos que a
   pessoa já mexeu (D37); o `trampo_nao_editavel` mostra o aviso e desabilita os campos. Sair com alteração não
   salva pergunta "Descartar alterações?", também no voltar do sistema (botão do Android e gesto do iOS).
-- **Aviso de retorno.** "Alterações salvas.", "Demanda excluída.", "Serviço excluído." e "Este anúncio já não
-  existe." são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto, em
-  memória, por 10 s e só na mesma sessão. Meus anúncios, os dois detalhes, o Início e a Busca mostram o aviso (L4,
-  CA63); se a volta cai numa tela que não o mostra, ele se perde.
+- **Aviso de retorno.** "Alterações salvas.", "Demanda excluída.", "Serviço excluído.", "Este anúncio já não
+  existe.", "Avaliação enviada." e "Avaliação enviada, mas não foi possível favoritar. Você pode favoritar no
+  perfil." (D69) são deixados por uma tela para a seguinte (`src/estado/aviso-de-retorno.ts`): só a chave do texto,
+  em memória, por 10 s e só na mesma sessão. Meus anúncios, Meus trampos, os dois detalhes, o Início e a Busca
+  mostram o aviso (L4, CA63); se a volta cai numa tela que não o mostra, ele se perde.
 - **Retirar candidatura.** Em Meus trampos (aba do freela) e no rodapé do trampo, só para a candidatura pendente e sempre
   com o diálogo "Manter candidatura" ou "Retirar candidatura". No sucesso, ela some da lista e o rodapé volta a
   "Candidatar-se". O 409 avisa que ela já foi respondida e recarrega; o 404 a tira da lista. Toque duplo faz um

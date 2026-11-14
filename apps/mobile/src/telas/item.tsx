@@ -18,6 +18,8 @@ export function CartaoDoItem({
       valorFormatado={item.valorFormatado}
       dataFormatada={item.dataFormatada}
       prazoFormatado={item.prazoFormatado}
+      autor={item.autor}
+      nota={item.nota}
       onPress={() => onAbrir(item)}
     />
   );

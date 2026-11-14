@@ -26,8 +26,10 @@ import {
   Cabecalho,
   Esqueleto,
   EstadoVazio,
+  Estrelas,
   FaixaDeDestaque,
   folgaDaBarraDeAbas,
+  formatarNota,
   Logo,
 } from '../componentes';
 import {
@@ -47,7 +49,7 @@ import {
   toqueMinimo,
 } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
-import type { Estado } from './tipos';
+import type { Estado, NotaParaExibir } from './tipos';
 
 export const LINHAS_DA_DESCRICAO = 5;
 
@@ -732,18 +734,29 @@ export function CartaoDaPessoa({
   rotulo,
   nome,
   cidade,
+  nota,
   onPress,
 }: {
   rotulo: string;
   nome: string;
   cidade: string;
+  /** V2b (CA97): nota do autor; sem avaliações, não aparece. */
+  nota?: NotaParaExibir | null;
   onPress: () => void;
 }) {
+  const comNota = nota && nota.total > 0 ? nota : null;
   const { focado, aoFocar, aoDesfocar } = useFoco();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${rotulo}: ${nome}, ${cidade}`}
+      accessibilityLabel={[
+        `${rotulo}: ${nome}, ${cidade}`,
+        comNota
+          ? `${textos.gerais.nota(formatarNota(comNota.media))}, ${textos.avaliacoes.recebidas(comNota.total)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}
       onPress={onPress}
       onFocus={aoFocar}
       onBlur={aoDesfocar}
@@ -780,6 +793,14 @@ export function CartaoDaPessoa({
         >
           {cidade}
         </Text>
+        {comNota ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Estrelas media={comNota.media} total={comNota.total} />
+          </View>
+        ) : null}
       </View>
       <Feather name="chevron-right" size={20} color={cores.textoSecundario} />
     </Pressable>
@@ -790,10 +811,12 @@ export function CartaoDaPessoa({
 export function BlocoDoAutor({
   rotulo,
   autor,
+  nota,
   onAbrir,
 }: {
   rotulo: string;
   autor: Estado<{ contaId: string; nome: string; cidade: string }>;
+  nota?: NotaParaExibir | null;
   onAbrir: (contaId: string) => void;
 }) {
   switch (autor.situacao) {
@@ -814,6 +837,7 @@ export function BlocoDoAutor({
           rotulo={rotulo}
           nome={autor.dados.nome}
           cidade={autor.dados.cidade}
+          nota={nota}
           onPress={() => onAbrir(autor.dados.contaId)}
         />
       );

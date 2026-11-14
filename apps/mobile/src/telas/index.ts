@@ -1,3 +1,9 @@
+export {
+  Avaliar,
+  destaquesDoPapel,
+  LIMITE_DO_COMENTARIO,
+  rotuloDoDestaque,
+} from './Avaliar';
 export { Buscar } from './Buscar';
 export { Cadastro } from './Cadastro';
 export { CandidaturaEnviada } from './CandidaturaEnviada';
@@ -20,6 +26,7 @@ export {
   MAXIMO_DE_DEMANDAS_NO_INICIO,
 } from './InicioDoContratante';
 export { LeituraDeDica } from './LeituraDeDica';
+export { ListaDeAvaliacoes } from './ListaDeAvaliacoes';
 export { ListaDeConversas } from './ListaDeConversas';
 export { MeusAnuncios } from './MeusAnuncios';
 export {

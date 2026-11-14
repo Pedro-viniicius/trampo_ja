@@ -25,6 +25,15 @@ export interface PerfilIncompleto {
 
 export type TipoDeAnuncio = 'trampo' | 'servico';
 
+/** V2b (CA97): resumo de notas de uma conta; `media` de 1 a 5, `total` de avaliações recebidas. */
+export interface NotaParaExibir {
+  media: number;
+  total: number;
+}
+
+/** V2b: papel de quem é avaliado no trampo (define os destaques e os textos). */
+export type PapelDoAvaliado = 'freela' | 'contratante';
+
 /** V2: modo de navegação (freela ou contratante); igual ao `Modo` do estado. */
 export type ModoDoApp = 'freela' | 'contratante';
 
@@ -87,6 +96,8 @@ export interface ItemParaExibir {
    * `CartaoDeFreelancer`; sem o campo, fica o cartão de anúncio.
    */
   autor?: string | null;
+  /** V2b (CA97): nota de quem publicou, quando o contêiner tiver o resumo. */
+  nota?: NotaParaExibir | null;
 }
 
 /** Opção de categoria: `id` vai para a API, `rotulo` para a tela. */
@@ -252,6 +263,8 @@ export interface PropsDoDetalheDoTrampo {
   /** Só para o autor (L2). */
   onMaisOpcoes?: () => void;
   folha?: PropsDaFolhaDeAcoes;
+  /** V2b (CA97): nota do autor, no cartão do autor; ausente ou sem avaliações, não aparece. */
+  notaDoAutor?: NotaParaExibir | null;
 }
 
 export interface PropsDoDetalheDoServico {
@@ -301,6 +314,25 @@ export interface PropsDoPerfil {
    * cartões de número não aparecem.
    */
   contagens?: ContagensDoPerfil | null;
+  /** V2b (CA97): nota recebida; sem avaliações, não aparece. */
+  nota?: NotaParaExibir | null;
+  /** V2b: abre a lista de avaliações; só aparece com `nota.total` maior que 0. */
+  onVerAvaliacoes?: () => void;
+  /**
+   * V2b (CA98): favoritar no perfil público (só com `proprio` falso). Ausente,
+   * o interruptor não aparece.
+   */
+  favorito?: FavoritoDoPerfil | null;
+}
+
+/** V2b (CA98): estado do favoritar de um perfil público. */
+export interface FavoritoDoPerfil {
+  ativo: boolean;
+  /** Pedido em andamento: o interruptor fica desabilitado. */
+  salvando?: boolean;
+  /** Mensagem já traduzida do último pedido que falhou. */
+  erro?: string;
+  onAlternar: (favoritar: boolean) => void;
 }
 
 /** V2: números do Perfil do freela. */
@@ -321,6 +353,10 @@ export interface PropsDoPerfilDaEmpresa {
   onContaEPrivacidade: () => void;
   /** Chamado depois da confirmação do diálogo "Sair da conta?". */
   onSair: () => void;
+  /** V2b (CA97): nota recebida; sem avaliações, não aparece. */
+  nota?: NotaParaExibir | null;
+  /** V2b: linha "Avaliações recebidas"; sem ela, a linha não aparece. */
+  onVerAvaliacoes?: () => void;
 }
 
 export interface ValoresDoPerfil {
@@ -483,6 +519,8 @@ export interface CandidaturaParaExibir {
   dataFormatada: string;
   status: StatusDaCandidatura;
   podeAceitar: boolean;
+  /** V2b (CA97): nota de quem se candidatou. */
+  nota?: NotaParaExibir | null;
 }
 
 export interface PropsDasCandidaturasRecebidas {
@@ -530,6 +568,12 @@ export interface MinhaCandidaturaParaExibir {
   autor?: string | null;
   /** V2: prazo do trampo, já formatado. */
   prazoFormatado?: string | null;
+  /**
+   * V2b (CA96): nota que a conta deu a este trampo. `undefined` = não dá para
+   * avaliar (ou ainda não se sabe): nada aparece. `null` = pode avaliar e
+   * ainda não avaliou ("Avaliar"). Número = já avaliou ("Avaliado com N ★").
+   */
+  notaDada?: number | null;
 }
 
 /** V2 (CA78): segmentos de Meus trampos. */
@@ -561,12 +605,20 @@ export interface PropsDasMinhasCandidaturas {
   segmentoInicial?: SegmentoDeMeusTrampos;
   /** V2: "Mensagem" na candidatura aceita. */
   onMensagem?: (item: MinhaCandidaturaParaExibir) => void;
+  /** V2b (CA96): "Avaliar" no item aceito e encerrado ainda não avaliado. */
+  onAvaliar?: (item: MinhaCandidaturaParaExibir) => void;
 }
 
 export type MeuAnuncioParaExibir = ItemParaExibir & {
   status: StatusDoTrampoParaExibir | 'ativo';
   /** V2: candidaturas recebidas (selo "{n} interessados"); só trampo. */
   interessados?: number;
+  /**
+   * V2b (CA96): nota que a conta deu ao profissional deste trampo. `undefined`
+   * = não dá para avaliar: nada aparece. `null` = pode avaliar e ainda não
+   * avaliou. Número = "Avaliado com N ★". Só na aba Encerradas.
+   */
+  notaDada?: number | null;
 };
 
 /** V2 (CA79): abas de Demandas, pelo `status` do trampo. */
@@ -608,6 +660,8 @@ export interface PropsDosMeusAnuncios {
    */
   segmentada?: boolean;
   abaInicial?: AbaDeDemandas;
+  /** V2b (CA96): "Avaliar profissional" no cartão encerrado ainda não avaliado. */
+  onAvaliar?: (item: MeuAnuncioParaExibir) => void;
 }
 
 // ---- Entrega 2c: conversas ----
@@ -821,4 +875,95 @@ export interface PropsDoInicioDoContratante {
   onCompletarPerfil?: () => void;
   toast?: string | null;
   onFecharToast?: () => void;
+  /**
+   * V2b (CA98): equipe favorita. A seção só aparece na situação `ok` com pelo
+   * menos uma pessoa; nos demais casos some, sem estado vazio.
+   */
+  equipe?: Estado<readonly FavoritoParaExibir[]>;
+  /** "Ver perfil" do cartão da equipe; sem ele, o botão não aparece. */
+  onVerPerfilDaEquipe?: (contaId: string) => void;
+  /** "Recontratar" do cartão da equipe; sem ele, o botão não aparece. */
+  onRecontratar?: (contaId: string) => void;
+}
+
+/** V2b (CA98): pessoa da equipe favorita. */
+export interface FavoritoParaExibir {
+  contaId: string;
+  nome: string;
+  /** Título do serviço mais recente, quando houver. */
+  servico?: string | null;
+  nota?: NotaParaExibir | null;
+}
+
+// ---- V2b: avaliações ----
+
+/** Quem é avaliado e o trampo em questão (já formatados). */
+export interface AlvoDaAvaliacao {
+  /** `null`: perfil indisponível. */
+  nome: string | null;
+  titulo: string;
+  dataFormatada: string;
+}
+
+/**
+ * V2b (CA96, quadro 17): tela Avaliar, controlada por props. `papel` é o
+ * papel de quem é avaliado: `freela` ("Avaliar profissional", com o
+ * interruptor "Favoritar") ou `contratante` ("Avaliar contratante").
+ */
+export interface PropsDaAvaliar {
+  papel: PapelDoAvaliado;
+  alvo: Estado<AlvoDaAvaliacao>;
+  /** 0 = sem nota. */
+  nota: number;
+  /** Códigos da API, da lista do papel. */
+  destaques: readonly string[];
+  comentario: string;
+  /** O interruptor só aparece com `papel` freela e este valor. */
+  favoritar?: boolean;
+  /** Envio em andamento: o botão vira "Enviando…" e não aceita novo toque. */
+  enviando?: boolean;
+  /** Erro geral já traduzido, num `Aviso`. */
+  erro?: string;
+  /** 409 `avaliacao_ja_feita`: troca o formulário por "Você já avaliou este trampo". */
+  jaAvaliado?: boolean;
+  /**
+   * Trampo encerrado do autor sem candidatura aceita: troca o formulário por
+   * "Esta demanda foi encerrada sem profissional contratado." (R1).
+   */
+  semProfissional?: boolean;
+  semConexao?: boolean;
+  onMudarNota: (nota: number) => void;
+  onAlternarDestaque: (codigo: string) => void;
+  onMudarComentario: (texto: string) => void;
+  /** Sem ele, o interruptor "Favoritar" não aparece. */
+  onMudarFavoritar?: (valor: boolean) => void;
+  onEnviar: () => void;
+  onVoltar: () => void;
+}
+
+/** V2b: avaliação recebida, para a lista. */
+export interface AvaliacaoParaExibir {
+  id: string;
+  /** `null`: perfil indisponível. */
+  autor: string | null;
+  nota: number;
+  papelDoAvaliado: PapelDoAvaliado;
+  /** Códigos da API. */
+  destaques: readonly string[];
+  comentario: string | null;
+  dataFormatada: string;
+}
+
+export interface PropsDaListaDeAvaliacoes {
+  /** Nome de quem recebeu, para o título falado; opcional. */
+  nome?: string | null;
+  resumo?: NotaParaExibir | null;
+  lista: Estado<readonly AvaliacaoParaExibir[]>;
+  semConexao?: boolean;
+  carregarMais?: {
+    carregando: boolean;
+    erro?: string;
+    onCarregarMais: () => void;
+  };
+  onVoltar: () => void;
 }

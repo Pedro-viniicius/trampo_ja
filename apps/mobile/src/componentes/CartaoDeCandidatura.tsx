@@ -5,6 +5,7 @@ import { cores, espaco, raio, sombra, toqueMinimo } from '../tema/tokens';
 import { textos } from '../textos/pt-BR';
 import { Avatar } from './Avatar';
 import { Botao } from './Botao';
+import { Estrelas } from './Estrelas';
 import { Motivo } from './Motivo';
 import { Selo, type VarianteDoSelo } from './Selo';
 import { estiloDeFoco, useFoco } from './utilitarios';
@@ -48,6 +49,8 @@ export type PropsDoCartaoDeCandidatura = {
   abrindoConversa?: boolean;
   /** Por que o "Conversar" está desabilitado; aparece abaixo do botão. */
   motivoDaConversa?: string | null;
+  /** V2b (CA97): nota de quem se candidatou; sem avaliações, não aparece. */
+  nota?: { media: number; total: number } | null;
 };
 
 export function CartaoDeCandidatura({
@@ -65,6 +68,7 @@ export function CartaoDeCandidatura({
   onConversar,
   abrindoConversa = false,
   motivoDaConversa = null,
+  nota,
 }: PropsDoCartaoDeCandidatura) {
   const [linhas, setLinhas] = useState<number | null>(null);
   const [expandida, setExpandida] = useState(false);
@@ -99,6 +103,9 @@ export function CartaoDeCandidatura({
           >
             {exibido}
           </Text>
+          {nota && nota.total > 0 ? (
+            <Estrelas media={nota.media} total={nota.total} />
+          ) : null}
           <SeloDeCandidatura status={status} />
         </View>
       </View>

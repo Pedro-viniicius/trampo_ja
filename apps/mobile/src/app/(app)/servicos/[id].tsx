@@ -218,7 +218,16 @@ function ServicoComAutor({
       semConexao={semConexao}
       onVoltar={onVoltar}
       onAbrirAutor={(contaId) =>
-        router.push({ pathname: '/perfis/[contaId]', params: { contaId } })
+        router.push({
+          pathname: '/perfis/[contaId]',
+          // O autor abrindo o próprio perfil não favorita a si mesmo. Sem a
+          // lista dos meus serviços (carregando ou falhou), não dá para saber
+          // se o perfil é o próprio: na dúvida, sem "Favoritar" (R12).
+          params:
+            ehMeu || meusServicos.servicos === null
+              ? { contaId, propria: '1' }
+              : { contaId },
+        })
       }
     />
   );

@@ -9,6 +9,7 @@ import {
   type MotivoDaSaida,
   useAcoesDoAnuncio,
 } from '../../../estado/acoes-do-anuncio';
+import { notaDoResumo } from '../../../estado/avaliacoes-para-exibir';
 import {
   avisarAoVoltar,
   type ChaveDeAvisoDeRetorno,
@@ -17,6 +18,7 @@ import {
 import { useConexao } from '../../../estado/conexao';
 import { useConversar } from '../../../estado/consultas/abrir-conversa';
 import { useTrampo } from '../../../estado/consultas/anuncios';
+import { useResumosDeAvaliacoes } from '../../../estado/consultas/avaliacoes';
 import { useCategorias } from '../../../estado/consultas/busca';
 import {
   useCandidatar,
@@ -160,6 +162,8 @@ function TrampoComAutor({
   const { geracao } = useSessao();
   const abrirEdicao = useNavegarUmaVez();
   const consultaDoAutor = usePerfilPublico(trampo.autorId);
+  // CA97: a nota do autor (como contratante), num pedido só.
+  const { resumos } = useResumosDeAvaliacoes([trampo.autorId]);
   const autor = estadoDeConsulta(
     { ...consultaDoAutor, dados: consultaDoAutor.perfil },
     (perfil) => perfil,
@@ -218,6 +222,7 @@ function TrampoComAutor({
     <DetalheDoTrampo
       estado={estado}
       autor={autor}
+      notaDoAutor={notaDoResumo(resumos.get(trampo.autorId), 'contratante')}
       // Excluído: o rodapé não pisca antes de sair.
       rodape={
         saida === null ? (
@@ -266,7 +271,10 @@ function TrampoComAutor({
       semConexao={semConexao}
       onVoltar={onVoltar}
       onAbrirAutor={(contaId) =>
-        router.push({ pathname: '/perfis/[contaId]', params: { contaId } })
+        router.push({
+          pathname: '/perfis/[contaId]',
+          params: { contaId, papel: 'contratante' },
+        })
       }
     />
   );

@@ -1,11 +1,21 @@
 import { useIsFocused, useRouter } from 'expo-router';
+import { useState } from 'react';
 import type { Categoria, ItemDaBusca } from '../../../api/tipos';
+import { notaDoResumo } from '../../../estado/avaliacoes-para-exibir';
 import { useAvisoDeRetorno } from '../../../estado/aviso-de-retorno';
 import { useConexao } from '../../../estado/conexao';
+import { useConversarPorConta } from '../../../estado/consultas/abrir-conversa';
 import { useMeusTrampos } from '../../../estado/consultas/anuncios';
+import {
+  useFavoritos,
+  useResumosDeAvaliacoes,
+} from '../../../estado/consultas/avaliacoes';
 import { useCategorias, useRecentes } from '../../../estado/consultas/busca';
 import { useMinhasCandidaturas } from '../../../estado/consultas/candidaturas';
-import { useMeuPerfil } from '../../../estado/consultas/perfil';
+import {
+  useMeuPerfil,
+  usePerfisPublicos,
+} from '../../../estado/consultas/perfil';
 import { mensagemDoErro } from '../../../estado/erros';
 import { estadoDeConsulta } from '../../../estado/estado-de-bloco';
 import { formatarData } from '../../../estado/formatacao';
@@ -17,6 +27,7 @@ import { InicioDoContratante } from '../../../telas/InicioDoContratante';
 import type {
   DemandaParaExibir,
   Estado,
+  FavoritoParaExibir,
   ItemParaExibir,
 } from '../../../telas/tipos';
 
@@ -127,6 +138,46 @@ function InicioDoFreela() {
 }
 
 /**
+ * Quantas pessoas da equipe favorita o Início mostra: as 20 mais recentes
+ * (a API devolve da mais recente para a mais antiga). Limita os pedidos de
+ * perfil (um por pessoa) e de resumos.
+ */
+const LIMITE_DA_EQUIPE_NO_INICIO = 20;
+
+/**
+ * Equipe favorita (CA98): `GET /favoritos`, o nome de cada pessoa de
+ * `GET /perfis/:id` (com cache) e a nota dela como freela num pedido só de
+ * resumos (CA97), só das `LIMITE_DA_EQUIPE_NO_INICIO` mais recentes. Perfil
+ * indisponível (404) fica de fora: não há com quem conversar. A tela só mostra
+ * a seção com pelo menos uma pessoa.
+ */
+function useEquipeFavorita(): Estado<readonly FavoritoParaExibir[]> {
+  const { favoritos: todos } = useFavoritos();
+  const favoritos = todos?.slice(0, LIMITE_DA_EQUIPE_NO_INICIO) ?? null;
+  const ids = (favoritos ?? []).map((favorito) => favorito.contaId);
+  const perfis = usePerfisPublicos(ids);
+  const { resumos } = useResumosDeAvaliacoes(ids);
+  if (favoritos === null) {
+    return { situacao: 'carregando' };
+  }
+  return {
+    situacao: 'ok',
+    dados: favoritos.flatMap((favorito): FavoritoParaExibir[] => {
+      const perfil = perfis.get(favorito.contaId);
+      return perfil
+        ? [
+            {
+              contaId: favorito.contaId,
+              nome: perfil.nome,
+              nota: notaDoResumo(resumos.get(favorito.contaId), 'freela'),
+            },
+          ]
+        : [];
+    }),
+  };
+}
+
+/**
  * Início do contratante (CA82): as demandas abertas de `/trampos/meus` (a
  * mesma chave de cache da aba Demandas), com os interessados de
  * `candidaturasRecebidas`. Sem conexão e sem nada carregado, a consulta fica
@@ -138,6 +189,18 @@ function InicioDoContratanteRota() {
   const meuPerfil = useMeuPerfil();
   const consulta = useMeusTrampos();
   const aviso = useAvisoDeRetorno(useIsFocused());
+  const equipe = useEquipeFavorita();
+  const conversa = useConversarPorConta(!online);
+  // A falha ao abrir a conversa e o motivo da recusa da conta tocada (sem
+  // vínculo, sem conexão) viram o toast. Cada toque zera o texto dispensado:
+  // a mesma mensagem numa nova falha aparece de novo.
+  const [alvoDaConversa, setAlvoDaConversa] = useState<string | null>(null);
+  const [textoDispensado, setTextoDispensado] = useState<string | null>(null);
+  const textoDaConversa =
+    conversa.falha ??
+    (alvoDaConversa === null ? null : conversa.motivoDe(alvoDaConversa));
+  const avisoDaConversa =
+    textoDaConversa !== textoDispensado ? textoDaConversa : null;
 
   const demandas: Estado<readonly DemandaParaExibir[]> = estadoDeConsulta(
     {
@@ -170,8 +233,24 @@ function InicioDoContratanteRota() {
       // andamento, o vazio diz "Nenhuma demanda aberta", não "ainda não publicou".
       temDemandas={(consulta.trampos?.length ?? 0) > 0}
       semConexao={!online}
-      toast={aviso.texto}
-      onFecharToast={aviso.limpar}
+      toast={aviso.texto ?? avisoDaConversa}
+      onFecharToast={() => {
+        aviso.limpar();
+        setTextoDispensado(textoDaConversa);
+      }}
+      equipe={equipe}
+      onVerPerfilDaEquipe={(contaId) =>
+        router.push({
+          pathname: '/perfis/[contaId]',
+          params: { contaId, papel: 'freela' },
+        })
+      }
+      // CA98: abre (ou cria) a conversa com a pessoa da equipe.
+      onRecontratar={(contaId) => {
+        setAlvoDaConversa(contaId);
+        setTextoDispensado(null);
+        conversa.conversar(contaId);
+      }}
       onNovaDemanda={() => router.push('/trampos/novo')}
       onVerDemandas={() => router.navigate('/demandas')}
       onVerCandidatos={(id) =>
