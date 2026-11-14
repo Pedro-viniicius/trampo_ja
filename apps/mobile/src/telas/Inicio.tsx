@@ -27,6 +27,7 @@ import type {
   Estado,
   ItemParaExibir,
   PropsDoInicio,
+  ResumoDasCandidaturas,
   TipoDeAnuncio,
 } from './tipos';
 
@@ -45,7 +46,7 @@ export function Inicio({
   onAbrirItem,
   onCompletarPerfil,
   onMinhasCandidaturas,
-  candidaturasEmAnalise,
+  candidaturas,
   onDicas,
   toast,
   onFecharToast,
@@ -90,13 +91,7 @@ export function Inicio({
           {onMinhasCandidaturas ? (
             <CartaoDeDestaque
               sobretitulo={textos.inicioFreela.destaque}
-              titulo={
-                candidaturasEmAnalise == null
-                  ? textos.inicioFreela.acompanhe
-                  : candidaturasEmAnalise > 0
-                    ? textos.inicioFreela.emAnalise(candidaturasEmAnalise)
-                    : textos.inicioFreela.semCandidaturas
-              }
+              titulo={tituloDoDestaque(candidaturas)}
               acao={{
                 texto: textos.inicio.minhasCandidaturas,
                 onPress: onMinhasCandidaturas,
@@ -134,6 +129,25 @@ export function Inicio({
       />
     </Pagina>
   );
+}
+
+/**
+ * Título do destaque "Suas candidaturas" (F1): o convite enquanto carrega,
+ * "{n} em análise" com pendentes e, sem pendentes, "Você ainda não se
+ * candidatou" só para quem não tem nenhuma candidatura.
+ */
+function tituloDoDestaque(
+  candidaturas: ResumoDasCandidaturas | null | undefined,
+): string {
+  if (candidaturas == null) {
+    return textos.inicioFreela.acompanhe;
+  }
+  if (candidaturas.emAnalise > 0) {
+    return textos.inicioFreela.emAnalise(candidaturas.emAnalise);
+  }
+  return candidaturas.total > 0
+    ? textos.meusTrampos.vazioAnalise
+    : textos.inicioFreela.semCandidaturas;
 }
 
 /** Pílula com cara de campo de busca: abre a tela de busca. */

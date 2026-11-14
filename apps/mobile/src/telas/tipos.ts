@@ -157,6 +157,14 @@ export interface PropsDeCadastro {
   onEscolherObjetivo?: (modo: ModoDoApp) => void;
 }
 
+/** Contagem das candidaturas do freela para o destaque do Início (F1). */
+export interface ResumoDasCandidaturas {
+  /** Todas, em qualquer status. */
+  readonly total: number;
+  /** Só as pendentes. */
+  readonly emAnalise: number;
+}
+
 export interface PropsDoInicio {
   /** Sem nome (perfil ainda vazio), a saudação é "Olá!". */
   nome?: string;
@@ -175,10 +183,12 @@ export interface PropsDoInicio {
   onOfertarServico?: () => void;
   onMinhasCandidaturas?: () => void;
   /**
-   * V2: candidaturas pendentes, para o destaque "{n} em análise" (mesma chave
-   * de cache de Meus trampos). Sem o número, o destaque mostra um convite.
+   * V2: as candidaturas da pessoa (mesma chave de cache de Meus trampos), para
+   * o destaque: "{n} em análise" com pendentes; "Nenhuma candidatura em
+   * análise" com candidaturas, mas nenhuma pendente; "Você ainda não se
+   * candidatou" só sem nenhuma (F1). Sem o resumo, o destaque mostra um convite.
    */
-  candidaturasEmAnalise?: number | null;
+  candidaturas?: ResumoDasCandidaturas | null;
   /** V2: cartão de Dicas & minicursos no fim do Início. */
   onDicas?: () => void;
   /** L4: aviso de retorno (ex.: "Trampo excluído."). */

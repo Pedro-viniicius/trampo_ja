@@ -242,18 +242,38 @@ describe('Início', () => {
       ).toHaveLength(1);
     });
 
-    it('sem candidaturas pendentes, o destaque diz que não há nenhuma em análise', async () => {
-      await abrir('/', (f) => {
+    it('com candidaturas, mas nenhuma pendente, o destaque diz que não há nenhuma em análise (F1)', async () => {
+      const { fetch } = await abrir('/', (f) => {
         f.responder('GET /perfis/eu', { corpo: meuPerfil });
         f.responder('GET /busca', pagina([], null));
         f.responder('GET /candidaturas/minhas', {
-          corpo: [minha('2', 'aceita')],
+          corpo: [minha('2', 'aceita'), minha('4', 'recusada')],
         });
+      });
+
+      expect(
+        await screen.findByText(textos.meusTrampos.vazioAnalise),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByText(textos.inicioFreela.semCandidaturas),
+      ).toBeNull();
+      expect(screen.queryByText(/^\d+ em análise$/)).toBeNull();
+      expect(
+        fetch.requisicoes.filter((r) => r.caminho === '/candidaturas/minhas'),
+      ).toHaveLength(1);
+    });
+
+    it('sem nenhuma candidatura, o destaque diz que a pessoa ainda não se candidatou', async () => {
+      await abrir('/', (f) => {
+        f.responder('GET /perfis/eu', { corpo: meuPerfil });
+        f.responder('GET /busca', pagina([], null));
+        f.responder('GET /candidaturas/minhas', { corpo: [] });
       });
 
       expect(
         await screen.findByText(textos.inicioFreela.semCandidaturas),
       ).toBeOnTheScreen();
+      expect(screen.queryByText(textos.meusTrampos.vazioAnalise)).toBeNull();
       expect(screen.queryByText(/em análise/)).toBeNull();
     });
 

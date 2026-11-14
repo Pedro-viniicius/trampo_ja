@@ -563,7 +563,12 @@ export const textos = {
     avaliarProfissional: 'Avaliar profissional',
     /** Rótulo falado dos botões "Avaliar" dos cartões. */
     avaliarDe: (titulo: string): string => `Avaliar ${titulo}`,
-    avaliadoCom: (n: number): string => `Avaliado com ${n} ★`,
+    /**
+     * Selo "Avaliado com N ★": o texto e a estrela vão separados, para a
+     * estrela nunca cair sozinha na linha de baixo (F2, etapa 12).
+     */
+    avaliadoComNota: (n: number): string => `Avaliado com ${n}`,
+    estrela: '★',
     avaliadoComFalado: (n: number): string =>
       `Avaliado com ${n} ${plural(n, 'estrela', 'estrelas')}`,
     semConexaoMotivo: 'Sem conexão. Conecte-se para enviar a avaliação.',

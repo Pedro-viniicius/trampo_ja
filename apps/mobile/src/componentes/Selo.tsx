@@ -27,6 +27,12 @@ export type PropsDoSelo = {
   icone?: NomeDeIcone;
   /** Selo só visual, quando o mesmo dado já é falado no cartão. */
   decorativo?: boolean;
+  /**
+   * Fim do texto que nunca pode ficar sozinho numa linha (ex.: a "★" de
+   * "Avaliado com 5 ★"). Vai num `Text` à parte, que não encolhe: o texto
+   * principal quebra antes, e o sufixo fica ao lado da última linha.
+   */
+  sufixo?: string;
 };
 
 const { sucesso, erro, alerta, informacao } = cores.feedback;
@@ -68,12 +74,21 @@ export function Selo({
   texto,
   icone,
   decorativo = false,
+  sufixo,
 }: PropsDoSelo) {
   const cor = aparencia[variante];
+  const estiloDoTexto = [
+    estiloDeTexto('sobretitulo', 'negrito'),
+    { color: cor.texto, textTransform: 'none', letterSpacing: 0 } as const,
+  ];
   return (
     <View
       accessible={!decorativo}
-      accessibilityLabel={decorativo ? undefined : textos.gerais.status(texto)}
+      accessibilityLabel={
+        decorativo
+          ? undefined
+          : textos.gerais.status(sufixo ? `${texto} ${sufixo}` : texto)
+      }
       accessibilityElementsHidden={decorativo}
       importantForAccessibility={decorativo ? 'no-hide-descendants' : 'auto'}
       style={{
@@ -89,19 +104,24 @@ export function Selo({
       }}
     >
       <Feather name={icone ?? cor.icone} size={14} color={cor.texto} />
-      <Text
-        style={[
-          estiloDeTexto('sobretitulo', 'negrito'),
-          {
-            color: cor.texto,
-            textTransform: 'none',
-            letterSpacing: 0,
+      {sufixo ? (
+        // Texto e sufixo numa linha própria, alinhada pela base: com o texto
+        // em duas linhas, o sufixo desce junto com a última; numa linha só,
+        // os dois têm a mesma altura e ficam centrados com o ícone.
+        <View
+          style={{
             flexShrink: 1,
-          },
-        ]}
-      >
-        {texto}
-      </Text>
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            gap: espaco.xs,
+          }}
+        >
+          <Text style={[estiloDoTexto, { flexShrink: 1 }]}>{texto}</Text>
+          <Text style={[estiloDoTexto, { flexShrink: 0 }]}>{sufixo}</Text>
+        </View>
+      ) : (
+        <Text style={[estiloDoTexto, { flexShrink: 1 }]}>{texto}</Text>
+      )}
     </View>
   );
 }

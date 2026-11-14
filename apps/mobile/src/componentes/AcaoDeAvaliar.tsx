@@ -36,7 +36,10 @@ export function AcaoDeAvaliar({
         <Selo
           variante="alerta"
           icone="star"
-          texto={textos.avaliar.avaliadoCom(notaDada)}
+          // A "★" vai à parte, como sufixo, para nunca cair sozinha na linha
+          // de baixo (F2, etapa 12).
+          texto={textos.avaliar.avaliadoComNota(notaDada)}
+          sufixo={textos.avaliar.estrela}
           decorativo
         />
       </View>

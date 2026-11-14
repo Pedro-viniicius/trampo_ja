@@ -56,6 +56,21 @@ function Contador({ n, ativo }: { n: number; ativo: boolean }) {
   );
 }
 
+/** Folga entre o trilho e as abas, nos quatro lados e entre as abas. */
+const FOLGA_DO_TRILHO = 4;
+/**
+ * Raio da aba: metade do alvo de toque, então numa linha a aba é uma pílula.
+ * Se ela crescer (contador abaixo do rótulo), vira retângulo arredondado.
+ */
+const RAIO_DA_ABA = toqueMinimo / 2;
+/**
+ * Raio do trilho, concêntrico ao da aba (R1, etapa 12). Numa linha, o trilho
+ * também é uma pílula; em duas linhas, os cantos seguem as abas dos cantos e
+ * nenhuma vaza do fundo (com `raio.pill`, o Android limitava o raio do trilho
+ * alto e a aba ativa do canto saía para fora).
+ */
+const RAIO_DO_TRILHO = RAIO_DA_ABA + FOLGA_DO_TRILHO;
+
 function ItemSegmentado<C extends string>({
   item,
   ativo,
@@ -76,26 +91,39 @@ function ItemSegmentado<C extends string>({
       onBlur={aoDesfocar}
       style={[
         {
-          flex: 1,
+          // Largura pelo conteúdo, e o que sobra é dividido igual (F3, etapa
+          // 12): com fonte padrão, os três rótulos de Meus trampos cabem
+          // inteiros em 411 dp, em vez de um terço fixo para cada aba.
+          flexGrow: 1,
+          flexShrink: 1,
+          flexBasis: 'auto',
           minHeight: toqueMinimo,
+          // Com `flexWrap`, o Yoga empilha as linhas no topo
+          // (`alignContent: 'flex-start'`); `center` mantém o rótulo no meio
+          // da aba, vertical e horizontalmente.
           flexDirection: 'row',
+          flexWrap: 'wrap',
+          alignContent: 'center',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: espaco.xs + 2,
-          paddingHorizontal: espaco.s,
-          borderRadius: raio.pill,
+          columnGap: espaco.xs + 2,
+          rowGap: espaco.xs,
+          paddingHorizontal: espaco.xs,
+          paddingVertical: espaco.xs,
+          borderRadius: RAIO_DA_ABA,
           backgroundColor: ativo ? cores.branco : 'transparent',
         },
         ativo ? sombra.sm : null,
         focado && estiloDeFoco,
       ]}
     >
+      {/* Sem `numberOfLines`: com fonte grande, quebra em vez de cortar. */}
       <Text
-        numberOfLines={1}
         style={[
           estiloDeTexto('corpo', ativo ? 'negrito' : 'semibold'),
           {
             flexShrink: 1,
+            textAlign: 'center',
             color: ativo ? cores.tinta[900] : cores.tinta[600],
           },
         ]}
@@ -109,7 +137,11 @@ function ItemSegmentado<C extends string>({
   );
 }
 
-/** Abas em trilho cinza com a ativa em branco (Meus trampos, Perfil). 2 ou 3 itens. */
+/**
+ * Abas em trilho cinza com a ativa em branco (Meus trampos, Perfil). 2 ou 3 itens.
+ * Se os rótulos não cabem numa linha (fonte grande ou tela estreita), a aba que
+ * sobra desce para uma segunda linha do trilho; nenhum rótulo é cortado.
+ */
 export function AbasSegmentadas<C extends string>({
   itens,
   selecionada,
@@ -121,11 +153,14 @@ export function AbasSegmentadas<C extends string>({
       accessibilityRole="tablist"
       accessibilityLabel={rotulo}
       style={{
-        minHeight: 56,
+        // Altura = aba (48) + folgas: sem `minHeight` próprio, o trilho nunca
+        // fica mais alto que as abas. Numa linha, as abas esticam até a mais
+        // alta (`alignItems` padrão), então todas têm a mesma altura.
         flexDirection: 'row',
-        padding: 4,
-        gap: 4,
-        borderRadius: raio.pill,
+        flexWrap: 'wrap',
+        padding: FOLGA_DO_TRILHO,
+        gap: FOLGA_DO_TRILHO,
+        borderRadius: RAIO_DO_TRILHO,
         backgroundColor: cores.tinta[100],
       }}
     >

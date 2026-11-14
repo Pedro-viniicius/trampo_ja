@@ -127,10 +127,14 @@ function InicioDoFreela() {
       }
       onMinhasCandidaturas={() => router.navigate('/meus-trampos')}
       // A mesma chave de cache do Perfil e de Meus trampos (R3).
-      candidaturasEmAnalise={
+      candidaturas={
         candidaturas === null
           ? null
-          : candidaturas.filter((c) => c.status === 'pendente').length
+          : {
+              total: candidaturas.length,
+              emAnalise: candidaturas.filter((c) => c.status === 'pendente')
+                .length,
+            }
       }
       onDicas={() => router.push('/dicas')}
     />

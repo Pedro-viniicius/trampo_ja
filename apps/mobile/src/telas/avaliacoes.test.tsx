@@ -321,7 +321,8 @@ describe('CA96: "Avaliar" nas listas', () => {
     );
     expect(avaliarItem).toHaveBeenCalledWith(pendente);
     expect(
-      screen.getByText('Avaliado com 4 ★', { includeHiddenElements: true }),
+      // A "★" vai num Text à parte (F2, etapa 12).
+      screen.getByText('Avaliado com 4', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
     expect(
       screen.getByLabelText(textos.avaliar.avaliadoComFalado(4)),

@@ -360,6 +360,44 @@ describe('Inicio', () => {
     expect(screen.queryByText(textos.inicio.publicarTrampo)).toBeNull();
     expect(screen.queryByText(textos.inicio.ofertarServico)).toBeNull();
   });
+
+  it('F1: o título do destaque segue o resumo das candidaturas', async () => {
+    const destaque = (
+      candidaturas: {
+        total: number;
+        emAnalise: number;
+      } | null,
+    ) => (
+      <Inicio
+        {...base}
+        onMinhasCandidaturas={noop}
+        candidaturas={candidaturas}
+      />
+    );
+
+    await render(destaque(null));
+    expect(screen.getByText(textos.inicioFreela.acompanhe)).toBeOnTheScreen();
+    await screen.unmount();
+
+    await render(destaque({ total: 0, emAnalise: 0 }));
+    expect(
+      screen.getByText(textos.inicioFreela.semCandidaturas),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(textos.meusTrampos.vazioAnalise)).toBeNull();
+    await screen.unmount();
+
+    await render(destaque({ total: 3, emAnalise: 0 }));
+    expect(screen.getByText(textos.meusTrampos.vazioAnalise)).toBeOnTheScreen();
+    expect(screen.queryByText(textos.inicioFreela.semCandidaturas)).toBeNull();
+    await screen.unmount();
+
+    await render(destaque({ total: 4, emAnalise: 2 }));
+    expect(
+      screen.getByText(textos.inicioFreela.emAnalise(2)),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(textos.inicioFreela.semCandidaturas)).toBeNull();
+    expect(screen.queryByText(textos.meusTrampos.vazioAnalise)).toBeNull();
+  });
 });
 
 describe('Buscar', () => {
