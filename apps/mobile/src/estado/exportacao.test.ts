@@ -32,13 +32,17 @@ jest.mock('expo-file-system', () => {
     get exists(): boolean {
       return mockDisco.has(this.uri);
     }
-    write(conteudo: string): void {
+    writeSync(conteudo: string): void {
       if (mockFalhas.gravar !== undefined) {
         // Gravação interrompida no meio: sobra um pedaço do arquivo.
         mockDisco.set(this.uri, conteudo.slice(0, 5));
         throw mockFalhas.gravar;
       }
       mockDisco.set(this.uri, conteudo);
+    }
+    /** No SDK 58 `write` é assíncrono: o código usa `writeSync` (CA7). */
+    write(): never {
+      throw new Error('write assíncrono: use writeSync');
     }
     delete(): void {
       if (mockFalhas.apagar !== undefined) {
@@ -143,6 +147,27 @@ describe('compartilharExportacao (CA19)', () => {
     expect(vistoPelaFolha).toEqual([JSON.stringify(DADOS)]);
     expect(JSON.parse(vistoPelaFolha[0] ?? '')).toEqual(DADOS);
     expect(mockDisco.size).toBe(0);
+  });
+
+  it('grava com writeSync: o arquivo está completo antes de a folha abrir (CA7)', async () => {
+    const { File } =
+      jest.requireMock<typeof import('expo-file-system')>('expo-file-system');
+    const writeSync = jest.spyOn(File.prototype, 'writeSync');
+    const write = jest.spyOn(File.prototype, 'write');
+    try {
+      await compartilharExportacao(DADOS, AGORA);
+
+      expect(writeSync).toHaveBeenCalledTimes(1);
+      expect(write).not.toHaveBeenCalled();
+      expect(writeSync.mock.invocationCallOrder[0]).toBeLessThan(
+        compartilhar.mock.invocationCallOrder[0] ?? 0,
+      );
+      expect(vistoPelaFolha).toEqual([JSON.stringify(DADOS)]);
+      expect(mockDisco.size).toBe(0);
+    } finally {
+      writeSync.mockRestore();
+      write.mockRestore();
+    }
   });
 
   it('sem folha no aparelho devolve indisponivel e não grava nada', async () => {

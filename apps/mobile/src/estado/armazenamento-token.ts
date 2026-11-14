@@ -53,7 +53,11 @@ export function marcadorEmDocumentos(): MarcadorDeInstalacao {
       return new File(Paths.document, NOME_DO_MARCADOR).exists;
     },
     criar() {
-      new File(Paths.document, NOME_DO_MARCADOR).write(CONTEUDO_DO_MARCADOR);
+      // `writeSync`: desde o SDK 58, `write` devolve uma promessa. O marcador
+      // precisa existir quando `criar` volta, e a falha precisa sair daqui.
+      new File(Paths.document, NOME_DO_MARCADOR).writeSync(
+        CONTEUDO_DO_MARCADOR,
+      );
     },
   };
 }

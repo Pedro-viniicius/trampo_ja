@@ -1,8 +1,8 @@
 import { useFonts } from 'expo-font';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { FaixaSemConexao } from '../componentes/FaixaSemConexao';
@@ -35,9 +35,10 @@ export function NavegacaoRaiz() {
   const router = useRouter();
   // Sem sessão, uma rota de `(app)` leva à Entrada (a âncora de `(publico)`);
   // se já houve sessão neste uso do app (401 ou sair), leva ao login, onde
-  // aparece o aviso de sessão expirada (CA14). O `Stack.Protected` do SDK 57
-  // não tem `redirectTo`: o destino do login é navegado aqui, por cima da
-  // Entrada, para o "Voltar" do login continuar levando a ela.
+  // aparece o aviso de sessão expirada (CA14). Quem leva é o `redirectTo` do
+  // `Stack.Protected` (SDK 58): no 58, a tela protegida focada redireciona
+  // sozinha e venceria um `navigate` feito aqui. O login entra por cima da
+  // Entrada, e o "Voltar" do login leva a ela.
   const [houveSessao, setHouveSessao] = useState(false);
   // A faixa ocupa a margem segura de cima; enquanto aparece, as telas recebem
   // `top: 0` para o `Cabecalho` não somar a margem de novo.
@@ -58,9 +59,18 @@ export function NavegacaoRaiz() {
     }
   }, [status]);
 
+  // Numa rota fora dos dois grupos (documentos legais), o `redirectTo` não
+  // age: o login é navegado aqui. Dentro de `(app)`, quem leva é o
+  // `redirectTo`; navegar também aqui disputaria com ele. Só na transição
+  // para "sem sessão": o grupo é lido nesse momento (ref), e abrir um
+  // documento depois, pela Entrada ou pelo Cadastro, não leva ao login.
+  const grupo = useSegments()[0];
+  const grupoRef = useRef(grupo);
+  grupoRef.current = grupo;
   const aoPerderASessao = status === 'anonimo' && houveSessao;
   useEffect(() => {
-    if (aoPerderASessao) {
+    const atual = grupoRef.current;
+    if (aoPerderASessao && atual !== '(app)' && atual !== '(publico)') {
       router.navigate('/entrar');
     }
   }, [aoPerderASessao, router]);
@@ -85,7 +95,10 @@ export function NavegacaoRaiz() {
             <Stack.Protected guard={status === 'anonimo'}>
               <Stack.Screen name="(publico)" />
             </Stack.Protected>
-            <Stack.Protected guard={status === 'autenticado'}>
+            <Stack.Protected
+              guard={status === 'autenticado'}
+              redirectTo={houveSessao ? '/entrar' : '/entrada'}
+            >
               <Stack.Screen name="(app)" />
             </Stack.Protected>
           </Stack>

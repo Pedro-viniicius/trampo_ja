@@ -153,6 +153,39 @@ async function candidatarNoDetalhe() {
   await waitFor(() => expect(screen).toHavePathname('/candidatura-enviada'));
 }
 
+/**
+ * O `stackPresentation` da tela nativa (`RNSScreen` ou, se modal,
+ * `RNSModalScreen`) mais interna que mostra "Candidatura enviada".
+ */
+function apresentacaoDaCandidaturaEnviada(arvore: unknown): unknown {
+  type No = {
+    type?: unknown;
+    props?: Record<string, unknown>;
+    children?: unknown[] | null;
+  };
+  const contem = (no: unknown): boolean => {
+    if (typeof no === 'string') return no === textos.candidaturaEnviada.titulo;
+    if (Array.isArray(no)) return no.some(contem);
+    if (typeof no !== 'object' || no === null) return false;
+    return contem((no as No).children ?? []);
+  };
+  let achada: Record<string, unknown> | undefined;
+  const visitar = (no: unknown) => {
+    if (Array.isArray(no)) {
+      for (const filho of no) visitar(filho);
+      return;
+    }
+    if (typeof no !== 'object' || no === null) return;
+    const { type, props, children } = no as No;
+    const tela = type === 'RNSScreen' || type === 'RNSModalScreen';
+    if (tela && contem(children ?? [])) achada = props;
+    visitar(children ?? []);
+  };
+  visitar(arvore);
+  if (achada === undefined) throw new Error('tela nativa ausente');
+  return achada.stackPresentation;
+}
+
 /** Nomes das rotas na pilha de `(app)`, de baixo para cima. */
 function pilhaDoApp(rotas: RotasRenderizadas): string[] {
   type No = { routes?: { name: string; state?: No }[] };
@@ -307,6 +340,23 @@ describe('CA80: Candidatura enviada', () => {
     expect(
       await screen.findByText(textos.detalheTrampo.jaCandidatou),
     ).toBeOnTheScreen();
+  });
+
+  it('por cima do detalhe, cobre a tela inteira', async () => {
+    const rotas = await abrirDetalheAPartirDoInicio();
+    await candidatarNoDetalhe();
+    await screen.findByText(textos.candidaturaEnviada.titulo);
+
+    expect(apresentacaoDaCandidaturaEnviada(rotas.toJSON())).toBe(
+      'fullScreenModal',
+    );
+  });
+
+  it('aberta direto (primeira da pilha), é cartão e não pede modal', async () => {
+    const rotas = await abrir('/candidatura-enviada?trampoId=t1');
+    await screen.findByText(textos.candidaturaEnviada.titulo);
+
+    expect(apresentacaoDaCandidaturaEnviada(rotas.toJSON())).toBe('push');
   });
 
   it('aberta direto (sem pilha), voltar vai ao detalhe do trampo', async () => {

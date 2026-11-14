@@ -39,7 +39,11 @@ jest.mock('expo-file-system', () => {
     get exists(): boolean {
       return mockDisco.has(this.uri);
     }
-    write(conteudo: string): void {
+    /** No SDK 58 `write` é assíncrono: o código usa `writeSync` (CA7). */
+    write(): never {
+      throw new Error('write assíncrono: use writeSync');
+    }
+    writeSync(conteudo: string): void {
       mockGravacoes.push(this.uri);
       mockDisco.set(this.uri, conteudo);
     }

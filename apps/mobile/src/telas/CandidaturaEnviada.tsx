@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { type ComponentRef, useEffect, useRef } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -50,7 +50,7 @@ export function CandidaturaEnviada({
   onVoltar,
 }: PropsDaCandidaturaEnviada) {
   const margens = useMargensSeguras();
-  const titulo = useRef<Text>(null);
+  const titulo = useRef<ComponentRef<typeof Text>>(null);
 
   useEffect(() => {
     const no = findNodeHandle(titulo.current);

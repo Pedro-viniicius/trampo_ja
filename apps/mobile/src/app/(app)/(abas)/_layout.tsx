@@ -45,7 +45,10 @@ export default function LayoutDasAbas() {
     }
   }, [modoDaAba, modo, definirModo]);
 
-  const contratante = modo === 'contratante';
+  // A barra já sai no modo da aba focada, antes de o efeito gravar o modo:
+  // no SDK 58, a `Tabs` troca a aba focada escondida (`href: null`) pela
+  // inicial, e a aba que o link abriu se perderia.
+  const contratante = (modoDaAba ?? modo) === 'contratante';
   const soDoFreela = contratante ? ESCONDIDA : undefined;
   const soDoContratante = contratante ? undefined : ESCONDIDA;
 

@@ -32,6 +32,7 @@ jest.mock('expo-status-bar', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
+    ...jest.requireActual('expo-status-bar'),
     StatusBar: ({ style }: { style?: string }) =>
       React.createElement(Text, { testID: 'barra-de-status' }, style),
   };

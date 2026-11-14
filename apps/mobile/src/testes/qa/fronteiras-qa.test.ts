@@ -164,7 +164,7 @@ describe('D12, D14 e D52: bibliotecas e fonte', () => {
   });
 
   it('as fontes entram como dependências de versão fixa', () => {
-    expect(pacote.dependencies['expo-font']).toBe('57.0.4');
+    expect(pacote.dependencies['expo-font']).toBe('58.0.12');
     expect(pacote.dependencies['@expo-google-fonts/bricolage-grotesque']).toBe(
       '0.4.1',
     );

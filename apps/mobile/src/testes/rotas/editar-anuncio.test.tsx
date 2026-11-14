@@ -924,6 +924,21 @@ describe('Editar serviço (CA32)', () => {
       await screen.findByText('detalhe servico s1: sem aviso'),
     ).toBeOnTheScreen();
   });
+
+  it('o voltar do sistema (ação de navegação) também pergunta', async () => {
+    await abrirPeloDetalhe('servicos', 's1');
+    await screen.findByDisplayValue('Aulas de violão');
+    await digitar(t.titulo, 'Aulas de violão e canto');
+
+    await act(async () => {
+      router.back();
+    });
+
+    expect(await screen.findByText(a.descartarTitulo)).toBeOnTheScreen();
+    expect(screen).toHavePathname('/servicos/editar/s1');
+    await fireEvent.press(screen.getByRole('button', { name: a.descartar }));
+    await waitFor(() => expect(screen).toHavePathname('/servicos/s1'));
+  });
 });
 
 describe('o rascunho da edição não vaza (CA35)', () => {

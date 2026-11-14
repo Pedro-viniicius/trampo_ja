@@ -15,7 +15,11 @@ jest.mock('expo-router', () => {
   const Stack = () => <Marcador>app aberto</Marcador>;
   Stack.Protected = () => null;
   Stack.Screen = () => null;
-  return { Stack, useRouter: () => ({ navigate: jest.fn() }) };
+  return {
+    Stack,
+    useRouter: () => ({ navigate: jest.fn() }),
+    useSegments: () => [],
+  };
 });
 jest.mock('../estado/armazenamento-token', () => ({
   criarArmazenamentoSeguro: () => ({}),

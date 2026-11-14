@@ -2,7 +2,7 @@
 
 App mobile que conecta freelancers e empregadores. A visão do produto está em `docs/produto/visao.md`.
 
-Monorepo pnpm (Node 22, TypeScript estrito). A API fica em `apps/api` e o app mobile (Expo SDK 57) em `apps/mobile`.
+Monorepo pnpm (Node 22.13+, TypeScript estrito). A API fica em `apps/api` e o app mobile (Expo SDK 58) em `apps/mobile`.
 
 ## Comandos
 
@@ -141,9 +141,9 @@ do banco.
 
 ## App mobile (`apps/mobile`)
 
-Expo SDK 57 com Expo Router, React Native e TanStack Query. A exportação de dados usa `expo-sharing` (folha de
+Expo SDK 58 (React Native 0.88, React 19.3) com Expo Router e TanStack Query. A exportação de dados usa `expo-sharing` (folha de
 compartilhamento do sistema, dependência aprovada na D26) e `expo-file-system` (arquivo temporário), as duas na versão
-do SDK 57. Os testes usam jest-expo e a Testing Library, sem emulador nem serviço externo: a API é um `fetch` falso
+do SDK 58. Os testes usam jest-expo (Jest 30) e a Testing Library, sem emulador nem serviço externo: a API é um `fetch` falso
 (`src/testes/fetch-falso.ts`) e o token fica num armazenamento em memória.
 
 ### Ver no celular (Expo Go)
@@ -167,9 +167,8 @@ Cuidados:
   Expo (`--tunnel`) não resolve, porque expõe só o Metro, não a API.
 - **`TRUST_PROXY` não se aplica ao app.** É variável da API (`apps/api/.env`) e só importa com proxy reverso na
   frente dela. Com o celular falando direto com a API na rede local, deixe-a vazia.
-- **Expo Go só abre o SDK 57.** O app está no SDK 57 porque o Expo Go da App Store ainda não abre o 58; quando a
-  loja suportar o 58, o app sobe de versão (decisão D16). Se a loja passar do SDK do app, ele precisa de um
-  development build.
+- **Expo Go 58.** O app está no SDK 58, a versão que o Expo Go da loja abre (decisão 75, que substitui a D16). Se a
+  loja passar do SDK do app, ele precisa subir de versão ou de um development build. Node 22.13 ou mais novo.
 
 ### Verificação
 

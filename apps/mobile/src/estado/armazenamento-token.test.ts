@@ -22,6 +22,8 @@ jest.mock('expo-secure-store', () => ({
 
 // Disco falso: uri -> conteúdo. `mock*` pode ser lido dentro do `jest.mock`.
 const mockDisco = new Map<string, string>();
+/** Quando definido, o `writeSync` do disco falso lança este erro. */
+const mockFalhas: { gravar?: Error } = {};
 
 jest.mock('expo-file-system', () => {
   class File {
@@ -32,8 +34,15 @@ jest.mock('expo-file-system', () => {
     get exists(): boolean {
       return mockDisco.has(this.uri);
     }
-    write(conteudo: string): void {
+    writeSync(conteudo: string): void {
+      if (mockFalhas.gravar !== undefined) {
+        throw mockFalhas.gravar;
+      }
       mockDisco.set(this.uri, conteudo);
+    }
+    /** No SDK 58 `write` é assíncrono: o código usa `writeSync` (CA7). */
+    write(): never {
+      throw new Error('write assíncrono: use writeSync');
     }
   }
   return {
@@ -61,6 +70,7 @@ const cofre = new Map<string, string>();
 beforeEach(() => {
   jest.resetAllMocks();
   mockDisco.clear();
+  delete mockFalhas.gravar;
   cofre.clear();
   getItemAsync.mockImplementation(async (chave) => cofre.get(chave) ?? null);
   setItemAsync.mockImplementation(async (chave, valor) => {
@@ -470,6 +480,55 @@ describe('marcadorEmDocumentos', () => {
 
     cofre.set(CHAVE_DO_TOKEN, TOKEN_NOVO);
     await expect(criarArmazenamentoSeguro().ler()).resolves.toBe(TOKEN_NOVO);
+  });
+
+  it('grava com writeSync: o marcador existe quando criar volta (CA7)', () => {
+    const { File } =
+      jest.requireMock<typeof import('expo-file-system')>('expo-file-system');
+    const writeSync = jest.spyOn(File.prototype, 'writeSync');
+    const write = jest.spyOn(File.prototype, 'write');
+    try {
+      marcadorEmDocumentos().criar();
+
+      expect(mockDisco.get(URI_DO_MARCADOR)).toBe('1');
+      expect(writeSync).toHaveBeenCalledTimes(1);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      writeSync.mockRestore();
+      write.mockRestore();
+    }
+  });
+
+  it('a falha da gravação sai de criar e o adaptador a trata como hoje (CA7)', async () => {
+    const falha = new Error('disco cheio');
+    mockFalhas.gravar = falha;
+    cofre.set(CHAVE_DO_TOKEN, TOKEN);
+    cofre.set(CHAVE_DA_CONTA, CONTA);
+
+    expect(() => marcadorEmDocumentos().criar()).toThrow(falha);
+    // O secure-store fica limpo e a operação segue, sem marcador.
+    await expect(criarArmazenamentoSeguro().ler()).resolves.toBeNull();
+    expect(cofre.size).toBe(0);
+    expect(mockDisco.has(URI_DO_MARCADOR)).toBe(false);
+
+    // Na próxima execução, sem o marcador, o token gravado é descartado.
+    cofre.set(CHAVE_DO_TOKEN, TOKEN_NOVO);
+    await expect(criarArmazenamentoSeguro().ler()).resolves.toBeNull();
+  });
+
+  it('o marcador está gravado antes de o token novo ser gravado (CA7)', async () => {
+    let marcadorAoGravarOToken: boolean | undefined;
+    setItemAsync.mockImplementation(async (chave, valor) => {
+      if (chave === CHAVE_DO_TOKEN) {
+        marcadorAoGravarOToken = mockDisco.has(URI_DO_MARCADOR);
+      }
+      cofre.set(chave, valor);
+    });
+
+    await criarArmazenamentoSeguro().gravar(TOKEN, CONTA);
+
+    expect(marcadorAoGravarOToken).toBe(true);
+    expect(cofre.get(CHAVE_DO_TOKEN)).toBe(TOKEN);
   });
 });
 

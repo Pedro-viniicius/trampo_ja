@@ -208,6 +208,34 @@ describe('o documento aberto quando a sessão cai', () => {
   });
 });
 
+describe.each(DOCUMENTOS)(
+  '$nome depois que a sessão caiu',
+  ({ caminho, link }) => {
+    it.each(['/entrada', '/cadastro'] as const)(
+      'abre por %s e fica aberto: o login não volta a ser forçado',
+      async (origem) => {
+        const fetch = criarFake().responder('GET /busca', {
+          status: 401,
+          corpo: { erro: 'sessao_invalida' },
+        });
+        await abrirApp('/', { fetch });
+        await waitFor(() => expect(screen).toHavePathname('/entrar'));
+        await screen.findByText(textos.erros.sessao_expirada);
+
+        await act(async () => router.navigate(origem));
+        await fireEvent.press(
+          await screen.findByRole('button', { name: link }),
+        );
+        await screen.findByText(tDoc.rascunho);
+        await avancar(500);
+
+        expect(screen).toHavePathname(caminho);
+        expect(screen.getByText(tDoc.rascunho)).toBeOnTheScreen();
+      },
+    );
+  },
+);
+
 describe('Conta e privacidade — "Voltar" do cabeçalho', () => {
   it('com histórico (veio do Perfil), volta ao Perfil', async () => {
     await abrirApp('/perfil', { fetch: criarFake() });

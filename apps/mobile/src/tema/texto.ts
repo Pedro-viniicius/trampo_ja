@@ -32,15 +32,17 @@ const familiaDeTexto: Record<PesoTipografico, string> = {
 
 function montar(nome: EstiloTipografico, peso?: PesoTipografico): TextStyle {
   const { caixaAlta, ...base } = tipografia.estilo[nome];
-  const estilo: TextStyle = caixaAlta
-    ? { ...base, textTransform: 'uppercase' }
-    : { ...base };
-  if (peso) {
-    estilo.fontFamily = TITULOS.has(nome)
-      ? familiaDeTitulo[peso]
-      : familiaDeTexto[peso];
-  }
-  return estilo;
+  return {
+    ...base,
+    ...(caixaAlta ? { textTransform: 'uppercase' as const } : null),
+    ...(peso
+      ? {
+          fontFamily: TITULOS.has(nome)
+            ? familiaDeTitulo[peso]
+            : familiaDeTexto[peso],
+        }
+      : null),
+  };
 }
 
 const cache = new Map<string, TextStyle>();

@@ -1,10 +1,13 @@
 import { render } from '@testing-library/react-native';
-import { createRef } from 'react';
+import { type ComponentRef, createRef } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { espaco } from '../tema/tokens';
 import { FocarPrimeiroErro, Formulario, Rolavel } from './base';
 
-function comMedida(ref: React.RefObject<TextInput | null>, y: number) {
+function comMedida(
+  ref: React.RefObject<ComponentRef<typeof TextInput> | null>,
+  y: number,
+) {
   const no = ref.current as unknown as {
     measureLayout: jest.Mock;
     focus: jest.Mock;
@@ -26,8 +29,8 @@ describe('FocarPrimeiroErro (L4, CA62)', () => {
   ] as const)(
     'dentro de %s foca o primeiro campo com erro e rola até ele',
     async (_n, Tela) => {
-      const nome = createRef<TextInput>();
-      const email = createRef<TextInput>();
+      const nome = createRef<ComponentRef<typeof TextInput>>();
+      const email = createRef<ComponentRef<typeof TextInput>>();
       const rolagem = jest
         .spyOn(ScrollView.prototype as never, 'scrollTo' as never)
         .mockImplementation((() => undefined) as never);
@@ -73,7 +76,7 @@ describe('FocarPrimeiroErro (L4, CA62)', () => {
   );
 
   it('sem erro, não foca nem rola', async () => {
-    const nome = createRef<TextInput>();
+    const nome = createRef<ComponentRef<typeof TextInput>>();
     const rolagem = jest
       .spyOn(ScrollView.prototype as never, 'scrollTo' as never)
       .mockImplementation((() => undefined) as never);

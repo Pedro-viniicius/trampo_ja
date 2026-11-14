@@ -1,6 +1,6 @@
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ehErroDaApi } from '../../../../api/erros';
 import type { EntradaDeServico, Servico } from '../../../../api/tipos';
 import { avisarAoVoltar } from '../../../../estado/aviso-de-retorno';
@@ -89,7 +89,6 @@ export default function RotaDeEditarServico() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
   const idDoServico = Array.isArray(id) ? (id[0] ?? '') : (id ?? '');
   const router = useRouter();
-  const navigation = useNavigation();
   const { geracao } = useSessao();
   const consulta = useServico(idDoServico);
   const { recarregar } = consulta;
@@ -130,10 +129,16 @@ export default function RotaDeEditarServico() {
 
   // `usePreventRemove` é o `beforeRemove` que o native-stack entende: com
   // alteração, o gesto de voltar do iOS também é segurado (um `addListener`
-  // solto deixaria a tela sair no nativo e ficar no estado do JS). Repetir a
-  // ação segurada não pergunta de novo.
-  usePreventRemove(alterado, ({ data }) => {
-    const continuar = () => navigation.dispatch(data.action);
+  // solto deixaria a tela sair no nativo e ficar no estado do JS). Para
+  // seguir, a prevenção é desligada no mesmo passo e o `repeat` refaz a ação
+  // segurada (SDK 58: repetir com a prevenção ligada seria segurado de novo,
+  // sem fim). Repetir a ação segurada não pergunta de novo.
+  const [saidaLiberada, setSaidaLiberada] = useState(false);
+  usePreventRemove(alterado && !saidaLiberada, ({ repeat }) => {
+    const continuar = () => {
+      setSaidaLiberada(true);
+      repeat();
+    };
     if (!perguntarDescarte(continuar)) continuar();
   });
 

@@ -1,5 +1,11 @@
 import { Feather } from '@expo/vector-icons';
-import { type Ref, useEffect, useRef, useState } from 'react';
+import {
+  type ComponentRef,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   AccessibilityInfo,
   findNodeHandle,
@@ -77,7 +83,7 @@ export function MeusAnuncios({
   const quantidade = todos.length;
   const carregandoMais = carregarMais?.carregando ?? false;
   const antes = useRef<number | null>(null);
-  const primeiroNovo = useRef<View>(null);
+  const primeiroNovo = useRef<ComponentRef<typeof View>>(null);
   const [idDoNovo, setIdDoNovo] = useState<string | null>(null);
   const recentes = useRef({ todos, visiveis });
   recentes.current = { todos, visiveis };
@@ -273,7 +279,7 @@ function Anuncio({
   onEditar,
   onAvaliar,
 }: {
-  refDoFoco?: Ref<View>;
+  refDoFoco?: Ref<ComponentRef<typeof View>>;
   item: MeuAnuncioParaExibir;
   /** Aba Demandas: cartão do quadro 14 em vez do cartão de anúncio. */
   comoDemanda: boolean;

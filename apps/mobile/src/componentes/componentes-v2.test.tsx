@@ -107,7 +107,7 @@ describe('CA76: barra de abas flutuante dos dois modos', () => {
   });
 
   // F4: a aba parte da largura do rótulo e divide a sobra. Regra do Yoga
-  // (`Node::processFlexBasis`, `Node.cpp` do RN 0.86.3): `flexBasis` 'auto'
+  // (`Node::processFlexBasis`, `Node.cpp` do RN 0.86.3 e 0.88.1): `flexBasis` 'auto'
   // ou indefinido conta como base não definida, e então `flex > 0` impõe
   // base 0 (todas as abas iguais, o rótulo longo corta). O bottom-tabs monta
   // o item com `[{ flex: 1 }, tabBarItemStyle]`, então o estilo renderizado

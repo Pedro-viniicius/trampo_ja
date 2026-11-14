@@ -42,7 +42,7 @@ export function CandidaturasRecebidas({
   } | null>(null);
 
   const rolagem = useRef<ComponentRef<typeof ScrollView>>(null);
-  const refDoErro = useRef<View>(null);
+  const refDoErro = useRef<ComponentRef<typeof View>>(null);
 
   // Erro do aceite aparece no topo: rola até ele e anuncia (iOS ignora liveRegion).
   useEffect(() => {

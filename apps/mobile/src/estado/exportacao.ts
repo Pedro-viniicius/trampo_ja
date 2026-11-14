@@ -82,8 +82,10 @@ export async function compartilharExportacao(
   }
   const arquivo = new File(Paths.cache, nomeDoArquivoDeExportacao(agora));
   try {
-    // `write` cria o arquivo se preciso e sobrescreve um resto anterior.
-    arquivo.write(JSON.stringify(dados));
+    // `writeSync` cria o arquivo se preciso e sobrescreve um resto anterior.
+    // Síncrono de propósito (no SDK 58, `write` é assíncrono): o arquivo está
+    // completo antes de a folha abrir, e uma falha cai no `finally`.
+    arquivo.writeSync(JSON.stringify(dados));
     await Sharing.shareAsync(arquivo.uri, {
       mimeType: 'application/json',
       UTI: 'public.json',

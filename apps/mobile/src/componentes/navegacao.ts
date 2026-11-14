@@ -86,7 +86,7 @@ export function opcoesDaBarraDeAbasCom(margens: { bottom: number }) {
     //
     // Por que `flex: 0`: o bottom-tabs monta o item com
     // `[{ flex: 1 }, tabBarItemStyle]`. No Yoga (`Node::processFlexBasis`,
-    // `Node.cpp` do RN 0.86.3), `flexBasis: 'auto'` conta como base não
+    // `Node.cpp` do RN 0.86.3 e 0.88.1), `flexBasis: 'auto'` conta como base não
     // definida, e aí `flex > 0` impõe base 0: todas as abas ficavam iguais.
     // Com `flex: 0`, a base fica auto; `flexGrow`/`flexShrink` explícitos
     // valem por cima do `flex` (`resolveFlexGrow`/`resolveFlexShrink`).

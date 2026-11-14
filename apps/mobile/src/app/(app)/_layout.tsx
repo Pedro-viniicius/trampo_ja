@@ -11,12 +11,15 @@ import { opcoesDoCabecalho } from '../../componentes/navegacao';
 export default function LayoutDaAreaAutenticada() {
   return (
     <Stack
-      screenOptions={({ route }) => ({
+      screenOptions={({ route, navigation }) => ({
         headerShown: false,
         contentStyle: opcoesDoCabecalho.contentStyle,
-        ...(route.name === 'candidatura-enviada' && {
-          presentation: 'fullScreenModal',
-        }),
+        // Só por cima de outra tela: a primeira da pilha (link direto) já sai
+        // como cartão, e o SDK 58 avisa no console se ela pedir modal.
+        ...(route.name === 'candidatura-enviada' &&
+          navigation.getState().routes[0]?.key !== route.key && {
+            presentation: 'fullScreenModal',
+          }),
       })}
     />
   );

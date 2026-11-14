@@ -35,7 +35,7 @@ Aprovado pelo dono o plano `docs/produto/planos/mvp-trampo-ja-app.md` (entrega 2
 
 ## 2026-10-21 — App no Expo SDK 57
 
-16. **Versão do Expo (D16):** App no Expo SDK 57 até o Expo Go da loja suportar o 58; subir depois. O Expo Go da App Store no iPhone do dono ainda abre só o SDK 57 e recusava o projeto no 58.
+16. **Versão do Expo (D16, substituída pela 75):** App no Expo SDK 57 até o Expo Go da loja suportar o 58; subir depois. O Expo Go da App Store no iPhone do dono ainda abre só o SDK 57 e recusava o projeto no 58.
 
 ## 2026-10-21 — MVP, entrega 2b (publicação, candidaturas e meus anúncios)
 
@@ -153,3 +153,7 @@ Decididos pelo lead em 2026-11-13, nos achados da etapa 12 (roteiro manual no em
 
 73. **Destaque "Suas candidaturas" no Início do freela (F1):** "{n} em análise" com candidaturas pendentes; com candidaturas, mas nenhuma pendente, "Nenhuma candidatura em análise" (o mesmo texto do vazio de Meus trampos › Em análise); "Você ainda não se candidatou" só para quem não tem nenhuma. A conta usa `/candidaturas/minhas`, já em cache, sem pedido novo.
 74. **Largura das abas da barra inferior (F4):** cada aba parte da largura natural do rótulo e a sobra da barra é dividida igualmente (as pílulas têm larguras diferentes de propósito). Assim nenhum rótulo corta em 360 dp com fonte 1,0 nem em 411 dp com fonte 1,3, nos dois modos. O rótulo fica em uma linha, e as reticências são o último recurso, só quando nem assim cabe (por exemplo, o contratante em 360 dp com fonte 1,3): a barra mantém a altura fixa de 72, e uma segunda linha seria cortada. No código, o item usa `flex: 0` com `flexGrow: 1`, `flexShrink: 1` e `flexBasis: 'auto'`, porque o `flex: 1` que o bottom-tabs põe em cada item força base 0 no Yoga. Com o item centralizado (`alignSelf: 'center'`), a pílula tem a altura do conteúdo (52 com fonte 1,0), nunca menos de 48.
+
+## 2026-11-14 — App no Expo SDK 58
+
+75. **Versão do Expo (substitui a D16):** o app sobe para o Expo SDK 58 (RN 0.88.1, React 19.3.0, Jest 30), porque o Expo Go da loja passou a abrir só o 58 (plano `docs/produto/planos/sdk-58.md`). Versões continuam exatas; `engines.node` da raiz vai para `>=22.13`, exigência do SDK 58 (aprovado pelo dono). `File.write` ficou assíncrono no `expo-file-system` 58, então o marcador de instalação (S2) e o arquivo da exportação usam `File.writeSync`, com o mesmo comportamento. A perda de sessão passa a usar o `redirectTo` do `Stack.Protected`; o `navigate('/entrar')` só fica para as rotas fora dos grupos (documentos legais) e só na transição para "sem sessão". O `2g`, que entra com o `@expo/cli` 58, é um registro local de eventos do CLI, sem rede, e não telemetria.
